@@ -5,7 +5,9 @@ use crate::bindings::suspendable_rest_client::SuspensionBehavior;
 use crate::element_value::{ElementValue, ParsedEntity};
 use crate::entities::entity_facade::{ID_FIELD, PERMISSIONS_FIELD};
 use crate::entities::generated::base::PersistenceResourcePostReturn;
-use crate::entities::generated::storage::{BlobAccessTokenPostIn, BlobServerAccessInfo};
+use crate::entities::generated::storage::{
+	BlobAccessTokenPostIn, BlobAccessTokenPostOut, BlobReadData,
+};
 use crate::entities::Entity;
 use crate::id::id_tuple::{BaseIdType, IdTupleType, IdType};
 use crate::instance_mapper::InstanceMapper;
@@ -29,6 +31,7 @@ pub struct EntityClient {
 	base_url: String,
 	auth_headers_provider: Arc<HeadersProvider>,
 	json_serializer: Arc<JsonSerializer>,
+	instance_mapper: Arc<InstanceMapper>,
 	pub type_model_provider: Arc<TypeModelProvider>,
 }
 
@@ -36,6 +39,7 @@ impl EntityClient {
 	pub(crate) fn new(
 		rest_client: Arc<dyn RestClient>,
 		json_serializer: Arc<JsonSerializer>,
+		instance_mapper: Arc<InstanceMapper>,
 		base_url: String,
 		auth_headers_provider: Arc<HeadersProvider>,
 		type_model_provider: Arc<TypeModelProvider>,
@@ -43,6 +47,7 @@ impl EntityClient {
 		EntityClient {
 			rest_client,
 			json_serializer,
+			instance_mapper,
 			base_url,
 			auth_headers_provider,
 			type_model_provider,
@@ -261,28 +266,28 @@ impl EntityClient {
 		let mut headers = self.auth_headers_provider.provide_headers(model_version);
 		headers.insert("Content-Type".to_owned(), "application/json".to_owned());
 
-		// IMPORTANT: associations are represented as arrays on the wire.
-		// Using serde_json on typed structs would serialize aggregations as objects, which the
-		// backend rejects with 400.
-		let read_id = CustomId(
-			BASE64_URL_SAFE_NO_PAD
-				.encode(RandomizerFacade::from_core(rand_core::OsRng).generate_random_array::<4>()),
-		);
-		let body_json = serde_json::json!({
-			"78": 0,
-			"180": serde_json::Value::Null,
-			"80": [],
-			"181": [
-				{
-					"176": read_id.to_string(),
-					"177": archive_id.to_string(),
-					"178": serde_json::Value::Null,
-					"179": []
-				}
-			]
-		});
+		let post_in = BlobAccessTokenPostIn {
+			_format: 0,
+			archiveDataType: None,
+			write: None,
+			read: Some(BlobReadData {
+				_id: Some(CustomId(BASE64_URL_SAFE_NO_PAD.encode(
+					RandomizerFacade::from_core(rand_core::OsRng).generate_random_array::<4>(),
+				))),
+				archiveId: archive_id.clone(),
+				instanceListId: None,
+				instanceIds: Vec::new(),
+			}),
+		};
 		let url = format!("{}/rest/storage/blobaccesstokenservice", self.base_url);
-		let body = serde_json::to_vec(&body_json).map_err(|e| {
+		let parsed_entity = self
+			.instance_mapper
+			.serialize_entity(post_in)
+			.map_err(|e| ApiCallError::internal_with_err(e, "failed to map blob token request"))?;
+		let raw_entity = self
+			.json_serializer
+			.serialize(&BlobAccessTokenPostIn::type_ref(), parsed_entity)?;
+		let body = serde_json::to_vec(&raw_entity).map_err(|e| {
 			ApiCallError::internal_with_err(e, "failed to serialize blob token request")
 		})?;
 
@@ -302,23 +307,20 @@ impl EntityClient {
 		match response.status {
 			200..=299 => {
 				let bytes = response.body.clone().expect("no body");
-				let value =
-					serde_json::from_slice::<serde_json::Value>(bytes.as_slice()).map_err(|e| {
+				let response_entity = serde_json::from_slice::<RawEntity>(bytes.as_slice())
+					.map_err(|e| {
 						ApiCallError::internal_with_err(e, "invalid blob token response")
 					})?;
-				let Some(access_info_array) = value.get("161").and_then(|v| v.as_array()) else {
-					return Err(ApiCallError::internal(
-						"invalid blob token response: missing '161'".to_string(),
-					));
-				};
-				let Some(first) = access_info_array.first() else {
-					return Err(ApiCallError::internal(
-						"invalid blob token response: empty '161'".to_string(),
-					));
-				};
-				let info: BlobServerAccessInfo = serde_json::from_value(first.clone())
-					.map_err(|e| ApiCallError::internal_with_err(e, "invalid access info"))?;
-				Ok(info)
+				let parsed_entity = self
+					.json_serializer
+					.parse(&BlobAccessTokenPostOut::type_ref(), response_entity)?;
+				let out = self
+					.instance_mapper
+					.parse_entity::<BlobAccessTokenPostOut>(parsed_entity)
+					.map_err(|e| {
+						ApiCallError::internal_with_err(e, "invalid blob token response")
+					})?;
+				Ok(out.blobAccessInfo)
 			},
 			_ => {
 				let http_error = HttpError::from_http_response(response.status, &response.headers)?;
@@ -685,6 +687,7 @@ mockall::mock! {
 		pub fn new(
 			rest_client: Arc<dyn RestClient>,
 			json_serializer: Arc<JsonSerializer>,
+			instance_mapper: Arc<InstanceMapper>,
 			base_url: String,
 			auth_headers_provider: Arc<HeadersProvider>,
 			type_model_provider: Arc<TypeModelProvider>,
@@ -818,6 +821,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_provider.clone())),
+			Arc::new(InstanceMapper::new(type_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_provider.clone(),
@@ -878,6 +882,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_model_provider.clone())),
+			Arc::new(InstanceMapper::new(type_model_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_model_provider.clone(),
@@ -937,6 +942,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_model_provider.clone())),
+			Arc::new(InstanceMapper::new(type_model_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_model_provider.clone(),
@@ -997,6 +1003,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_model_provider.clone())),
+			Arc::new(InstanceMapper::new(type_model_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_model_provider.clone(),
@@ -1092,6 +1099,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_model_provider.clone())),
+			Arc::new(InstanceMapper::new(type_model_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_model_provider.clone(),
@@ -1185,6 +1193,7 @@ mod stests {
 		let entity_client = EntityClient::new(
 			Arc::new(rest_client),
 			Arc::new(JsonSerializer::new(type_model_provider.clone())),
+			Arc::new(InstanceMapper::new(type_model_provider.clone())),
 			"http://test.com".to_owned(),
 			Arc::new(auth_headers_provider),
 			type_model_provider.clone(),
