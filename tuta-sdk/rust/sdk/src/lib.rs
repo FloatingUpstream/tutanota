@@ -222,6 +222,7 @@ impl Sdk {
 		let entity_client = Arc::new(EntityClient::new(
 			self.rest_client.clone(),
 			self.json_serializer.clone(),
+			self.instance_mapper.clone(),
 			self.base_url.clone(),
 			auth_headers_provider.clone(),
 			self.type_model_provider.clone(),
