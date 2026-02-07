@@ -187,7 +187,9 @@ impl TypeModelProvider {
 			// this should not happen,
 			// but is safe to ignore if we always trust ApplicationModelService
 			if new_hash != hash_from_response {
-				log::warn!("Server application hash changed. Expected from previous response: {hash_from_response}. Hash from ApplicationTypesService: {new_hash}");
+				log::warn!(
+					"Server application hash changed. Expected from previous response: {hash_from_response}. Hash from ApplicationTypesService: {new_hash}"
+				);
 			}
 
 			let mut writeable_server_models = self
@@ -207,14 +209,14 @@ impl TypeModelProvider {
 		let service_path = ApplicationTypesService::PATH;
 		let url = format!("{}/rest/{}", self.base_url, service_path);
 
-		println!(
-			"Attempting to get base model version?  {}",
+		// Avoid printing to stdout/stderr (breaks TUIs). Use log instead.
+		log::debug!(
+			"Fetching server type model; base client model version={} ",
 			CLIENT_TYPE_MODEL
 				.apps
 				.get(&AppName::Base)
 				.expect("base application not found")
 				.version
-				.clone()
 		);
 		let headers = HashMap::from([
 			("cv".to_owned(), CLIENT_VERSION.to_string()),
