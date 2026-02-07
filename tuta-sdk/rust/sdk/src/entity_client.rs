@@ -130,10 +130,11 @@ impl EntityClient {
 			);
 			let encoded_query = encode_query_params(query_params);
 
+			let type_name = client_type_model.name.to_lowercase();
 			for server in access_info.servers {
 				let url = format!(
 					"{}/rest/{}/{}/{}{}",
-					server.url, type_ref.app, client_type_model.name, archive_id, encoded_query
+					server.url, type_ref.app, type_name, archive_id, encoded_query
 				);
 
 				let response = match self
