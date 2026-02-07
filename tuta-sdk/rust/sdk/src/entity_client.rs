@@ -132,9 +132,10 @@ impl EntityClient {
 
 			let type_name = client_type_model.name.to_lowercase();
 			for server in access_info.servers {
+				let base_url = Self::origin_url(&server.url);
 				let url = format!(
 					"{}/rest/{}/{}/{}{}",
-					server.url, type_ref.app, type_name, archive_id, encoded_query
+					base_url, type_ref.app, type_name, archive_id, encoded_query
 				);
 
 				let response = match self
@@ -190,6 +191,22 @@ impl EntityClient {
 		Err(ApiCallError::internal(
 			"could not load blob element from any server".to_string(),
 		))
+	}
+
+	/// Extract the origin from a URL string (scheme + authority).
+	///
+	/// Blob server URLs can contain path segments; the TS client overwrites the pathname when
+	/// constructing the request URL. For parity, we drop any path/query/fragment here.
+	fn origin_url(url: &str) -> &str {
+		let trimmed = url.trim_end_matches('/');
+		let Some(scheme_idx) = trimmed.find("://") else {
+			return trimmed;
+		};
+		let after_scheme = scheme_idx + 3;
+		let Some(path_idx) = trimmed[after_scheme..].find('/') else {
+			return trimmed;
+		};
+		&trimmed[..after_scheme + path_idx]
 	}
 
 	async fn request_read_token_archive(
