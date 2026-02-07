@@ -137,6 +137,7 @@ impl EntityClient {
 					"{}/rest/{}/{}/{}{}",
 					base_url, type_ref.app, type_name, archive_id, encoded_query
 				);
+				let sanitized_url = Self::sanitize_url(&url);
 
 				let response = match self
 					.rest_client
@@ -174,6 +175,17 @@ impl EntityClient {
 					_ => {
 						let http_error =
 							HttpError::from_http_response(response.status, &response.headers)?;
+						if http_error == HttpError::BadRequestError {
+							let body_str = response
+								.body
+								.as_deref()
+								.map(|b| String::from_utf8_lossy(b).to_string())
+								.unwrap_or_default();
+							let body_str = Self::sanitize_error_body(&body_str);
+							return Err(ApiCallError::internal(format!(
+								"blob element request failed: status=400 url={sanitized_url} body={body_str}"
+							)));
+						}
 						match http_error {
 							HttpError::ConnectionError
 							| HttpError::InternalServerError
@@ -207,6 +219,35 @@ impl EntityClient {
 			return trimmed;
 		};
 		&trimmed[..after_scheme + path_idx]
+	}
+
+	fn sanitize_url(url: &str) -> String {
+		let Some((base, query)) = url.split_once('?') else {
+			return url.to_string();
+		};
+		let mut out = Vec::new();
+		for pair in query.split('&') {
+			let Some((k, v)) = pair.split_once('=') else {
+				continue;
+			};
+			if k == "accessToken" || k == "blobAccessToken" {
+				out.push(format!("{k}=<redacted>"));
+			} else {
+				out.push(format!("{k}={v}"));
+			}
+		}
+		format!("{base}?{}", out.join("&"))
+	}
+
+	fn sanitize_error_body(body: &str) -> String {
+		let mut s = body.replace("accessToken", "accessToken(<redacted>)");
+		s = s.replace("blobAccessToken", "blobAccessToken(<redacted>)");
+		let limit = 2048;
+		if s.len() > limit {
+			s.truncate(limit);
+			s.push_str("...<truncated>");
+		}
+		s
 	}
 
 	async fn request_read_token_archive(
