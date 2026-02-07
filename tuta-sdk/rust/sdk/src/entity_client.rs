@@ -1,8 +1,13 @@
-use crate::bindings::rest_client::{HttpMethod, RestClient, RestClientOptions, RestResponse};
+use crate::bindings::rest_client::{
+	encode_query_params, HttpMethod, RestClient, RestClientOptions, RestResponse,
+};
 use crate::bindings::suspendable_rest_client::SuspensionBehavior;
 use crate::element_value::{ElementValue, ParsedEntity};
 use crate::entities::entity_facade::{ID_FIELD, PERMISSIONS_FIELD};
 use crate::entities::generated::base::PersistenceResourcePostReturn;
+use crate::entities::generated::storage::{
+	BlobAccessTokenPostIn, BlobAccessTokenPostOut, BlobReadData,
+};
 use crate::entities::Entity;
 use crate::id::id_tuple::{BaseIdType, IdTupleType, IdType};
 use crate::instance_mapper::InstanceMapper;
@@ -50,6 +55,11 @@ impl EntityClient {
 		type_ref: &TypeRef,
 		id: &Id,
 	) -> Result<ParsedEntity, ApiCallError> {
+		let client_type_model = self.resolve_client_type_ref(type_ref)?;
+		if client_type_model.element_type == ElementType::BlobElement {
+			return self.load_blob_element(type_ref, id).await;
+		}
+
 		let url = format!(
 			"{base_url}/rest/{appname}/{typename}/{id}",
 			base_url = self.base_url,
@@ -71,6 +81,168 @@ impl EntityClient {
 			serde_json::from_slice::<RawEntity>(response_bytes.as_slice()).unwrap();
 		let parsed_entity = self.json_serializer.parse(type_ref, response_entity)?;
 		Ok(parsed_entity)
+	}
+
+	async fn load_blob_element<Id: IdType>(
+		&self,
+		type_ref: &TypeRef,
+		id: &Id,
+	) -> Result<ParsedEntity, ApiCallError> {
+		let client_type_model = self.resolve_client_type_ref(type_ref)?;
+		assert_eq!(
+			client_type_model.element_type,
+			ElementType::BlobElement,
+			"load_blob_element called for non-blob element type"
+		);
+
+		let id_str = id.to_string();
+		let mut parts = id_str.split('/');
+		let Some(archive_id_str) = parts.next() else {
+			return Err(ApiCallError::internal("missing archive id".to_string()));
+		};
+		let Some(element_id_str) = parts.next() else {
+			return Err(ApiCallError::internal("missing element id".to_string()));
+		};
+		if parts.next().is_some() {
+			return Err(ApiCallError::internal(
+				"invalid blob element id (expected '<archive>/<element>')".to_string(),
+			));
+		}
+
+		let archive_id: GeneratedId = archive_id_str.to_string().into();
+		let element_id = element_id_str.to_string();
+		let model_version = client_type_model.version;
+
+		// Try twice: a second run helps if the token was already expired.
+		for _attempt in 0..2 {
+			let access_info = self.request_read_token_archive(&archive_id).await?;
+			let mut query_params: Vec<(String, String)> = vec![
+				("ids".to_owned(), element_id.clone()),
+				(
+					"blobAccessToken".to_owned(),
+					access_info.blobAccessToken.clone(),
+				),
+			];
+			query_params.extend(
+				self.auth_headers_provider
+					.provide_headers(model_version)
+					.into_iter(),
+			);
+			let encoded_query = encode_query_params(query_params);
+
+			for server in access_info.servers {
+				let url = format!(
+					"{}/rest/{}/{}/{}{}",
+					server.url, type_ref.app, client_type_model.name, archive_id, encoded_query
+				);
+
+				let response = match self
+					.rest_client
+					.request_binary(
+						url,
+						HttpMethod::GET,
+						RestClientOptions {
+							headers: Default::default(),
+							body: None,
+							suspension_behavior: Some(SuspensionBehavior::Suspend),
+						},
+					)
+					.await
+				{
+					Ok(r) => r,
+					Err(_e) => continue,
+				};
+
+				self.ensure_latest_server_model(&response).await?;
+
+				match response.status {
+					200..=299 => {
+						let bytes = response.body.clone().expect("no body");
+						let entities = serde_json::from_slice::<Vec<RawEntity>>(bytes.as_slice())
+							.map_err(|e| {
+							ApiCallError::internal_with_err(e, "invalid blob element response")
+						})?;
+						let Some(first) = entities.into_iter().next() else {
+							return Err(ApiCallError::ServerResponseError {
+								source: HttpError::NotFoundError,
+							});
+						};
+						return Ok(self.json_serializer.parse(type_ref, first)?);
+					},
+					_ => {
+						let http_error =
+							HttpError::from_http_response(response.status, &response.headers)?;
+						match http_error {
+							HttpError::ConnectionError
+							| HttpError::InternalServerError
+							| HttpError::NotFoundError => continue,
+							HttpError::NotAuthorizedError => break,
+							other => {
+								return Err(ApiCallError::ServerResponseError { source: other });
+							},
+						}
+					},
+				}
+			}
+		}
+
+		Err(ApiCallError::internal(
+			"could not load blob element from any server".to_string(),
+		))
+	}
+
+	async fn request_read_token_archive(
+		&self,
+		archive_id: &GeneratedId,
+	) -> Result<crate::entities::generated::storage::BlobServerAccessInfo, ApiCallError> {
+		let model_version = self
+			.resolve_client_type_ref(&BlobAccessTokenPostIn::type_ref())?
+			.version;
+		let mut headers = self.auth_headers_provider.provide_headers(model_version);
+		headers.insert("Content-Type".to_owned(), "application/json".to_owned());
+
+		let post_in = BlobAccessTokenPostIn {
+			_format: 0,
+			archiveDataType: None,
+			write: None,
+			read: Some(BlobReadData {
+				_id: None,
+				archiveId: archive_id.clone(),
+				instanceListId: None,
+				instanceIds: Vec::new(),
+			}),
+		};
+		let url = format!("{}/rest/storage/blobaccesstokenservice", self.base_url);
+		let body = serde_json::to_vec(&post_in).map_err(|e| {
+			ApiCallError::internal_with_err(e, "failed to serialize blob token request")
+		})?;
+
+		let response = self
+			.rest_client
+			.request_binary(
+				url,
+				HttpMethod::POST,
+				RestClientOptions {
+					headers,
+					body: Some(body),
+					suspension_behavior: Some(SuspensionBehavior::Suspend),
+				},
+			)
+			.await?;
+		self.ensure_latest_server_model(&response).await?;
+		match response.status {
+			200..=299 => {
+				let bytes = response.body.clone().expect("no body");
+				let out = serde_json::from_slice::<BlobAccessTokenPostOut>(bytes.as_slice())
+					.map_err(|e| {
+						ApiCallError::internal_with_err(e, "invalid blob token response")
+					})?;
+				Ok(out.blobAccessInfo)
+			},
+			_ => Err(ApiCallError::ServerResponseError {
+				source: HttpError::from_http_response(response.status, &response.headers)?,
+			}),
+		}
 	}
 
 	/// Returns the definition of an entity/instance type using the internal `TypeModelProvider`
@@ -245,10 +417,9 @@ impl EntityClient {
 			.get_attribute_id_by_attribute_name(PERMISSIONS_FIELD)
 			.map_err(|err| ApiCallError::InternalSdkError {
 				error_message: format!(
-						"{PERMISSIONS_FIELD} attribute does not exist on the type model with typeId {:?} {:?}",
-						type_model.id,
-						err
-					),
+					"{PERMISSIONS_FIELD} attribute does not exist on the type model with typeId {:?} {:?}",
+					type_model.id, err
+				),
 			})?;
 
 		if request_type == HttpMethod::POST {
