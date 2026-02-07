@@ -20,6 +20,9 @@ use crate::type_model_provider::TypeModelProvider;
 use crate::util::extract_parsed_entity_id;
 use crate::GeneratedId;
 use crate::{ApiCallError, CustomId, HeadersProvider, ListLoadDirection, TypeRef};
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
+use crypto_primitives::randomizer_facade::RandomizerFacade;
 use std::sync::Arc;
 
 /// A high level interface to manipulate unencrypted entities/instances via the REST API
@@ -265,7 +268,9 @@ impl EntityClient {
 			archiveDataType: None,
 			write: None,
 			read: Some(BlobReadData {
-				_id: None,
+				_id: Some(CustomId(BASE64_URL_SAFE_NO_PAD.encode(
+					RandomizerFacade::from_core(rand_core::OsRng).generate_random_array::<4>(),
+				))),
 				archiveId: archive_id.clone(),
 				instanceListId: None,
 				instanceIds: Vec::new(),
@@ -298,9 +303,21 @@ impl EntityClient {
 					})?;
 				Ok(out.blobAccessInfo)
 			},
-			_ => Err(ApiCallError::ServerResponseError {
-				source: HttpError::from_http_response(response.status, &response.headers)?,
-			}),
+			_ => {
+				let http_error = HttpError::from_http_response(response.status, &response.headers)?;
+				if http_error == HttpError::BadRequestError {
+					let body_str = response
+						.body
+						.as_deref()
+						.map(|b| String::from_utf8_lossy(b).to_string())
+						.unwrap_or_default();
+					let body_str = Self::sanitize_error_body(&body_str);
+					return Err(ApiCallError::internal(format!(
+						"blob access token request failed: status=400 body={body_str}"
+					)));
+				}
+				Err(ApiCallError::ServerResponseError { source: http_error })
+			},
 		}
 	}
 
