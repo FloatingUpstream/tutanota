@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::bindings::rest_client::RestClientError;
+use crate::crypto::X25519PublicKey;
 use crate::crypto::asymmetric_crypto_facade::AsymmetricCryptoError;
 #[cfg_attr(test, mockall_double::double)]
 use crate::crypto::asymmetric_crypto_facade::AsymmetricCryptoFacade;
@@ -8,13 +9,12 @@ use crate::crypto::asymmetric_crypto_facade::AsymmetricCryptoFacade;
 use crate::crypto::crypto_facade::CryptoFacade;
 use crate::crypto::key::{AsymmetricKeyPair, GenericAesKey};
 use crate::crypto::public_key_provider::{PublicKeyIdentifier, PublicKeyLoadingError};
-use crate::crypto::X25519PublicKey;
 use crate::element_value::{ElementValue, ParsedEntity};
-use crate::entities::entity_facade::{EntityFacade, ID_FIELD};
+use crate::entities::Entity;
+use crate::entities::entity_facade::{EntityFacade, ID_FIELD, OWNER_GROUP_FIELD};
 use crate::entities::generated::base::PersistenceResourcePostReturn;
 use crate::entities::generated::sys::BucketKey;
 use crate::entities::generated::tutanota::{Mail, MailAddress};
-use crate::entities::Entity;
 #[cfg_attr(test, mockall_double::double)]
 use crate::entity_client::EntityClient;
 use crate::id::id_tuple::{BaseIdType, IdType};
@@ -26,11 +26,11 @@ use crate::rest_error::HttpError;
 use crate::tutanota_constants::{
 	EncryptionAuthStatus, PublicKeyIdentifierType, SYSTEM_GROUP_MAIL_ADDRESS,
 };
-use crate::util::{convert_version_to_u64, Versioned};
+use crate::util::{Versioned, convert_version_to_u64};
 use crate::{ApiCallError, ListLoadDirection};
 use crate::{GeneratedId, TypeRef};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 // A high level interface to manipulate encrypted entities/instances via the REST API
 pub struct CryptoEntityClient {
@@ -82,6 +82,30 @@ impl CryptoEntityClient {
 		Ok(typed_entity)
 	}
 
+	pub async fn load_with_owner_enc_session_key<T: Entity + DeserializeOwned, ID: IdType>(
+		&self,
+		id: &ID,
+		owner_enc_session_key: Vec<u8>,
+		owner_key_version: u64,
+	) -> Result<T, ApiCallError> {
+		let type_ref = T::type_ref();
+		let decrypted_parsed_instance = self
+			.load_untyped_with_owner_enc_session_key(
+				&type_ref,
+				id,
+				owner_enc_session_key,
+				owner_key_version,
+			)
+			.await?;
+		let typed_entity = self
+			.instance_mapper
+			.parse_entity::<T>(decrypted_parsed_instance)
+			.map_err(|e| {
+				ApiCallError::internal_with_err(e, "Can not map instance to typed struct")
+			})?;
+		Ok(typed_entity)
+	}
+
 	pub async fn load_untyped<ID: IdType>(
 		&self,
 		type_ref: &TypeRef,
@@ -96,6 +120,58 @@ impl CryptoEntityClient {
 		} else {
 			Ok(encrypted_entity)
 		}
+	}
+
+	pub async fn load_untyped_with_owner_enc_session_key<ID: IdType>(
+		&self,
+		type_ref: &TypeRef,
+		id: &ID,
+		owner_enc_session_key: Vec<u8>,
+		owner_key_version: u64,
+	) -> Result<ParsedEntity, ApiCallError> {
+		let encrypted_entity = self.entity_client.load(type_ref, id).await?;
+		let type_model = self.entity_client.resolve_server_type_ref(type_ref)?;
+		if !type_model.marked_encrypted() {
+			return Ok(encrypted_entity);
+		}
+
+		let owner_group_attr = type_model
+			.get_attribute_id_by_attribute_name(OWNER_GROUP_FIELD)
+			.map_err(|e| ApiCallError::internal(format!("missing {OWNER_GROUP_FIELD}: {e}")))?;
+		let owner_group_attr: String = owner_group_attr.into();
+		let owner_group = match encrypted_entity.get(&owner_group_attr) {
+			Some(ElementValue::IdGeneratedId(g)) => g.clone(),
+			Some(other) => {
+				return Err(ApiCallError::internal(format!(
+					"invalid {OWNER_GROUP_FIELD} value: {other:?}"
+				)));
+			},
+			None => {
+				return Err(ApiCallError::internal(format!(
+					"entity missing {OWNER_GROUP_FIELD}"
+				)));
+			},
+		};
+
+		let group_key = self
+			.key_loader_facade
+			.load_sym_group_key(&owner_group, owner_key_version, None)
+			.await
+			.map_err(|err| ApiCallError::internal(format!("KeyLoadError: {err:?}")))?;
+		let session_key = group_key
+			.decrypt_aes_key(owner_enc_session_key.as_slice())
+			.map_err(|e| {
+				ApiCallError::internal_with_err(e, "failed to decrypt ownerEncSessionKey")
+			})?;
+		let resolved = crate::crypto::crypto_facade::ResolvedSessionKey {
+			session_key,
+			owner_enc_session_key,
+			owner_key_version,
+			sender_identity_pub_key: None,
+		};
+
+		self.entity_facade
+			.decrypt_and_map(&type_model, encrypted_entity, resolved)
 	}
 
 	#[allow(dead_code)] // will be used but rustc can't see it in some configurations right now
@@ -484,13 +560,13 @@ mod tests {
 	use crate::crypto::key::{AsymmetricKeyPair, GenericAesKey};
 	use crate::crypto::public_key_provider::PublicKeyIdentifier;
 	use crate::crypto::rsa::RSAKeyPair;
-	use crate::crypto::{aes::Iv, Aes256Key, TutaCryptKeyPairs, X25519PublicKey};
+	use crate::crypto::{Aes256Key, TutaCryptKeyPairs, X25519PublicKey, aes::Iv};
 	use crate::crypto_entity_client::CryptoEntityClient;
 	use crate::date::DateTime;
-	use crate::entities::entity_facade::{EntityFacadeImpl, MockEntityFacade, ID_FIELD};
+	use crate::entities::Entity;
+	use crate::entities::entity_facade::{EntityFacadeImpl, ID_FIELD, MockEntityFacade};
 	use crate::entities::generated::sys::{AccountingInfo, BucketKey};
 	use crate::entities::generated::tutanota::Mail;
-	use crate::entities::Entity;
 	use crate::entity_client::MockEntityClient;
 	use crate::instance_mapper::InstanceMapper;
 	use crate::key_loader_facade::MockKeyLoaderFacade;
@@ -498,12 +574,12 @@ mod tests {
 		CryptoProtocolVersion, EncryptionAuthStatus, PublicKeyIdentifierType,
 	};
 	use crate::type_model_provider::TypeModelProvider;
+	use crate::util::Versioned;
 	use crate::util::entity_test_utils::generate_email_entity;
 	use crate::util::test_utils::{create_test_entity_dict, leak, mock_type_model_provider};
-	use crate::util::Versioned;
 	use crate::{GeneratedId, IdTupleGenerated};
-	use crypto_primitives::randomizer_facade::test_util::make_thread_rng_facade;
 	use crypto_primitives::randomizer_facade::RandomizerFacade;
+	use crypto_primitives::randomizer_facade::test_util::make_thread_rng_facade;
 
 	#[tokio::test]
 	async fn no_auth_for_encrypted_instances_except_mail() {
