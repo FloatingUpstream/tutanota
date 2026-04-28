@@ -1,4 +1,4 @@
-import { CalendarEvent, CalendarEventAttendee } from "../../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import {
 	addDaysForRecurringEvent,
 	calendarEventHasMoreThanOneOccurrencesLeft,
@@ -6,12 +6,12 @@ import {
 	getStartOfDayWithZone,
 } from "../../../../common/calendar/date/CalendarUtils.js"
 import { CalendarEventModel, CalendarOperation, EventSaveResult, EventType, getNonOrganizerAttendees } from "../eventeditor-model/CalendarEventModel.js"
-import { NotFoundError } from "../../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { CalendarInfoBase, CalendarModel } from "../../model/CalendarModel.js"
-import { ProgrammingError } from "../../../../common/api/common/error/ProgrammingError.js"
-import { CalendarAttendeeStatus, EndType } from "../../../../common/api/common/TutanotaConstants.js"
+import { ProgrammingError } from "@tutao/app-env"
+import { CalendarAttendeeStatus, EndType } from "@tutao/app-env"
 import m from "mithril"
-import { clone, deepEqual, incrementDate, isNotEmpty, LazyLoaded, Thunk } from "@tutao/tutanota-utils"
+import { clone, deepEqual, incrementDate, isNotEmpty, LazyLoaded, Thunk } from "@tutao/utils"
 import { CalendarEventUidIndexEntry } from "../../../../common/api/worker/facades/lazy/CalendarFacade.js"
 import { EventEditorDialog } from "../eventeditor-view/CalendarEventEditDialog.js"
 import { convertTextToHtml } from "../../../../common/misc/Formatter.js"
@@ -19,6 +19,7 @@ import { prepareCalendarDescription } from "../../../../common/api/common/utils/
 import { SearchToken } from "../../../../common/api/common/utils/QueryTokenUtils"
 import { lang } from "../../../../common/misc/LanguageViewModel.js"
 import { EventWrapper } from "../../view/CalendarViewModel"
+import { CalendarInviteHandler } from "../../view/CalendarInvites"
 
 /**
  * makes decisions about which operations are available from the popup and knows how to implement them depending on the event's type.
@@ -43,7 +44,7 @@ export class CalendarEventPreviewViewModel {
 	private sanitizedDescription: string | null = null
 
 	private processing: boolean = false
-	private readonly _ownAttendee: CalendarEventAttendee | null
+	private readonly _ownAttendee: tutanotaTypeRefs.CalendarEventAttendee | null
 
 	/**
 	 * Comment to be sent together with the event reply
@@ -66,17 +67,19 @@ export class CalendarEventPreviewViewModel {
 	 * @param ownAttendee will be cloned to have a copy that's not influencing the actual event but can be changed to quickly update the UI
 	 * @param lazyIndexEntry async function to resolve the progenitor of the shown event
 	 * @param eventModelFactory
+	 * @param calendarInviteHandler
 	 * @param highlightedStrings
 	 * @param uiUpdateCallback
 	 */
 	constructor(
-		readonly calendarEvent: Readonly<CalendarEvent>,
+		readonly calendarEvent: Readonly<tutanotaTypeRefs.CalendarEvent>,
 		private readonly calendarModel: CalendarModel,
 		readonly eventType: EventType,
 		private readonly hasBusinessFeature: boolean,
-		ownAttendee: CalendarEventAttendee | null,
+		ownAttendee: tutanotaTypeRefs.CalendarEventAttendee | null,
 		private readonly lazyIndexEntry: () => Promise<CalendarEventUidIndexEntry | null>,
-		private readonly eventModelFactory: (mode: CalendarOperation, event: CalendarEvent) => Promise<CalendarEventModel | null>,
+		private readonly eventModelFactory: (mode: CalendarOperation, event: tutanotaTypeRefs.CalendarEvent) => Promise<CalendarEventModel | null>,
+		private readonly calendarInviteHandler: () => Promise<CalendarInviteHandler>,
 		private readonly highlightedStrings?: readonly SearchToken[],
 		private readonly uiUpdateCallback: () => void = m.redraw,
 	) {
@@ -90,10 +93,11 @@ export class CalendarEventPreviewViewModel {
 		} else {
 			// partially editable (adding alarms) counts as editable.
 			this.canEdit =
-				this.eventType === EventType.OWN ||
-				this.eventType === EventType.SHARED_RW ||
-				this.eventType === EventType.LOCKED ||
-				this.eventType === EventType.INVITE
+				!this.calendarEvent.pendingInvitation &&
+				(this.eventType === EventType.OWN ||
+					this.eventType === EventType.SHARED_RW ||
+					this.eventType === EventType.LOCKED ||
+					this.eventType === EventType.INVITE)
 			this.canDelete = this.canEdit || this.eventType === EventType.INVITE
 			this.canSendUpdates = hasBusinessFeature && this.eventType === EventType.OWN && getNonOrganizerAttendees(calendarEvent).length > 0
 		}
@@ -113,7 +117,7 @@ export class CalendarEventPreviewViewModel {
 		return calendarEventHasMoreThanOneOccurrencesLeft(index)
 	}
 
-	get ownAttendee(): CalendarEventAttendee | null {
+	get ownAttendee(): tutanotaTypeRefs.CalendarEventAttendee | null {
 		return this._ownAttendee
 	}
 
@@ -121,7 +125,7 @@ export class CalendarEventPreviewViewModel {
 	 * note that the Promise<unknown> type on setParticipation prevents us from leaking errors when consumers call it and try to catch errors without
 	 * awaiting it (they get an async call without await warning) */
 	getParticipationSetterAndThen(action: Thunk): null | {
-		ownAttendee: CalendarEventAttendee
+		ownAttendee: tutanotaTypeRefs.CalendarEventAttendee
 		setParticipation: (status: CalendarAttendeeStatus) => Promise<unknown>
 	} {
 		if (this.ownAttendee == null || this.isOrganizer) return null
@@ -141,16 +145,8 @@ export class CalendarEventPreviewViewModel {
 		try {
 			this.ownAttendee.status = status
 			this.uiUpdateCallback()
-			// no per-instance attendees yet.
-			const model = await this.eventModelFactory(CalendarOperation.EditAll, this.calendarEvent)
-			if (model) {
-				model.editModels.whoModel.setOwnAttendance(status)
-				model.editModels.whoModel.isConfidential = this.calendarEvent.invitedConfidentially ?? false
-				model.editModels.comment.content = this.comment || ""
-				await model.apply()
-			} else {
-				this.ownAttendee.status = oldStatus
-			}
+			const inviteHandler = await this.calendarInviteHandler()
+			await inviteHandler.replyToEventInvitation(this.calendarEvent, this.ownAttendee, status, null, null, this.comment)
 		} catch (e) {
 			this.ownAttendee.status = oldStatus
 			throw e
@@ -168,7 +164,7 @@ export class CalendarEventPreviewViewModel {
 			const model = await this.eventModelFactory(CalendarOperation.DeleteThis, this.calendarEvent)
 			await model?.apply()
 		} catch (e) {
-			if (!(e instanceof NotFoundError)) {
+			if (!(e instanceof restError.NotFoundError)) {
 				throw e
 			}
 		}
@@ -179,7 +175,7 @@ export class CalendarEventPreviewViewModel {
 			const model = await this.eventModelFactory(CalendarOperation.DeleteAll, this.calendarEvent)
 			await model?.apply()
 		} catch (e) {
-			if (!(e instanceof NotFoundError)) {
+			if (!(e instanceof restError.NotFoundError)) {
 				throw e
 			}
 		}
@@ -198,7 +194,7 @@ export class CalendarEventPreviewViewModel {
 				recurrenceId: this.calendarEvent.startTime,
 			})
 		} catch (err) {
-			if (err instanceof NotFoundError) {
+			if (err instanceof restError.NotFoundError) {
 				console.log("occurrence not found when clicking on the event")
 			} else {
 				throw err
@@ -260,7 +256,7 @@ export class CalendarEventPreviewViewModel {
 				await progenitorModel.apply()
 			})
 		} catch (err) {
-			if (err instanceof NotFoundError) {
+			if (err instanceof restError.NotFoundError) {
 				console.log("calendar event not found when clicking on the event")
 			} else {
 				throw err
@@ -283,7 +279,7 @@ export class CalendarEventPreviewViewModel {
 			)
 			await progenitorModel.apply()
 		} catch (err) {
-			if (err instanceof NotFoundError) {
+			if (err instanceof restError.NotFoundError) {
 				console.log("calendar event not found when clicking on the event")
 			} else {
 				throw err
@@ -316,7 +312,7 @@ export class CalendarEventPreviewViewModel {
 			const eventEditor = new EventEditorDialog()
 			return await eventEditor.showNewCalendarEventEditDialog(newEventModel)
 		} catch (err) {
-			if (err instanceof NotFoundError) {
+			if (err instanceof restError.NotFoundError) {
 				console.log("calendar event not found when clicking on the event")
 			} else {
 				throw err
@@ -355,7 +351,7 @@ export class CalendarEventPreviewViewModel {
 				recurrenceId: null,
 			})
 		} catch (err) {
-			if (err instanceof NotFoundError) {
+			if (err instanceof restError.NotFoundError) {
 				console.log("calendar event not found when clicking on the event")
 			} else {
 				throw err

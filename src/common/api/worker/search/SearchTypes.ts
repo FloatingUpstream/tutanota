@@ -1,8 +1,8 @@
-import type { GroupType } from "../../common/TutanotaConstants"
 import type { TypeInfo } from "../../common/utils/IndexUtils"
-import { Base64, TypeRef } from "@tutao/tutanota-utils"
-import { Aes256Key } from "@tutao/tutanota-crypto"
+import { Base64, TypeRef } from "@tutao/utils"
+import { Aes256Key } from "@tutao/crypto"
 import { SearchToken } from "../../common/utils/QueryTokenUtils"
+import { GroupType } from "@tutao/app-env"
 // db types
 
 /**
@@ -152,7 +152,7 @@ export const enum IndexingErrorReason {
 }
 
 /**
- * Current state of the Mailindexer
+ * Current state of the MailIndexer
  * aimedMailIndexTimestamp is the timestamp we are currently indexing for (or same as currentMailIndexTimestamp if we are not indexing)
  */
 export type SearchIndexStateInfo = {

@@ -2,18 +2,16 @@ import m, { Child, Children, Component, Vnode, VnodeDOM } from "mithril"
 import { font_size, px, size } from "../gui/size"
 import type { MaybeTranslation } from "../misc/LanguageViewModel"
 import { lang } from "../misc/LanguageViewModel"
-import type { lazy } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
 import { Icon } from "../gui/base/Icon"
 import { SegmentControl } from "../gui/base/SegmentControl"
-import { AvailablePlanType, PlanType } from "../api/common/TutanotaConstants"
 import { PaymentInterval } from "./utils/PriceUtils"
 import Stream from "mithril/stream"
 import { Icons } from "../gui/base/icons/Icons"
-import { BootIcons } from "../gui/base/icons/BootIcons"
 import { InfoIcon } from "../gui/base/InfoIcon.js"
 import { isDarkTheme, theme } from "../gui/theme.js"
-import { isIOSApp } from "../api/common/Env.js"
 import { goEuropeanBlue } from "../gui/builtinThemes.js"
+import { AvailablePlanType, isIOSApp, PlanType } from "@tutao/app-env"
 
 export type BuyOptionBoxAttr = {
 	heading: string | Children
@@ -113,11 +111,11 @@ export class BuyOptionDetails implements Component<BuyOptionDetailsAttr> {
 							m(this.featureListItemSelector, { key: f.key }, [
 								f.heart
 									? m(Icon, {
-											icon: BootIcons.Heart,
+											icon: Icons.HeartFilled,
 											style: attrs.iconStyle,
 										})
 									: m(Icon, {
-											icon: f.antiFeature ? Icons.Cancel : Icons.Checkmark,
+											icon: f.antiFeature ? Icons.X : Icons.Checkmark,
 											style: attrs.iconStyle,
 										}),
 								m(".small.text-left.align-self-center.pl-4.button-height.flex-grow.min-width-0.break-word", [m("span", f.text)]),

@@ -1,20 +1,16 @@
 import m from "mithril"
-import type { Challenge, Session } from "../../api/entities/sys/TypeRefs.js"
-import { createSecondFactorAuthData, SessionTypeRef } from "../../api/entities/sys/TypeRefs.js"
+import { entityUpdateUtils, isSameId, sysTypeRefs } from "@tutao/typerefs"
 import { Dialog } from "../../gui/base/Dialog"
-import { OperationType, SessionState } from "../../api/common/TutanotaConstants"
+import { assertMainOrNode, OperationType, SessionState } from "@tutao/app-env"
 import { lang } from "../LanguageViewModel"
-import { neverNull } from "@tutao/tutanota-utils"
-import { NotFoundError } from "../../api/common/error/RestError"
-import type { EventController } from "../../api/main/EventController"
-import { isSameId } from "../../api/common/utils/EntityUtils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { neverNull } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
+import { EventController } from "../../api/main/EventController"
 import type { EntityClient } from "../../api/common/EntityClient"
 import { WebauthnClient } from "./webauthn/WebauthnClient"
 import { SecondFactorAuthDialog } from "./SecondFactorAuthDialog"
 import type { LoginFacade } from "../../api/worker/facades/LoginFacade"
 import { DomainConfigProvider } from "../../api/common/DomainConfigProvider.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils.js"
 
 assertMainOrNode()
 
@@ -44,21 +40,24 @@ export class SecondFactorHandler {
 		}
 
 		this.otherLoginListenerInitialized = true
-		this.eventController.addEntityListener((updates) => this.entityEventsReceived(updates))
+		this.eventController.addEntityListener({
+			onEntityUpdatesReceived: (updates) => this.entityEventsReceived(updates),
+			priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
+		})
 	}
 
-	private async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>) {
+	private async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>) {
 		for (const update of updates) {
 			const sessionId: IdTuple = [neverNull(update.instanceListId), update.instanceId]
 
-			if (isUpdateForTypeRef(SessionTypeRef, update)) {
+			if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.SessionTypeRef, update)) {
 				if (update.operation === OperationType.CREATE) {
 					let session
 
 					try {
-						session = await this.entityClient.load(SessionTypeRef, sessionId)
+						session = await this.entityClient.load(sysTypeRefs.SessionTypeRef, sessionId)
 					} catch (e) {
-						if (e instanceof NotFoundError) {
+						if (e instanceof restError.NotFoundError) {
 							console.log("Failed to load session", e)
 						} else {
 							throw e
@@ -80,9 +79,9 @@ export class SecondFactorHandler {
 					let session
 
 					try {
-						session = await this.entityClient.load(SessionTypeRef, sessionId)
+						session = await this.entityClient.load(sysTypeRefs.SessionTypeRef, sessionId)
 					} catch (e) {
-						if (e instanceof NotFoundError) {
+						if (e instanceof restError.NotFoundError) {
 							console.log("Failed to load session", e)
 						} else {
 							throw e
@@ -113,7 +112,7 @@ export class SecondFactorHandler {
 		}
 	}
 
-	private showConfirmLoginDialog(session: Session) {
+	private showConfirmLoginDialog(session: sysTypeRefs.Session) {
 		let text: string
 
 		if (session.loginIpAddress) {
@@ -134,7 +133,7 @@ export class SecondFactorHandler {
 			},
 			okAction: async () => {
 				await this.loginFacade.authenticateWithSecondFactor(
-					createSecondFactorAuthData({
+					sysTypeRefs.createSecondFactorAuthData({
 						session: session._id,
 						type: null, // Marker for confirming another session
 						otpCode: null,
@@ -171,7 +170,7 @@ export class SecondFactorHandler {
 	/**
 	 * @inheritDoc
 	 */
-	async showSecondFactorAuthenticationDialog(sessionId: IdTuple, challenges: ReadonlyArray<Challenge>, mailAddress: string | null) {
+	async showSecondFactorAuthenticationDialog(sessionId: IdTuple, challenges: ReadonlyArray<sysTypeRefs.Challenge>, mailAddress: string | null) {
 		if (this.waitingForSecondFactorDialog) {
 			return
 		}

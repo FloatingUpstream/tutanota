@@ -1,6 +1,6 @@
 //@bundleInto:common-min
 
-import { TutanotaError } from "@tutao/tutanota-error"
+import { TutanotaError } from "@tutao/app-env"
 import type { ImportErrorData } from "../../../desktop/mailimport/DesktopMailImportFacade.js"
 
 export const enum ImportErrorCategories {
@@ -10,6 +10,7 @@ export const enum ImportErrorCategories {
 	InvalidImportFilesErrors,
 	ImportIncomplete,
 	ConcurrentImport,
+	ImportTargetFolderDeleted,
 }
 
 export class MailImportError extends TutanotaError {

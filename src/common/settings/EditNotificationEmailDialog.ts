@@ -1,5 +1,4 @@
-import type { Booking, CustomerInfo, CustomerProperties, NotificationMailTemplate } from "../api/entities/sys/TypeRefs.js"
-import { BookingTypeRef, createNotificationMailTemplate, CustomerInfoTypeRef, CustomerPropertiesTypeRef } from "../api/entities/sys/TypeRefs.js"
+import { GENERATED_MAX_ID, sysTypeRefs } from "@tutao/typerefs"
 import { HtmlEditor } from "../gui/editor/HtmlEditor.js"
 import { InfoLink, lang, languages } from "../misc/LanguageViewModel.js"
 import stream from "mithril/stream"
@@ -10,26 +9,25 @@ import type { SelectorItemList } from "../gui/base/DropDownSelector.js"
 import { DropDownSelector } from "../gui/base/DropDownSelector.js"
 import { TextField } from "../gui/base/TextField.js"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog.js"
-import { assertNotNull, LazyLoaded, memoized, neverNull, ofClass } from "@tutao/tutanota-utils"
+import { assertNotNull, LazyLoaded, memoized, neverNull, ofClass } from "@tutao/utils"
 import { getHtmlSanitizer } from "../misc/HtmlSanitizer.js"
-import { PayloadTooLargeError } from "../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { SegmentControl } from "../gui/base/SegmentControl.js"
 import { UserError } from "../api/main/UserError.js"
 import { showNotAvailableForFreeDialog, showPlanUpgradeRequiredDialog } from "../misc/SubscriptionDialogs.js"
 import { getAvailablePlansWithWhitelabel, isWhitelabelActive } from "../subscription/utils/SubscriptionUtils.js"
 import type { UserController } from "../api/main/UserController.js"
-import { GENERATED_MAX_ID } from "../api/common/utils/EntityUtils.js"
 import { locator } from "../api/main/CommonLocator.js"
-import { PlanType } from "../api/common/TutanotaConstants.js"
+import { PlanType, UpgradePromptType } from "@tutao/app-env"
 import { getWhitelabelDomainInfo } from "../api/common/utils/CustomerUtils.js"
 
 import { insertInlineImageB64ClickHandler } from "../mailFunctionality/SharedMailUtils.js"
 
 export function showAddOrEditNotificationEmailDialog(userController: UserController, selectedNotificationLanguage?: string) {
-	let existingTemplate: NotificationMailTemplate | undefined = undefined
-	userController.loadCustomer().then((customer) => {
+	let existingTemplate: sysTypeRefs.NotificationMailTemplate | undefined = undefined
+	userController.reloadCustomer().then((customer) => {
 		if (customer.properties) {
-			const customerProperties = new LazyLoaded(() => locator.entityClient.load(CustomerPropertiesTypeRef, neverNull(customer.properties)))
+			const customerProperties = new LazyLoaded(() => locator.entityClient.load(sysTypeRefs.CustomerPropertiesTypeRef, neverNull(customer.properties)))
 			return customerProperties
 				.getAsync()
 				.then((loadedCustomerProperties) => {
@@ -45,7 +43,7 @@ export function showAddOrEditNotificationEmailDialog(userController: UserControl
 						.then((customerInfo) => {
 							return customerInfo.bookings
 								? locator.entityClient
-										.loadRange(BookingTypeRef, customerInfo.bookings.items, GENERATED_MAX_ID, 1, true)
+										.loadRange(sysTypeRefs.BookingTypeRef, customerInfo.bookings.items, GENERATED_MAX_ID, 1, true)
 										.then((bookings) => (bookings.length === 1 ? bookings[0] : null))
 								: null
 						})
@@ -58,18 +56,18 @@ export function showAddOrEditNotificationEmailDialog(userController: UserControl
 }
 
 export async function showBuyOrSetNotificationEmailDialog(
-	lastBooking: Booking | null,
-	customerProperties: LazyLoaded<CustomerProperties>,
-	existingTemplate?: NotificationMailTemplate,
+	lastBooking: sysTypeRefs.Booking | null,
+	customerProperties: LazyLoaded<sysTypeRefs.CustomerProperties>,
+	existingTemplate?: sysTypeRefs.NotificationMailTemplate,
 ): Promise<void> {
 	if (locator.logins.getUserController().isFreeAccount()) {
-		showNotAvailableForFreeDialog([PlanType.Unlimited])
+		showNotAvailableForFreeDialog(UpgradePromptType.CUSTOM_NOTIFICATION_EMAIL, [PlanType.Unlimited])
 	} else {
 		const planConfiguration = await locator.logins.getUserController().getPlanConfig()
 		let whitelabel = isWhitelabelActive(lastBooking, planConfiguration)
 		if (!whitelabel) {
 			const plansWithWhitelabel = await getAvailablePlansWithWhitelabel()
-			whitelabel = await showPlanUpgradeRequiredDialog(plansWithWhitelabel)
+			whitelabel = await showPlanUpgradeRequiredDialog(UpgradePromptType.CUSTOM_NOTIFICATION_EMAIL, plansWithWhitelabel)
 		}
 		if (whitelabel) {
 			show(existingTemplate ?? null, customerProperties)
@@ -77,11 +75,11 @@ export async function showBuyOrSetNotificationEmailDialog(
 	}
 }
 
-export function show(existingTemplate: NotificationMailTemplate | null, customerProperties: LazyLoaded<CustomerProperties>) {
-	let template: NotificationMailTemplate
+export function show(existingTemplate: sysTypeRefs.NotificationMailTemplate | null, customerProperties: LazyLoaded<sysTypeRefs.CustomerProperties>) {
+	let template: sysTypeRefs.NotificationMailTemplate
 
 	if (!existingTemplate) {
-		template = createNotificationMailTemplate({
+		template = sysTypeRefs.createNotificationMailTemplate({
 			language: "en",
 			body: getDefaultNotificationMail(),
 			subject: lang.get("externalNotificationMailSubject_msg", {
@@ -200,7 +198,7 @@ export function show(existingTemplate: NotificationMailTemplate | null, customer
 				)
 			}
 
-			let templates: NotificationMailTemplate[]
+			let templates: sysTypeRefs.NotificationMailTemplate[]
 			let isExistingTemplate: boolean
 			const oldLanguage = template.language
 			const oldSubject = template.subject
@@ -236,7 +234,7 @@ export function show(existingTemplate: NotificationMailTemplate | null, customer
 					}),
 				)
 				.catch(
-					ofClass(PayloadTooLargeError, () => {
+					ofClass(restError.TooManyRequestsError, () => {
 						template.subject = oldSubject
 						template.body = oldBody
 						template.language = oldLanguage
@@ -287,9 +285,9 @@ function getDefaultNotificationMail(): string {
 	)
 }
 
-function loadCustomerInfo(): Promise<CustomerInfo | null> {
+function loadCustomerInfo(): Promise<sysTypeRefs.CustomerInfo | null> {
 	return locator.logins
 		.getUserController()
-		.loadCustomer()
-		.then((customer) => locator.entityClient.load<CustomerInfo>(CustomerInfoTypeRef, customer.customerInfo))
+		.reloadCustomer()
+		.then((customer) => locator.entityClient.load<sysTypeRefs.CustomerInfo>(sysTypeRefs.CustomerInfoTypeRef, customer.customerInfo))
 }

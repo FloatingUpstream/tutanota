@@ -3,22 +3,34 @@ import Foundation
 import MobileCoreServices
 import TutanotaSharedFramework
 import UniformTypeIdentifiers
+import os
 
-typealias ProgressUpdater = (String, Int) -> Void
+typealias ProgressUpdater = @Sendable (String, Int) -> Void
 
-class IosFileFacade: FileFacade {
+final class IosFileFacade: FileFacade {
 	private let chooser: TUTFileChooser
 	private let viewer: FileViewer
 	private let schemeHandler: ApiSchemeHandler
 	private let urlSession: URLSession
 	private let downloadProgress: ProgressUpdater
+	private let uploadProgress: ProgressUpdater
+	/// Map from fileId to the corresponding task
+	private let activeTransfersLock = OSAllocatedUnfairLock(initialState: [String: URLSessionTask]())
 
-	init(chooser: TUTFileChooser, viewer: FileViewer, schemeHandler: ApiSchemeHandler, urlSession: URLSession, downloadProgress: @escaping ProgressUpdater) {
+	init(
+		chooser: TUTFileChooser,
+		viewer: FileViewer,
+		schemeHandler: ApiSchemeHandler,
+		urlSession: URLSession,
+		downloadProgress: @escaping ProgressUpdater,
+		uploadProgress: @escaping ProgressUpdater
+	) {
 		self.chooser = chooser
 		self.viewer = viewer
 		self.schemeHandler = schemeHandler
 		self.urlSession = urlSession
 		self.downloadProgress = downloadProgress
+		self.uploadProgress = uploadProgress
 	}
 
 	func openFolderChooser() async throws -> String? { fatalError("not implemented for this platform") }
@@ -57,7 +69,7 @@ class IosFileFacade: FileFacade {
 
 	func deleteFile(_ file: String) async throws {
 		do { try FileManager.default.removeItem(atPath: file) } catch {
-			if let err = error as? NSError, err.code == NSFileNoSuchFileError { return printLog("Tried to delete file \(file) that does not exist.") }
+			if (error as NSError).code == NSFileNoSuchFileError { return printLog("Tried to delete file \(file) that does not exist.") }
 			throw TUTErrorFactory.wrapNativeError(withDomain: FILES_ERROR_DOMAIN, message: "Failed to delete file \(file)", error: error)
 		}
 	}
@@ -83,15 +95,57 @@ class IosFileFacade: FileFacade {
 
 	func putFileIntoDownloadsFolder(_ localFileUri: String, _ fileNameToSave: String) async throws -> String { fatalError("not implemented on this platform") }
 
-	func upload(_ sourceFileUrl: String, _ remoteUrl: String, _ method: String, _ headers: [String: String]) async throws -> UploadTaskResponse {
+	func upload(_ sourceFileUrl: String, _ remoteUrl: String, _ method: String, _ headers: [String: String], _ fileId: String) async throws
+		-> UploadTaskResponse
+	{
 		var request = URLRequest(url: URL(string: remoteUrl)!)
 		request.httpMethod = method
 		request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
 		request.allHTTPHeaderFields = headers
+		defer { _ = self.activeTransfersLock.withLock { $0.removeValue(forKey: fileId) } }
+		final class UploadDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+			private var progressCancellable: AnyCancellable?
+			private let taskCreated: (_ task: URLSessionTask) -> Void
+			private let reporter: (_ bytesSent: Int) -> Void
+			init(taskCreated: @escaping (_ task: URLSessionTask) -> Void, reporter: @escaping (_ bytesSent: Int) -> Void) {
+				self.reporter = reporter
+				self.taskCreated = taskCreated
+			}
+			func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+				// We observe .fractionCompleted, as that changes frequently and accurately reacts to transfer progress.
+				// Other properties, such as .completedUnitCount are more abstract and do not immediately reflect progress.
+				// Progress handed into this method as task.progress internally consists of two progress trackers, the second
+				// one of which is the *actual* transfer progress. It seems inaccessible however, which is why we ask task
+				// directly for the bytes received.
 
-		let (data, response) = try await self.urlSession.upload(for: self.schemeHandler.rewriteRequest(request), fromFile: URL(fileURLWithPath: sourceFileUrl))
-		let httpResponse = response as! HTTPURLResponse
-		return UploadTaskResponse(httpResponse: httpResponse, responseBody: data)
+				taskCreated(task)
+				self.progressCancellable = task.progress.publisher(for: \.fractionCompleted)
+					.throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true).sink { _ in self.reporter(Int(task.countOfBytesSent)) }
+			}
+		}
+		let uploadDelegate = UploadDelegate(
+			taskCreated: { [weak self] task in
+				guard let fileFacade = self else { return }
+				fileFacade.activeTransfersLock.withLock { $0[fileId] = task }
+			},
+			reporter: { bytesSent in self.uploadProgress(fileId, bytesSent) }
+		)
+
+		do {
+			let (data, response) = try await self.urlSession.upload(
+				for: self.schemeHandler.rewriteRequest(request),
+				fromFile: URL(fileURLWithPath: sourceFileUrl),
+				delegate: uploadDelegate
+			)
+			let httpResponse = response as! HTTPURLResponse
+			return UploadTaskResponse(httpResponse: httpResponse, responseBody: data)
+		} catch let error as URLError where error.code == URLError.cancelled {
+			throw CancelledError(message: "Upload task was canceled", underlyingError: error)
+		}
+	}
+	func abortUpload(_ fileId: String) async throws {
+		TUTSLog("Abort upload for \(fileId)")
+		activeTransfersLock.withLock { $0[fileId]?.cancel() }
 	}
 
 	func download(_ sourceUrl: String, _ filename: String, _ headers: [String: String], _ fileId: String) async throws -> DownloadTaskResponse {
@@ -99,28 +153,45 @@ class IosFileFacade: FileFacade {
 		var request = URLRequest(url: urlStruct)
 		request.httpMethod = "GET"
 		request.allHTTPHeaderFields = headers
+		defer { _ = self.activeTransfersLock.withLock { $0.removeValue(forKey: fileId) } }
 
 		// Concurrency is not an issue, we only mutate observation once to keep a reference to it
 		final class DownloadDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
 			private var progressCancellable: AnyCancellable?
 			private let reporter: (_ bytesReceived: Int) -> Void
-			init(reporter: @escaping (_ bytesReceived: Int) -> Void) { self.reporter = reporter }
+			private let taskCreated: (_ task: URLSessionTask) -> Void
+			init(taskCreated: @escaping (_ task: URLSessionTask) -> Void, reporter: @escaping (_ bytesReceived: Int) -> Void) {
+				self.reporter = reporter
+				self.taskCreated = taskCreated
+			}
 			func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
 				// We observe .fractionCompleted, as that changes frequently and accurately reacts to download progress.
 				// Other properties, such as .completedUnitCount are more abstract and do not immediately reflect progress.
 				// Progress handed into this method as task.progress internally consists of two progress trackers, the second
 				// one of which is the *actual* download progress. It seems inaccessible however, which is why we ask task
 				// directly for the bytes received.
+				taskCreated(task)
 				self.progressCancellable = task.progress.publisher(for: \.fractionCompleted)
 					.throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true).sink { _ in self.reporter(Int(task.countOfBytesReceived)) }
 			}
 		}
-		let downloadDelegate = DownloadDelegate { bytesReceived in self.downloadProgress(fileId, bytesReceived) }
-		let (data, response) = try await self.urlSession.data(for: self.schemeHandler.rewriteRequest(request), delegate: downloadDelegate)
+		let downloadDelegate = DownloadDelegate(
+			taskCreated: { task in self.activeTransfersLock.withLock { $0[fileId] = task } },
+			reporter: { bytesReceived in self.downloadProgress(fileId, bytesReceived) }
+		)
+		var response: URLResponse
+		var data: Data
+		do { (data, response) = try await self.urlSession.data(for: self.schemeHandler.rewriteRequest(request), delegate: downloadDelegate) } catch let error
+			as URLError where error.code == URLError.cancelled
+		{ throw CancelledError(message: "Download task was canceled", underlyingError: error) }
 		let httpResponse = response as! HTTPURLResponse
 		let encryptedFileUri: String?
 		if httpResponse.statusCode == 200 { encryptedFileUri = try self.writeEncryptedFile(fileName: filename, data: data) } else { encryptedFileUri = nil }
 		return DownloadTaskResponse(httpResponse: httpResponse, encryptedFileUri: encryptedFileUri)
+	}
+	func abortDownload(_ fileId: String) async {
+		TUTSLog("Abort download for \(fileId)")
+		self.activeTransfersLock.withLock { $0[fileId]?.cancel() }
 	}
 
 	private func writeEncryptedFile(fileName: String, data: Data) throws -> String {
@@ -135,7 +206,7 @@ class IosFileFacade: FileFacade {
 	func zipDirectory(fileUrl: URL) throws -> String {
 		var returnPath: String = ""
 		var err: NSError?
-		var ourError: Error?
+		var ourError: (any Error)?
 		NSFileCoordinator()
 			.coordinate(readingItemAt: fileUrl, options: [.forUploading], error: &err) { (zipUrl) in
 				do {
@@ -148,7 +219,7 @@ class IosFileFacade: FileFacade {
 					return
 				}
 			}
-		if let e = err ?? ourError { throw TutanotaError(message: "could not read directory at \(fileUrl)", underlyingError: e) }
+		if let e = err ?? ourError { throw GenericTutanotaError(message: "could not read directory at \(fileUrl)", underlyingError: e) }
 		return returnPath
 	}
 
@@ -188,6 +259,12 @@ class IosFileFacade: FileFacade {
 		return try self.readFile(filePath.path)
 	}
 
+	func deleteFromAppDir(_ path: String) async throws {
+		let supportDir = try FileUtils.getApplicationSupportFolder()
+		let filePath = supportDir.appendingPathComponent(path)
+		try await self.deleteFile(filePath.path)
+	}
+
 	private func clearDirectory(folderPath: String) async throws {
 		let fileManager = FileManager.default
 		let folderUrl = URL(fileURLWithPath: folderPath)
@@ -220,26 +297,7 @@ extension DownloadTaskResponse {
 	}
 }
 
-func getFileMIMETypeWithDefault(path: String) -> String { getFileMIMEType(path: path) ?? "application/octet-stream" }
-
-func getFileMIMEType(path: String) -> String? {
-	let fileExtension = URL(fileURLWithPath: path).pathExtension
-	return UTType(filenameExtension: fileExtension)?.preferredMIMEType
-}
-
 /// Reading header fields from HTTPURLResponse.allHeaderFields is case-sensitive, it is a bug: https://bugs.swift.org/browse/SR-2429
 /// From iOS13 we have a method to read headers case-insensitively: HTTPURLResponse.value(forHTTPHeaderField:)
 /// For older iOS we use this NSDictionary cast workaround as suggested by a commenter in the bug report.
 extension HTTPURLResponse { public func valueForHeaderField(_ headerField: String) -> String? { value(forHTTPHeaderField: headerField) } }
-
-//func throttle<T>(period: TimeInterval, fn: @escaping (T) -> Void) -> ((T) -> Void) {
-//  var currentValue: T? = nil
-//  var calledAt: Date? = nil
-//  return { val in
-//	if let calledAt, calledAt.timeIntervalSinceNow < period {
-//	  fn(currentValue!)
-//	} else {
-//
-//	}
-//  }
-//}

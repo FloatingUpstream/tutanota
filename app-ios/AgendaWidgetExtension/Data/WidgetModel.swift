@@ -5,9 +5,15 @@
 //  Created by Tutao GmbH on 24.04.25.
 //
 import TutanotaSharedFramework
-import tutasdk
+// Generated protocols are still not Sendable see https://github.com/mozilla/uniffi-rs/issues/1674
+@preconcurrency import tutasdk
 
 // Start of day to list of events
+/**
+ A map representing a set of events on a given day.
+ Keys are the epoch milliseconds (or seconds?) representing the start of a day.
+ Values are an array of CalendarEventData for events occurring on that day.
+ */
 typealias EventMap = [Double: [CalendarEventData]]
 
 typealias LongEventsDataMap = [Double: SimpleLongEventsData]
@@ -21,6 +27,13 @@ struct CalendarEventData: Equatable, Hashable, Encodable {
 	var isBirthdayEvent: Bool
 }
 
+/**
+ 	Data representing the Long Events and All Day events that will be displayed in the widget.
+ 	(This may have been done to handle memory constraints due to how iOS Timeline functions.)
+
+ 	- Parameter event: The *only* event that will have its data displayed in the widget.
+ 	- Parameter count: The total number of events of this type, not all of which will have their info displayed.
+ */
 struct SimpleLongEventsData: Equatable, Hashable, Encodable {
 	var event: CalendarEventData?
 	var count: Int
@@ -55,6 +68,7 @@ struct WidgetModel {
 	}
 
 	func getEventsForCalendars(_ calendars: [CalendarEntity], date: Date) async throws -> (EventMap, LongEventsDataMap) {
+		printLog("Fetching \(calendars.count) calendars")
 		let dateInMiliseconds = UInt64(date.timeIntervalSince1970) * 1000
 		let end = UInt64(Calendar.current.date(byAdding: .day, value: 7, to: date)!.timeIntervalSince1970) * 1000
 		let calendarFacade = self.sdk.calendarFacade()
@@ -65,8 +79,7 @@ struct WidgetModel {
 		var longEvents: LongEventsDataMap = [startOfToday: SimpleLongEventsData(event: nil, count: 0)]
 
 		for calendar in calendars {
-			let eventsList = await calendarFacade.getCalendarEvents(calendarId: calendar.id, start: dateInMiliseconds, end: end)
-
+			let eventsList = try await calendarFacade.getCalendarEvents(calendarId: calendar.id, start: dateInMiliseconds, end: end)
 			eventsList.birthdayEvents.forEach { event in
 				let eventStart = Date(timeIntervalSince1970: Double(event.calendarEvent.startTime) / 1000)
 				let eventEnd = Date(timeIntervalSince1970: Double(event.calendarEvent.endTime) / 1000)

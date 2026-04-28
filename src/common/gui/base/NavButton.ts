@@ -1,19 +1,20 @@
 import m, { Children, Component, RouteLinkAttrs, Vnode } from "mithril"
 import { handleUncaughtError } from "../../misc/ErrorHandler"
 import { component_size, px } from "../size"
-import type { lazy } from "@tutao/tutanota-utils"
-import { lazyStringValue, neverNull } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
+import { lazyStringValue, neverNull } from "@tutao/utils"
 import type { lazyIcon } from "./Icon"
 import { Icon } from "./Icon"
 import { theme } from "../theme"
 import { styles } from "../styles"
 import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
-import { Keys } from "../../api/common/TutanotaConstants"
+import { Keys } from "@tutao/app-env"
 import { isKeyPressed } from "../../misc/KeyManager"
 import { DragStartHandler, DropData, DropHandler, DropType } from "./GuiUtils"
-import { assertMainOrNode, isDesktop } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { fileListToArray } from "../../api/common/utils/FileUtils.js"
+import { isDesktop } from "@tutao/app-env"
 
 assertMainOrNode()
 export type NavButtonAttrs = {
@@ -178,6 +179,12 @@ export class NavButton implements Component<NavButtonAttrs> {
 					let dropData: DropData = {
 						dropType: DropType.Mail,
 						mailId: ev.dataTransfer.getData(DropType.Mail),
+					}
+					neverNull(a.dropHandler)(dropData)
+				} else if (ev.dataTransfer?.getData(DropType.DriveItems)) {
+					let dropData: DropData = {
+						dropType: DropType.DriveItems,
+						data: ev.dataTransfer.getData(DropType.DriveItems),
 					}
 					neverNull(a.dropHandler)(dropData)
 				} else if (isDesktop() && ev.dataTransfer?.files && ev.dataTransfer.files.length > 0) {

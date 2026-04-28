@@ -1,19 +1,17 @@
-import o from "@tutao/otest"
+import o, { assertThrows } from "@tutao/otest"
 import { createDataFile } from "../../../../src/common/api/common/DataFile.js"
 import { DesktopFileFacade } from "../../../../src/common/desktop/files/DesktopFileFacade.js"
 import { ApplicationWindow } from "../../../../src/common/desktop/ApplicationWindow.js"
 import { func, matchers, object, verify, when } from "testdouble"
 import { ElectronExports, FsExports, PathExports } from "../../../../src/common/desktop/ElectronExportTypes.js"
-import { NotFoundError, PreconditionFailedError, TooManyRequestsError } from "../../../../src/common/api/common/error/RestError.js"
+import { HttpMethod, restError } from "@tutao/rest-client"
 import type fs from "node:fs"
-import { assertThrows } from "@tutao/tutanota-test-utils"
-import { stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
+import { stringToUtf8Uint8Array } from "@tutao/utils"
 import { DesktopConfig } from "../../../../src/common/desktop/config/DesktopConfig.js"
 import { DesktopUtils } from "../../../../src/common/desktop/DesktopUtils.js"
 import { DateProvider } from "../../../../src/common/api/common/DateProvider.js"
 import { TempFs } from "../../../../src/common/desktop/files/TempFs.js"
 import { BuildConfigKey, DesktopConfigKey } from "../../../../src/common/desktop/config/ConfigKeys.js"
-import { HttpMethod } from "../../../../src/common/api/common/EntityFunctions"
 import { FetchImpl, FetchResult } from "../../../../src/common/desktop/net/NetAgent"
 import { CommandExecutor } from "../../../../src/common/desktop/CommandExecutor"
 import { BufferEncoding } from "rollup"
@@ -59,7 +57,10 @@ o.spec("DesktopFileFacade", function () {
 		dp = object()
 		executor = object()
 
-		ff = new DesktopFileFacade(win, conf, dp, fetch, electron, tfs, fs, path, executor, process as NodeJS.Process, { downloadProgress: async () => {} })
+		ff = new DesktopFileFacade(win, conf, dp, fetch, electron, tfs, fs, path, executor, process as NodeJS.Process, {
+			downloadProgress: async () => {},
+			uploadProgress: async () => {},
+		})
 	})
 	o.spec("saveDataFile", function () {
 		o("when there's no existing file it will be simply written", async function () {
@@ -95,6 +96,7 @@ o.spec("DesktopFileFacade", function () {
 				fetch(urlMatches(new URL("some://url/file")), {
 					method: "GET",
 					headers,
+					signal: matchers.anything(),
 				}),
 			).thenResolve(response)
 			when(tfs.ensureEncryptedDir()).thenResolve("/tutanota/tmp/path/encrypted")
@@ -112,7 +114,7 @@ o.spec("DesktopFileFacade", function () {
 			}
 
 			const errorId = "123"
-			const response: FetchResult = mockResponse(NotFoundError.CODE, {
+			const response: FetchResult = mockResponse(restError.NotFoundError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 				},
@@ -134,7 +136,7 @@ o.spec("DesktopFileFacade", function () {
 			const retryAfter = "20"
 			const errorId = "123"
 
-			const response: FetchResult = mockResponse(TooManyRequestsError.CODE, {
+			const response: FetchResult = mockResponse(restError.TooManyRequestsError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					"retry-after": retryAfter,
@@ -146,7 +148,7 @@ o.spec("DesktopFileFacade", function () {
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers, "fileId")
 
 			o(result).deepEquals({
-				statusCode: TooManyRequestsError.CODE,
+				statusCode: restError.TooManyRequestsError.CODE,
 				errorId,
 				precondition: null,
 				suspensionTime: retryAfter,
@@ -159,7 +161,7 @@ o.spec("DesktopFileFacade", function () {
 			const headers = { v: "foo", accessToken: "bar" }
 			const errorId = "123"
 			const retryAfter = "20"
-			const response: FetchResult = mockResponse(TooManyRequestsError.CODE, {
+			const response: FetchResult = mockResponse(restError.TooManyRequestsError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					"suspension-time": retryAfter,
@@ -170,7 +172,7 @@ o.spec("DesktopFileFacade", function () {
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers, "fileId")
 
 			o(result).deepEquals({
-				statusCode: TooManyRequestsError.CODE,
+				statusCode: restError.TooManyRequestsError.CODE,
 				errorId,
 				precondition: null,
 				suspensionTime: retryAfter,
@@ -183,7 +185,7 @@ o.spec("DesktopFileFacade", function () {
 			const headers = { v: "foo", accessToken: "bar" }
 			const errorId = "123"
 			const precondition = "a.2"
-			const response: FetchResult = mockResponse(PreconditionFailedError.CODE, {
+			const response: FetchResult = mockResponse(restError.PreconditionFailedError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					precondition: precondition,
@@ -194,7 +196,7 @@ o.spec("DesktopFileFacade", function () {
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers, "fileId")
 
 			o(result).deepEquals({
-				statusCode: PreconditionFailedError.CODE,
+				statusCode: restError.PreconditionFailedError.CODE,
 				errorId,
 				precondition,
 				suspensionTime: null,
@@ -234,10 +236,11 @@ o.spec("DesktopFileFacade", function () {
 				fetch(urlMatches(new URL(targetUrl)), {
 					method: HttpMethod.POST,
 					headers,
-					body: fileStreamMock,
+					body: matchers.anything(),
+					signal: matchers.anything(),
 				}),
 			).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, headers)
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, headers, "abc")
 
 			o(uploadResult.statusCode).equals(200)
 			o(uploadResult.errorId).equals(null)
@@ -248,9 +251,11 @@ o.spec("DesktopFileFacade", function () {
 
 		o("when 404 is returned it returns correct result", async function () {
 			const errorId = "123"
+			const fileStreamMock = mockReadStream(new Buffer([1, 2, 3, 4]))
+			when(fs.createReadStream(fileToUploadPath)).thenReturn(fileStreamMock)
 			const response = mockResponse(404, { responseHeaders: { "error-id": errorId } })
 			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {}, "abc")
 			o(uploadResult.statusCode).equals(404)
 			o(uploadResult.errorId).equals(errorId)
 			o(uploadResult.precondition).equals(null)
@@ -261,7 +266,9 @@ o.spec("DesktopFileFacade", function () {
 		o("when retry-after is returned, it is propagated", async function () {
 			const retryAFter = "20"
 			const errorId = "123"
-			const response = mockResponse(TooManyRequestsError.CODE, {
+			const fileStreamMock = mockReadStream(new Buffer([1, 2, 3, 4]))
+			when(fs.createReadStream(fileToUploadPath)).thenReturn(fileStreamMock)
+			const response = mockResponse(restError.TooManyRequestsError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					"retry-after": retryAFter,
@@ -269,9 +276,9 @@ o.spec("DesktopFileFacade", function () {
 			})
 			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {}, "abc")
 
-			o(uploadResult.statusCode).equals(TooManyRequestsError.CODE)
+			o(uploadResult.statusCode).equals(restError.TooManyRequestsError.CODE)
 			o(uploadResult.errorId).equals(errorId)
 			o(uploadResult.precondition).equals(null)
 			o(uploadResult.suspensionTime).equals(retryAFter)
@@ -281,16 +288,18 @@ o.spec("DesktopFileFacade", function () {
 		o("when suspension-time is returned, it is propagated", async function () {
 			const retryAFter = "20"
 			const errorId = "123"
-			const response = mockResponse(TooManyRequestsError.CODE, {
+			const fileStreamMock = mockReadStream(new Buffer([1, 2, 3, 4]))
+			when(fs.createReadStream(fileToUploadPath)).thenReturn(fileStreamMock)
+			const response = mockResponse(restError.TooManyRequestsError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					"suspension-time": retryAFter,
 				},
 			})
 			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {}, "abc")
 
-			o(uploadResult.statusCode).equals(TooManyRequestsError.CODE)
+			o(uploadResult.statusCode).equals(restError.TooManyRequestsError.CODE)
 			o(uploadResult.errorId).equals(errorId)
 			o(uploadResult.precondition).equals(null)
 			o(uploadResult.suspensionTime).equals(retryAFter)
@@ -300,7 +309,9 @@ o.spec("DesktopFileFacade", function () {
 		o("when precondition-time is returned, it is propagated", async function () {
 			const precondition = "a.2"
 			const errorId = "123"
-			const response = mockResponse(PreconditionFailedError.CODE, {
+			const fileStreamMock = mockReadStream(new Buffer([1, 2, 3, 4]))
+			when(fs.createReadStream(fileToUploadPath)).thenReturn(fileStreamMock)
+			const response = mockResponse(restError.PreconditionFailedError.CODE, {
 				responseHeaders: {
 					"error-id": errorId,
 					precondition: precondition,
@@ -308,9 +319,9 @@ o.spec("DesktopFileFacade", function () {
 			})
 			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {}, "abc")
 
-			o(uploadResult.statusCode).equals(PreconditionFailedError.CODE)
+			o(uploadResult.statusCode).equals(restError.PreconditionFailedError.CODE)
 			o(uploadResult.errorId).equals(errorId)
 			o(uploadResult.precondition).equals(precondition)
 			o(uploadResult.suspensionTime).equals(null)
@@ -464,7 +475,9 @@ o.spec("DesktopFileFacade", function () {
 })
 
 function mockReadStream(buffer: Buffer): fs.ReadStream {
-	return stream.Readable.from(buffer) as unknown as fs.ReadStream
+	const s = stream.Readable.from(buffer) as unknown as fs.ReadStream
+	s.close = () => {}
+	return s
 }
 
 const urlMatches = matchers.create({
@@ -476,6 +489,7 @@ const urlMatches = matchers.create({
 
 class BufferWritableStream extends stream.Writable {
 	readonly chunks: Buffer[] = []
+
 	constructor(readonly error: Error | null = null) {
 		super()
 	}

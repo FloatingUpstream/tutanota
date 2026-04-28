@@ -1,4 +1,4 @@
-import { default as stream } from "node:stream"
+import { default as stream, Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { FileFacade } from "../../native/common/generatedipc/FileFacade.js"
 import { DownloadTaskResponse } from "../../native/common/generatedipc/DownloadTaskResponse.js"
@@ -9,16 +9,8 @@ import { DataFile } from "../../api/common/DataFile.js"
 import { FileUri } from "../../native/common/FileApp.js"
 import path from "node:path"
 import { ApplicationWindow } from "../ApplicationWindow.js"
-import { sha256Hash } from "@tutao/tutanota-crypto"
-import {
-	assertNotNull,
-	newPromise,
-	splitUint8ArrayInChunks,
-	stringToUtf8Uint8Array,
-	throttle,
-	uint8ArrayToBase64,
-	uint8ArrayToHex,
-} from "@tutao/tutanota-utils"
+import { sha256Hash } from "@tutao/crypto"
+import { assertNotNull, newPromise, splitUint8ArrayInChunks, stringToUtf8Uint8Array, throttle, uint8ArrayToBase64, uint8ArrayToHex } from "@tutao/utils"
 import { looksExecutable, nonClobberingFilename } from "../PathUtils.js"
 import url from "node:url"
 import type { WriteStream } from "node:fs"
@@ -33,7 +25,7 @@ import { CancelledError } from "../../api/common/error/CancelledError.js"
 import { DesktopConfig } from "../config/DesktopConfig.js"
 import { DateProvider } from "../../api/common/DateProvider.js"
 import { TempFs } from "./TempFs.js"
-import { HttpMethod } from "../../api/common/EntityFunctions"
+import { HttpMethod } from "@tutao/rest-client"
 import { FetchImpl } from "../net/NetAgent"
 import { OpenDialogOptions } from "electron"
 import { CommandExecutor } from "../CommandExecutor"
@@ -44,6 +36,7 @@ const TAG = "[DesktopFileFacade]"
 export class DesktopFileFacade implements FileFacade {
 	/** We don't want to spam opening file manager all the time so we throttle it. This field is set to the last time we opened it. */
 	private lastOpenedFileManagerAt: number | null
+	private activeRequests: Map<string, AbortController> = new Map()
 
 	constructor(
 		private readonly win: ApplicationWindow,
@@ -56,7 +49,7 @@ export class DesktopFileFacade implements FileFacade {
 		private readonly path: PathExports,
 		private readonly commandExecutor: CommandExecutor,
 		private readonly process: NodeJS.Process,
-		private readonly progressTracker: Pick<CommonNativeFacade, "downloadProgress">,
+		private readonly progressTracker: Pick<CommonNativeFacade, "downloadProgress" | "uploadProgress">,
 	) {
 		this.lastOpenedFileManagerAt = null
 	}
@@ -71,32 +64,43 @@ export class DesktopFileFacade implements FileFacade {
 	}
 
 	async download(sourceUrl: string, fileName: string, headers: Record<string, string>, fileId: string): Promise<DownloadTaskResponse> {
-		const { status, headers: headersIncoming, body } = await this.fetch(sourceUrl, { method: "GET", headers })
+		const abortController = new AbortController()
+		this.activeRequests.set(fileId, abortController)
+		try {
+			const { status, headers: headersIncoming, body } = await this.fetch(sourceUrl, { method: "GET", headers, signal: abortController.signal })
 
-		let encryptedFilePath
-		if (status === 200 && body != null) {
-			const downloadDirectory = await this.tfs.ensureEncryptedDir()
-			encryptedFilePath = path.join(downloadDirectory, fileName)
-			const readable: stream.Readable = bodyToReadable(body)
-			// debounce so that we don't post the message too often
-			const onProgress = throttle(100, (bytes: number) => {
-				this.progressTracker.downloadProgress(fileId, bytes)
-			})
-			await this.pipeIntoFile(readable, encryptedFilePath, onProgress)
-		} else {
-			encryptedFilePath = null
+			let encryptedFilePath
+			if (status === 200 && body != null) {
+				const downloadDirectory = await this.tfs.ensureEncryptedDir()
+				encryptedFilePath = path.join(downloadDirectory, fileName)
+				const readable: stream.Readable = bodyToReadable(body)
+				// debounce so that we don't post the message too often
+				const onProgress = throttle(100, (bytes: number) => {
+					this.progressTracker.downloadProgress(fileId, bytes)
+				})
+				await this.pipeIntoFile(readable, encryptedFilePath, onProgress)
+			} else {
+				encryptedFilePath = null
+			}
+
+			const result = {
+				statusCode: status,
+				encryptedFileUri: encryptedFilePath,
+				errorId: getHttpHeader(headersIncoming, "error-id"),
+				precondition: getHttpHeader(headersIncoming, "precondition"),
+				suspensionTime: getHttpHeader(headersIncoming, "suspension-time") ?? getHttpHeader(headersIncoming, "retry-after"),
+			}
+
+			log.info(TAG, "Download finished", result.statusCode, result.suspensionTime)
+
+			return result
+		} finally {
+			this.activeRequests.delete(fileId)
 		}
+	}
 
-		const result = {
-			statusCode: status,
-			encryptedFileUri: encryptedFilePath,
-			errorId: getHttpHeader(headersIncoming, "error-id"),
-			precondition: getHttpHeader(headersIncoming, "precondition"),
-			suspensionTime: getHttpHeader(headersIncoming, "suspension-time") ?? getHttpHeader(headersIncoming, "retry-after"),
-		}
-
-		log.info(TAG, "Download finished", result.statusCode, result.suspensionTime)
-		return result
+	async abortDownload(fileId: string) {
+		this.activeRequests.get(fileId)?.abort(new CancelledError("Request canceled"))
 	}
 
 	private async pipeIntoFile(response: stream.Readable, encryptedFilePath: string, progress: (bytes: number) => unknown) {
@@ -263,27 +267,46 @@ export class DesktopFileFacade implements FileFacade {
 		return chunkPaths
 	}
 
-	async upload(fileUri: string, targetUrl: string, method: HttpMethod, headers: Record<string, string>): Promise<UploadTaskResponse> {
+	async upload(fileUri: string, targetUrl: string, method: HttpMethod, headers: Record<string, string>, fileId: string): Promise<UploadTaskResponse> {
 		const fileStream = this.fs.createReadStream(fileUri)
 		const stat = await this.fs.promises.stat(fileUri)
 		headers["Content-Length"] = `${stat.size}`
-		const response = await this.fetch(targetUrl, { method, headers, body: fileStream })
 
-		let responseBody: Uint8Array
-		if ((response.status === 200 || response.status === 201) && response.body != null) {
-			const readable: stream.Readable = bodyToReadable(response.body)
-			responseBody = await readStreamToBuffer(readable)
-		} else {
-			// this is questionable, should probably change the type
-			responseBody = new Uint8Array([])
+		const abortController = new AbortController()
+		this.activeRequests.set(fileId, abortController)
+
+		const onProgress = throttle(100, (bytes) => {
+			this.progressTracker.uploadProgress(fileId, bytes)
+		})
+		const progressStream = wrapReadableAsCountable(fileStream, onProgress)
+
+		try {
+			const response = await this.fetch(targetUrl, { method, headers, body: progressStream, signal: abortController.signal })
+
+			let responseBody: Uint8Array
+			if ((response.status === 200 || response.status === 201) && response.body != null) {
+				const readable: stream.Readable = bodyToReadable(response.body)
+				responseBody = await readStreamToBuffer(readable)
+			} else {
+				// this is questionable, should probably change the type
+				responseBody = new Uint8Array([])
+			}
+			return {
+				statusCode: assertNotNull(response.status),
+				errorId: getHttpHeader(response.headers, "error-id"),
+				precondition: getHttpHeader(response.headers, "precondition"),
+				suspensionTime: getHttpHeader(response.headers, "suspension-time") ?? getHttpHeader(response.headers, "retry-after"),
+				responseBody,
+			}
+		} finally {
+			fileStream.close()
+			this.activeRequests.delete(fileId)
 		}
-		return {
-			statusCode: assertNotNull(response.status),
-			errorId: getHttpHeader(response.headers, "error-id"),
-			precondition: getHttpHeader(response.headers, "precondition"),
-			suspensionTime: getHttpHeader(response.headers, "suspension-time") ?? getHttpHeader(response.headers, "retry-after"),
-			responseBody,
-		}
+	}
+
+	async abortUpload(fileId: string): Promise<void> {
+		log.info(TAG, `Abort upload for fileId ${fileId}`)
+		this.activeRequests.get(fileId)?.abort(new CancelledError("Upload canceled"))
 	}
 
 	// this is only used to write decrypted data into our tmp
@@ -300,6 +323,22 @@ export class DesktopFileFacade implements FileFacade {
 	async readFromAppDir(fileName: string): Promise<Buffer> {
 		const fullPath = this.path.join(this.electron.app.getPath("userData"), fileName)
 		return this.fs.readFileSync(fullPath)
+	}
+
+	async deleteFromAppDir(fileName: string): Promise<void> {
+		const userDataDir = this.electron.app.getPath("userData")
+
+		const resolvedBase = this.path.resolve(userDataDir)
+		const resolvedTarget = this.path.resolve(userDataDir, fileName)
+		if (!resolvedTarget.startsWith(resolvedBase + this.path.sep)) {
+			return
+		}
+
+		try {
+			await this.fs.promises.unlink(resolvedTarget)
+		} catch (e) {
+			// ignore the error if the file does not exist
+		}
 	}
 
 	// this is used to read unencrypted data from arbitrary locations
@@ -401,4 +440,21 @@ function getHttpHeader(headers: Headers, name: string): string | null {
 function bodyToReadable(body: ReadableStream<unknown>): stream.Readable {
 	// https://github.com/DefinitelyTyped/DefinitelyTyped/discussions/65542
 	return stream.Readable.fromWeb(body)
+}
+
+/**
+ * Make a new Readable stream that counts the data read from the upstream {@param upstream} and invokes
+ * {@param onProgress} for every chunk read.
+ */
+function wrapReadableAsCountable(upstream: Readable, onProgress: (bytes: number) => void): Readable {
+	let writtenBytes = 0
+	const progressStream: Transform = new Transform({
+		transform(chunk, _encoding, callback) {
+			writtenBytes += chunk.length
+			onProgress(writtenBytes)
+			callback(null, chunk)
+		},
+	})
+	upstream.pipe(progressStream)
+	return progressStream
 }

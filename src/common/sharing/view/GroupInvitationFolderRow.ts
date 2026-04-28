@@ -1,16 +1,16 @@
 import m, { Children, Component, Vnode } from "mithril"
-import { component_size, size } from "../../gui/size"
+import { component_size } from "../../gui/size"
 import { getCapabilityText } from "../GroupUtils"
-import { downcast } from "@tutao/tutanota-utils"
+import { downcast } from "@tutao/utils"
 import { showGroupInvitationDialog } from "./ReceivedGroupInvitationDialog.js"
 import { Icons } from "../../gui/base/icons/Icons"
-import type { ReceivedGroupInvitation } from "../../api/entities/sys/TypeRefs.js"
 import type { AllIcons } from "../../gui/base/Icon"
 import { IconButton } from "../../gui/base/IconButton.js"
 import { getMailAddressDisplayText } from "../../mailFunctionality/SharedMailUtils.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export type GroupInvitationFolderRowAttrs = {
-	invitation: ReceivedGroupInvitation
+	invitation: sysTypeRefs.ReceivedGroupInvitation
 	icon?: AllIcons
 }
 
@@ -48,7 +48,7 @@ export class GroupInvitationFolderRow implements Component<GroupInvitationFolder
 				m(IconButton, {
 					title: "show_action",
 					click: () => showGroupInvitationDialog(invitation),
-					icon: icon ?? Icons.Eye,
+					icon: icon ?? Icons.EyeFilled,
 				}),
 			]),
 		]

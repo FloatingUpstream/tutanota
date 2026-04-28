@@ -1,46 +1,34 @@
-import o from "@tutao/otest"
-import type { CalendarEventAlteredInstance, EventWithUserAlarmInfos } from "../../../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
-import { CalendarFacade, sortByRecurrenceId } from "../../../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
+import o, { assertThrows, mockAttribute, spy, unmockAttribute } from "@tutao/otest"
+import {
+	CachingMode,
+	CalendarEventAlteredInstance,
+	CalendarFacade,
+	EventWithUserAlarmInfos,
+	sortByRecurrenceId,
+} from "../../../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
 import { EntityRestClientMock } from "../rest/EntityRestClientMock.js"
 import { DefaultEntityRestCache } from "../../../../../src/common/api/worker/rest/DefaultEntityRestCache.js"
-import { assertNotNull, base64ToUint8Array, clone, downcast, isSameTypeRef, neverNull } from "@tutao/tutanota-utils"
-import {
-	AlarmInfo,
-	AlarmInfoTypeRef,
-	AlarmNotificationTypeRef,
-	CalendarEventRefTypeRef,
-	PushIdentifierListTypeRef,
-	PushIdentifierTypeRef,
-	User,
-	UserAlarmInfo,
-	UserAlarmInfoListTypeTypeRef,
-	UserAlarmInfoTypeRef,
-	UserTypeRef,
-} from "../../../../../src/common/api/entities/sys/TypeRefs.js"
-import { getElementId, getLetId, getListId } from "../../../../../src/common/api/common/utils/EntityUtils.js"
-import type { CalendarEvent } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { CalendarEventTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { assertThrows, mockAttribute, spy, unmockAttribute } from "@tutao/tutanota-test-utils"
+import { assertNotNull, clone, downcast, isSameTypeRef, neverNull } from "@tutao/utils"
+import { getElementId, getLetId, getListId, sysTypeRefs, tutanotaTypeRefs, TypeModelResolver } from "@tutao/typerefs"
 import { ImportError } from "../../../../../src/common/api/common/error/ImportError.js"
 import { SetupMultipleError } from "../../../../../src/common/api/common/error/SetupMultipleError.js"
 import { GroupManagementFacade } from "../../../../../src/common/api/worker/facades/lazy/GroupManagementFacade.js"
-import { matchers, object, when } from "testdouble"
+import { matchers, object, verify, when } from "testdouble"
 import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest"
 import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade"
 import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
 import { InfoMessageHandler } from "../../../../../src/common/gui/InfoMessageHandler.js"
-import { ConnectionError } from "../../../../../src/common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { EntityClient } from "../../../../../src/common/api/common/EntityClient.js"
 import { clientInitializedTypeModelResolver, createTestEntity, instancePipelineFromTypeModelResolver } from "../../../TestUtils.js"
 import { EntityRestClient } from "../../../../../src/common/api/worker/rest/EntityRestClient"
-import { InstancePipeline } from "../../../../../src/common/api/worker/crypto/InstancePipeline"
-import { uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
-import { OperationType } from "../../../../../src/common/api/common/TutanotaConstants"
-import { TypeModelResolver } from "../../../../../src/common/api/common/EntityFunctions"
+import { InstancePipeline } from "@tutao/instance-pipeline"
+import { base64ToKey } from "@tutao/crypto"
+import { GroupType, OperationType } from "../../../../../src/app-env"
 
 o.spec("CalendarFacadeTest", function () {
 	let userAlarmInfoListId: Id
-	let user: User
+	let user: sysTypeRefs.User
 	let userFacade: UserFacade
 	let groupManagementFacade: GroupManagementFacade
 	let restClientMock: EntityRestClientMock
@@ -60,6 +48,9 @@ o.spec("CalendarFacadeTest", function () {
 	let typeModelResolver: TypeModelResolver
 	let instancePipeline: InstancePipeline
 
+	const PRIVATE_CALENDAR_ID = "privateCalendarId"
+	const SUBSCRIPTION_CALENDAR_ID = "subscriptionCalendarId"
+
 	function sortEventsWithAlarmInfos(eventsWithAlarmInfos: Array<EventWithUserAlarmInfos>) {
 		const idCompare = (el1, el2) => getLetId(el1).join("").localeCompare(getLetId(el2).join(""))
 
@@ -76,23 +67,23 @@ o.spec("CalendarFacadeTest", function () {
 		o(sortEventsWithAlarmInfos(actual)).deepEquals(sortEventsWithAlarmInfos(expected))
 	}
 
-	function makeEvent(listId: Id, elementId?: Id): CalendarEvent {
-		return createTestEntity(CalendarEventTypeRef, {
+	function makeEvent(listId: Id, elementId?: Id): tutanotaTypeRefs.CalendarEvent {
+		return createTestEntity(tutanotaTypeRefs.CalendarEventTypeRef, {
 			_id: [listId, elementId || restClientMock.getNextId()],
 			uid: `${listId}-${elementId}`,
 		})
 	}
 
-	function makeUserAlarmInfo(event: CalendarEvent): UserAlarmInfo {
-		return createTestEntity(UserAlarmInfoTypeRef, {
+	function makeUserAlarmInfo(event: tutanotaTypeRefs.CalendarEvent): sysTypeRefs.UserAlarmInfo {
+		return createTestEntity(sysTypeRefs.UserAlarmInfoTypeRef, {
 			_id: [userAlarmInfoListId, restClientMock.getNextId()],
 			alarmInfo: makeAlarmInfo(event),
 		})
 	}
 
-	function makeAlarmInfo(event: CalendarEvent): AlarmInfo {
-		return createTestEntity(AlarmInfoTypeRef, {
-			calendarRef: createTestEntity(CalendarEventRefTypeRef, {
+	function makeAlarmInfo(event: tutanotaTypeRefs.CalendarEvent): sysTypeRefs.AlarmInfo {
+		return createTestEntity(sysTypeRefs.AlarmInfoTypeRef, {
+			calendarRef: createTestEntity(sysTypeRefs.CalendarEventRefTypeRef, {
 				elementId: getElementId(event),
 				listId: getListId(event),
 			}),
@@ -103,15 +94,25 @@ o.spec("CalendarFacadeTest", function () {
 		restClientMock = new EntityRestClientMock()
 		userAlarmInfoListId = restClientMock.getNextId()
 
-		user = createTestEntity(UserTypeRef, {
-			alarmInfoList: createTestEntity(UserAlarmInfoListTypeTypeRef, {
+		user = createTestEntity(sysTypeRefs.UserTypeRef, {
+			alarmInfoList: createTestEntity(sysTypeRefs.UserAlarmInfoListTypeTypeRef, {
 				alarms: userAlarmInfoListId,
 			}),
-			pushIdentifierList: createTestEntity(PushIdentifierListTypeRef, { list: "pushIdentifierList" }),
+			pushIdentifierList: createTestEntity(sysTypeRefs.PushIdentifierListTypeRef, { list: "pushIdentifierList" }),
 			userGroup: downcast({
 				group: "Id",
 			}),
 			_id: "userList",
+			memberships: [
+				createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
+					group: PRIVATE_CALENDAR_ID,
+					groupType: GroupType.Calendar,
+				}),
+				createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
+					group: SUBSCRIPTION_CALENDAR_ID,
+					groupType: GroupType.Calendar,
+				}),
+			],
 		})
 		userFacade = downcast({
 			getLoggedInUser: () => user,
@@ -146,7 +147,7 @@ o.spec("CalendarFacadeTest", function () {
 	o.spec("saveCalendarEvents", function () {
 		o.beforeEach(async function () {
 			loadAllMock = function (typeRef, listId, start) {
-				if (isSameTypeRef(typeRef, PushIdentifierTypeRef)) {
+				if (isSameTypeRef(typeRef, sysTypeRefs.PushIdentifierTypeRef)) {
 					return Promise.resolve(neverNull(user.pushIdentifierList).list)
 				}
 				throw new Error("should not be called with typeRef: " + typeRef)
@@ -172,8 +173,8 @@ o.spec("CalendarFacadeTest", function () {
 		o("save events with alarms posts all alarms in one post multiple", async function () {
 			entityRequest = function (listId, instances) {
 				const typeRef = instances[0]?._type
-				if (isSameTypeRef(typeRef, CalendarEventTypeRef)) {
-					const calendarInstances = instances as unknown as CalendarEvent[]
+				if (isSameTypeRef(typeRef, tutanotaTypeRefs.CalendarEventTypeRef)) {
+					const calendarInstances = instances as unknown as tutanotaTypeRefs.CalendarEvent[]
 					o(calendarInstances.length).equals(2)
 					o(calendarInstances[0].alarmInfos).deepEquals([[userAlarmInfoListId, "1"]])
 					o(calendarInstances[1].alarmInfos).deepEquals([
@@ -181,7 +182,7 @@ o.spec("CalendarFacadeTest", function () {
 						[userAlarmInfoListId, "3"],
 					])
 					return Promise.resolve(["eventId1", "eventId2"])
-				} else if (isSameTypeRef(typeRef, UserAlarmInfoTypeRef)) {
+				} else if (isSameTypeRef(typeRef, sysTypeRefs.UserAlarmInfoTypeRef)) {
 					o(instances.length).equals(3)
 					return Promise.resolve(["1", "2", "3"])
 				} else {
@@ -215,7 +216,7 @@ o.spec("CalendarFacadeTest", function () {
 		o("If alarms cannot be saved a user error is thrown and events are not created", async function () {
 			entityRequest = function (listId, instances) {
 				const typeRef = instances[0]?._type
-				if (isSameTypeRef(typeRef, UserAlarmInfoTypeRef)) {
+				if (isSameTypeRef(typeRef, sysTypeRefs.UserAlarmInfoTypeRef)) {
 					return Promise.reject(new SetupMultipleError("could not create alarms", [new Error("failed")], instances))
 				} else {
 					throw new Error("Wrong typeref")
@@ -249,7 +250,7 @@ o.spec("CalendarFacadeTest", function () {
 			const listId2 = "listID2"
 			entityRequest = function (listId, instances) {
 				const typeRef = instances[0]?._type
-				if (isSameTypeRef(typeRef, CalendarEventTypeRef)) {
+				if (isSameTypeRef(typeRef, tutanotaTypeRefs.CalendarEventTypeRef)) {
 					if (listId === listId1) {
 						return Promise.reject(new SetupMultipleError("could not save event", [new Error("failed")], instances))
 					} else if (listId === listId2) {
@@ -257,7 +258,7 @@ o.spec("CalendarFacadeTest", function () {
 					} else {
 						throw new Error("Unknown id")
 					}
-				} else if (isSameTypeRef(typeRef, UserAlarmInfoTypeRef)) {
+				} else if (isSameTypeRef(typeRef, sysTypeRefs.UserAlarmInfoTypeRef)) {
 					o(instances.length).equals(3)
 					return Promise.resolve(["1", "2", "3"])
 				}
@@ -291,17 +292,17 @@ o.spec("CalendarFacadeTest", function () {
 			const listId2 = "listID2"
 			entityRequest = function (listId, instances) {
 				const typeRef = instances[0]?._type
-				if (isSameTypeRef(typeRef, CalendarEventTypeRef)) {
+				if (isSameTypeRef(typeRef, tutanotaTypeRefs.CalendarEventTypeRef)) {
 					if (listId === listId1) {
 						return Promise.reject(
-							new SetupMultipleError("could not save event", [new Error("failed"), new ConnectionError("no connection")], instances),
+							new SetupMultipleError("could not save event", [new Error("failed"), new restError.ConnectionError("no connection")], instances),
 						)
 					} else if (listId === listId2) {
 						return Promise.resolve(["eventId2"])
 					} else {
 						throw new Error("Unknown id")
 					}
-				} else if (isSameTypeRef(typeRef, UserAlarmInfoTypeRef)) {
+				} else if (isSameTypeRef(typeRef, sysTypeRefs.UserAlarmInfoTypeRef)) {
 					o(instances.length).equals(3)
 					return Promise.resolve(["1", "2", "3"])
 				}
@@ -321,7 +322,7 @@ o.spec("CalendarFacadeTest", function () {
 				},
 			]
 			// @ts-ignore
-			await assertThrows(ConnectionError, async () => await calendarFacade.saveCalendarEvents(eventsWrapper, () => Promise.resolve()))
+			await assertThrows(restError.ConnectionError, async () => await calendarFacade.saveCalendarEvents(eventsWrapper, () => Promise.resolve()))
 			// @ts-ignore
 			o(calendarFacade.sendAlarmNotifications.callCount).equals(1)
 			// @ts-ignore
@@ -441,7 +442,9 @@ o.spec("CalendarFacadeTest", function () {
 		})
 
 		o("sorts array with len 1", function () {
-			const arr = [createTestEntity(CalendarEventTypeRef, { recurrenceId: new Date("2023-07-17T13:00") })] as Array<CalendarEventAlteredInstance>
+			const arr = [
+				createTestEntity(tutanotaTypeRefs.CalendarEventTypeRef, { recurrenceId: new Date("2023-07-17T13:00") }),
+			] as Array<CalendarEventAlteredInstance>
 			const expected = clone(arr)
 			sortByRecurrenceId(arr)
 			o(arr).deepEquals(expected)
@@ -449,8 +452,8 @@ o.spec("CalendarFacadeTest", function () {
 
 		o("sorts array that's not sorted", function () {
 			const arr = [
-				createTestEntity(CalendarEventTypeRef, { recurrenceId: new Date("2023-07-17T13:00") }),
-				createTestEntity(CalendarEventTypeRef, { recurrenceId: new Date("2023-07-16T13:00") }),
+				createTestEntity(tutanotaTypeRefs.CalendarEventTypeRef, { recurrenceId: new Date("2023-07-17T13:00") }),
+				createTestEntity(tutanotaTypeRefs.CalendarEventTypeRef, { recurrenceId: new Date("2023-07-16T13:00") }),
 			] as Array<CalendarEventAlteredInstance>
 			const expected = clone(arr)
 			const smaller = expected[1]
@@ -469,11 +472,13 @@ o.spec("CalendarFacadeTest", function () {
 		o.beforeEach(async function () {
 			previousNetworkDebugging = env.networkDebugging
 
-			const calendarRef = createTestEntity(CalendarEventRefTypeRef, { elementId: "elementId", listId: "listId" })
+			const calendarRef = createTestEntity(sysTypeRefs.CalendarEventRefTypeRef, { elementId: "elementId", listId: "listId" })
 			allAlarmEvents = [
 				{
-					event: createTestEntity(CalendarEventTypeRef),
-					userAlarmInfos: [createTestEntity(UserAlarmInfoTypeRef, { alarmInfo: createTestEntity(AlarmInfoTypeRef, { calendarRef }) })],
+					event: createTestEntity(tutanotaTypeRefs.CalendarEventTypeRef),
+					userAlarmInfos: [
+						createTestEntity(sysTypeRefs.UserAlarmInfoTypeRef, { alarmInfo: createTestEntity(sysTypeRefs.AlarmInfoTypeRef, { calendarRef }) }),
+					],
 				},
 			]
 			loadAlarmEventsMock = mockAttribute(calendarFacade, calendarFacade.loadAlarmEvents, () => Promise.resolve(allAlarmEvents))
@@ -486,7 +491,7 @@ o.spec("CalendarFacadeTest", function () {
 		o("scheduleAlarms should receive instance without network debugging info", async () => {
 			env.networkDebugging = true
 
-			const pushIdentifier = createTestEntity(PushIdentifierTypeRef, { _id: ["listId", "pushId"] })
+			const pushIdentifier = createTestEntity(sysTypeRefs.PushIdentifierTypeRef, { _id: ["listId", "pushId"] })
 
 			const instanceCaptor = matchers.captor()
 			const sessionKeyCaptor = matchers.captor()
@@ -494,13 +499,80 @@ o.spec("CalendarFacadeTest", function () {
 
 			await calendarFacade.scheduleAlarmsForNewDevice(pushIdentifier)
 
-			const sessionKey = uint8ArrayToBitArray(base64ToUint8Array(sessionKeyCaptor.value))
+			const sessionKey = base64ToKey(sessionKeyCaptor.value)
 			const allInstanceSentToFacade = instanceCaptor.value
 			const instanceLiteralSentToFacade = assertNotNull(JSON.parse(allInstanceSentToFacade)[0])
 
 			// if we were able to decryptAndMap, it already verifies that no field has network debug info,
-			const instanceSentToFacade = await instancePipeline.decryptAndMap(AlarmNotificationTypeRef, instanceLiteralSentToFacade, sessionKey)
+			const instanceSentToFacade = await instancePipeline.decryptAndMap(sysTypeRefs.AlarmNotificationTypeRef, instanceLiteralSentToFacade, sessionKey)
 			o(instanceSentToFacade.operation).equals(OperationType.CREATE)
+		})
+	})
+
+	o.spec("getEventsByUid", function () {
+		let noncachingEntityClient: EntityClient
+		const privateCalendarGroupRoot = createTestEntity(tutanotaTypeRefs.CalendarGroupRootTypeRef, {
+			_id: PRIVATE_CALENDAR_ID,
+		})
+		const subscriptionGroupRoot = createTestEntity(tutanotaTypeRefs.CalendarGroupRootTypeRef, {
+			_id: SUBSCRIPTION_CALENDAR_ID,
+		})
+
+		o.beforeEach(() => {
+			noncachingEntityClient = object()
+			calendarFacade = new CalendarFacade(
+				userFacade,
+				object(),
+				object(),
+				noncachingEntityClient,
+				object(),
+				object(),
+				object(),
+				object(),
+				object(),
+				object(),
+				object(),
+			)
+
+			when(noncachingEntityClient.load(tutanotaTypeRefs.CalendarGroupRootTypeRef, PRIVATE_CALENDAR_ID)).thenResolve(privateCalendarGroupRoot)
+			when(noncachingEntityClient.load(tutanotaTypeRefs.CalendarGroupRootTypeRef, SUBSCRIPTION_CALENDAR_ID)).thenResolve(subscriptionGroupRoot)
+			when(noncachingEntityClient.load(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, matchers.anything())).thenResolve(
+				createTestEntity(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, {
+					groupSettings: [
+						createTestEntity(tutanotaTypeRefs.GroupSettingsTypeRef, {
+							group: SUBSCRIPTION_CALENDAR_ID,
+							sourceUrl: "dummyUrl",
+						}),
+					],
+				}),
+			)
+		})
+
+		o.test("fetch all calendars", async function () {
+			// Arrange
+			const groupsCaptor = matchers.captor()
+
+			//Act
+			await calendarFacade.getEventsByUid("dummyUid", CachingMode.Bypass, false)
+
+			// Verify
+			verify(noncachingEntityClient.load(tutanotaTypeRefs.CalendarGroupRootTypeRef, groupsCaptor.capture()), { times: 2 })
+			const groupIds: Id[] = groupsCaptor.values!
+			o.check(groupIds[0]).equals(PRIVATE_CALENDAR_ID)
+			o.check(groupIds[1]).equals(SUBSCRIPTION_CALENDAR_ID)
+		})
+
+		o.test("fetch only private calendars", async function () {
+			// Arrange
+			const groupsCaptor = matchers.captor()
+
+			//Act
+			await calendarFacade.getEventsByUid("dummyUid", CachingMode.Bypass, true)
+
+			// Verify
+			verify(noncachingEntityClient.load(tutanotaTypeRefs.CalendarGroupRootTypeRef, groupsCaptor.capture()), { times: 1 })
+			const groupIds: Id = groupsCaptor.value
+			o.check(groupIds).equals(PRIVATE_CALENDAR_ID)
 		})
 	})
 })

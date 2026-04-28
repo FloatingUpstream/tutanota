@@ -1,14 +1,11 @@
 import m, { Children } from "mithril"
-import { assertMainOrNode } from "../../../api/common/Env.js"
-import type { SecondFactor, User } from "../../../api/entities/sys/TypeRefs.js"
-import { SecondFactorTypeRef } from "../../../api/entities/sys/TypeRefs.js"
-import { assertNotNull, LazyLoaded, neverNull, noOp } from "@tutao/tutanota-utils"
+import { assertMainOrNode, SecondFactorType } from "@tutao/app-env"
+import { assertNotNull, LazyLoaded, neverNull, noOp } from "@tutao/utils"
 import { Icons } from "../../../gui/base/icons/Icons.js"
 import { InfoLink, lang } from "../../../misc/LanguageViewModel.js"
-import { assertEnumValue, SecondFactorType } from "../../../api/common/TutanotaConstants.js"
 import type { TableAttrs, TableLineAttrs } from "../../../gui/base/Table.js"
 import { ColumnWidth, Table } from "../../../gui/base/Table.js"
-import { NotAuthorizedError, NotFoundError } from "../../../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { ifAllowedTutaLinks } from "../../../gui/base/GuiUtils.js"
 import { locator } from "../../../api/main/CommonLocator.js"
 import { SecondFactorEditDialog } from "./SecondFactorEditDialog.js"
@@ -17,12 +14,12 @@ import { IconButtonAttrs } from "../../../gui/base/IconButton.js"
 import { ButtonSize } from "../../../gui/base/ButtonSize.js"
 import { appIdToLoginUrl } from "../../../misc/2fa/SecondFactorUtils.js"
 import { DomainConfigProvider } from "../../../api/common/DomainConfigProvider.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../../api/common/utils/EntityUpdateUtils.js"
 import { MoreInfoLink } from "../../../misc/news/MoreInfoLink.js"
 import { showRequestPasswordDialog } from "../../../misc/passwords/PasswordRequestDialog"
 import { LoginFacade } from "../../../api/worker/facades/LoginFacade"
 import { showProgressDialog } from "../../../gui/dialogs/ProgressDialog"
 import { Dialog } from "../../../gui/base/Dialog"
+import { assertEnumValue, entityUpdateUtils, sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -30,7 +27,7 @@ export class SecondFactorsEditForm {
 	_2FALineAttrs: TableLineAttrs[]
 
 	constructor(
-		private readonly user: LazyLoaded<User>,
+		private readonly user: LazyLoaded<sysTypeRefs.User>,
 		private readonly domainConfigProvider: DomainConfigProvider,
 		private readonly loginFacade: LoginFacade,
 		private askForPassword: boolean,
@@ -60,7 +57,7 @@ export class SecondFactorsEditForm {
 						this.showAddSecondFactorDialog()
 					}
 				},
-				icon: Icons.Add,
+				icon: Icons.Plus,
 				size: ButtonSize.Compact,
 			},
 		}
@@ -82,7 +79,7 @@ export class SecondFactorsEditForm {
 
 	async _updateSecondFactors(): Promise<void> {
 		const user = await this.user.getAsync()
-		const factors = await locator.entityClient.loadAll(SecondFactorTypeRef, neverNull(user.auth).secondFactors)
+		const factors = await locator.entityClient.loadAll(sysTypeRefs.SecondFactorTypeRef, neverNull(user.auth).secondFactors)
 		// If we have keys registered on multiple domains (read: whitelabel) then we display domain for each
 		const loginDomains = new Set<string>()
 
@@ -107,7 +104,7 @@ export class SecondFactorsEditForm {
 						this.removeSecondFactor(f)
 					}
 				},
-				icon: Icons.Cancel,
+				icon: Icons.X,
 				size: ButtonSize.Compact,
 			}
 
@@ -121,7 +118,7 @@ export class SecondFactorsEditForm {
 		m.redraw()
 	}
 
-	private formatSecondFactorName(factor: SecondFactor, loginDomains: ReadonlySet<string>): string {
+	private formatSecondFactorName(factor: sysTypeRefs.SecondFactor, loginDomains: ReadonlySet<string>): string {
 		const isU2F = factor.type === SecondFactorType.u2f || factor.type === SecondFactorType.webauthn
 		// we only show the domains when we have keys registered for different domains
 		const requiresDomainDisambiguation = isU2F && loginDomains.size > 1
@@ -143,7 +140,7 @@ export class SecondFactorsEditForm {
 					const token = await this.loginFacade.getVerifierToken(passphrase)
 					this.showAddSecondFactorDialog(token)
 				} catch (e) {
-					if (e instanceof NotAuthorizedError) {
+					if (e instanceof restError.NotAuthorizedError) {
 						return lang.get("invalidPassword_msg")
 					} else {
 						throw e
@@ -163,14 +160,14 @@ export class SecondFactorsEditForm {
 		SecondFactorEditDialog.loadAndShow(locator.entityClient, this.user, token)
 	}
 
-	private removeSecondFactorWithPasswordCheck(secondFactorToRemove: SecondFactor) {
+	private removeSecondFactorWithPasswordCheck(secondFactorToRemove: sysTypeRefs.SecondFactor) {
 		const dialog = showRequestPasswordDialog({
 			action: async (passphrase) => {
 				let token = undefined
 				try {
 					token = await this.loginFacade.getVerifierToken(passphrase)
 				} catch (e) {
-					if (e instanceof NotAuthorizedError) {
+					if (e instanceof restError.NotAuthorizedError) {
 						return lang.get("invalidPassword_msg")
 					} else {
 						throw e
@@ -188,7 +185,7 @@ export class SecondFactorsEditForm {
 		})
 	}
 
-	private removeSecondFactor(secondFactorToRemove: SecondFactor, token?: string) {
+	private removeSecondFactor(secondFactorToRemove: sysTypeRefs.SecondFactor, token?: string) {
 		try {
 			let options = undefined
 			if (token) {
@@ -196,7 +193,7 @@ export class SecondFactorsEditForm {
 			}
 			showProgressDialog("pleaseWait_msg", locator.entityClient.erase(secondFactorToRemove, options))
 		} catch (e) {
-			if (e instanceof NotFoundError) {
+			if (e instanceof restError.NotFoundError) {
 				console.log("could not delete second factor (already deleted)")
 			} else {
 				throw e
@@ -204,8 +201,8 @@ export class SecondFactorsEditForm {
 		}
 	}
 
-	entityEventReceived(update: EntityUpdateData): Promise<void> {
-		if (isUpdateForTypeRef(SecondFactorTypeRef, update)) {
+	entityEventReceived(update: entityUpdateUtils.EntityUpdateData): Promise<void> {
+		if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.SecondFactorTypeRef, update)) {
 			return this._updateSecondFactors()
 		} else {
 			return Promise.resolve()

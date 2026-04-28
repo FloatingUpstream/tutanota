@@ -1,6 +1,7 @@
 import { locator } from "../../api/main/CommonLocator.js"
-import { AvailablePlanType, NewBusinessPlans, PaymentMethodType, PlanType, PlanTypeToName } from "../../api/common/TutanotaConstants.js"
 import { PaymentInterval, PaymentIntervalToName } from "../utils/PriceUtils.js"
+import { AvailablePlanType, NewBusinessPlans, PaymentMethodType, PlanType } from "@tutao/app-env"
+import { PlanTypeToName } from "@tutao/typerefs"
 
 export enum SignupFlowStage {
 	TRIGGER,
@@ -13,7 +14,7 @@ export enum SignupFlowStage {
 export type ReferralType = "not_referred" | "satisfactiondialog_referral" | "organic_referral"
 
 export abstract class SignupFlowUsageTestController {
-	private static readonly USAGE_TEST_NAME = "signup.flow"
+	private static readonly USAGE_TEST_NAME = "signup.flow_2"
 
 	public static invalidateUsageTest() {
 		const usageTest = locator.usageTestController.getTest(this.USAGE_TEST_NAME)
@@ -73,7 +74,7 @@ export abstract class SignupFlowUsageTestController {
 			})
 		}
 
-		void stage.complete()
+		stage.deletePing().then(() => void stage.complete())
 	}
 
 	private static paymentMethodTypeToString(input: PaymentMethodType): string {

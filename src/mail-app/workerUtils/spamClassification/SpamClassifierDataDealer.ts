@@ -1,33 +1,22 @@
 import { EntityClient } from "../../../common/api/common/EntityClient"
-import { assertNotNull, isEmpty, isNotNull, last, lazyAsync, promiseMap, splitInChunks } from "@tutao/tutanota-utils"
-import {
-	ClientSpamTrainingDatum,
-	ClientSpamTrainingDatumIndexEntryTypeRef,
-	ClientSpamTrainingDatumTypeRef,
-	Mail,
-	MailBag,
-	MailBox,
-	MailboxGroupRootTypeRef,
-	MailBoxTypeRef,
-	MailSet,
-	MailSetTypeRef,
-	MailTypeRef,
-	PopulateClientSpamTrainingDatum,
-} from "../../../common/api/entities/tutanota/TypeRefs"
-import { getMailSetKind, isFolder, MailSetKind, MAX_NBR_OF_MAILS_SYNC_OPERATION, SpamDecision } from "../../../common/api/common/TutanotaConstants"
+import { assertNotNull, isEmpty, isNotNull, last, lazyAsync, promiseMap, splitInChunks } from "@tutao/utils"
 import {
 	compareNewestFirst,
 	GENERATED_MIN_ID,
 	getElementId,
+	getMailSetKind,
+	hasError,
+	isFolder,
 	isSameId,
 	StrippedEntity,
 	timestampToGeneratedId,
-} from "../../../common/api/common/utils/EntityUtils"
+	tutanotaTypeRefs,
+} from "@tutao/typerefs"
+import { SpamDecision } from "@tutao/app-env"
 import { BulkMailLoader, MailWithMailDetails } from "../index/BulkMailLoader"
-import { hasError } from "../../../common/api/common/utils/ErrorUtils"
-import { getSpamConfidence } from "../../../common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
 import { MailFacade } from "../../../common/api/worker/facades/lazy/MailFacade"
-import { isAppleDevice, isDesktop } from "../../../common/api/common/Env"
+import { getSpamConfidence } from "../../../common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
+import { isAppleDevice, isDesktop, MailSetKind, MAX_NBR_OF_MAILS_SYNC_OPERATION } from "@tutao/app-env"
 
 // visible for testing
 export const SINGLE_TRAIN_INTERVAL_TRAINING_DATA_LIMIT = 1000
@@ -35,14 +24,18 @@ const INITIAL_SPAM_CLASSIFICATION_INDEX_INTERVAL_DAYS = 90
 const TRAINING_DATA_TIME_LIMIT: number = INITIAL_SPAM_CLASSIFICATION_INDEX_INTERVAL_DAYS * -1
 
 export type TrainingDataset = {
-	trainingData: ClientSpamTrainingDatum[]
+	trainingData: tutanotaTypeRefs.ClientSpamTrainingDatum[]
 	lastTrainingDataIndexId: Id
 	hamCount: number
 	spamCount: number
 }
 
-export type UnencryptedPopulateClientSpamTrainingDatum = Omit<StrippedEntity<PopulateClientSpamTrainingDatum>, "encVector" | "ownerEncVectorSessionKey"> & {
+export type UnencryptedPopulateClientSpamTrainingDatum = Omit<
+	StrippedEntity<tutanotaTypeRefs.PopulateClientSpamTrainingDatum>,
+	"encVectorLegacy" | "encVectorWithServerClassifiers" | "ownerEncVectorSessionKey"
+> & {
 	vector: Uint8Array
+	vectorNewFormat: Uint8Array
 }
 
 export class SpamClassifierDataDealer {
@@ -55,8 +48,8 @@ export class SpamClassifierDataDealer {
 	private getMaxMailsCapForDevice() {
 		const MAX_MAILS_CAP_DESKTOP = 8000
 		const MAX_MAILS_CAP_DESKTOP_APPLE = 4000
-		const MAX_MAILS_CAP_APPLE = 1000
-		const MAX_MAILS_CAP = 2000
+		const MAX_MAILS_CAP_APPLE = 500
+		const MAX_MAILS_CAP = 1000
 
 		if (isAppleDevice()) {
 			if (isDesktop()) {
@@ -74,12 +67,12 @@ export class SpamClassifierDataDealer {
 	}
 
 	public async fetchAllTrainingData(ownerGroup: Id): Promise<TrainingDataset> {
-		const mailboxGroupRoot = await this.entityClient.load(MailboxGroupRootTypeRef, ownerGroup)
-		const mailbox = await this.entityClient.load(MailBoxTypeRef, mailboxGroupRoot.mailbox)
-		const mailSets = await this.entityClient.loadAll(MailSetTypeRef, mailbox.mailSets.mailSets)
+		const mailboxGroupRoot = await this.entityClient.load(tutanotaTypeRefs.MailboxGroupRootTypeRef, ownerGroup)
+		const mailbox = await this.entityClient.load(tutanotaTypeRefs.MailBoxTypeRef, mailboxGroupRoot.mailbox)
+		const mailSets = await this.entityClient.loadAll(tutanotaTypeRefs.MailSetTypeRef, mailbox.mailSets.mailSets)
 
 		// clientSpamTrainingData is NOT cached
-		let clientSpamTrainingData = await this.entityClient.loadAll(ClientSpamTrainingDatumTypeRef, mailbox.clientSpamTrainingData)
+		let clientSpamTrainingData = await this.entityClient.loadAll(tutanotaTypeRefs.ClientSpamTrainingDatumTypeRef, mailbox.clientSpamTrainingData)
 		console.log(`current clientSpamTrainingData list on the mailbox ${mailbox._id} has ${clientSpamTrainingData.length} members.`)
 		// if the clientSpamTrainingData is empty or does not include all relevant clientSpamTrainingData
 		// for this mailbox, we are aggregating the last INITIAL_SPAM_CLASSIFICATION_INDEX_INTERVAL_DAYS of mails
@@ -101,14 +94,14 @@ export class SpamClassifierDataDealer {
 				},
 				{ concurrency: 5 },
 			)
-			clientSpamTrainingData = await this.entityClient.loadAll(ClientSpamTrainingDatumTypeRef, mailbox.clientSpamTrainingData)
+			clientSpamTrainingData = await this.entityClient.loadAll(tutanotaTypeRefs.ClientSpamTrainingDatumTypeRef, mailbox.clientSpamTrainingData)
 			console.log(`new clientSpamTrainingData list on the mailbox ${mailbox._id} has ${clientSpamTrainingData.length} members.`)
 		}
 
 		const { subsampledTrainingData, hamCount, spamCount } = this.subsampleHamAndSpamMails(clientSpamTrainingData)
 
 		const modifiedClientSpamTrainingDataIndices = await this.entityClient.loadAll(
-			ClientSpamTrainingDatumIndexEntryTypeRef,
+			tutanotaTypeRefs.ClientSpamTrainingDatumIndexEntryTypeRef,
 			mailbox.modifiedClientSpamTrainingDataIndex,
 		)
 		const lastModifiedClientSpamTrainingDataIndexElementId = isEmpty(modifiedClientSpamTrainingDataIndices)
@@ -124,13 +117,13 @@ export class SpamClassifierDataDealer {
 	}
 
 	async fetchPartialTrainingDataFromIndexStartId(indexStartId: Id, ownerGroup: Id): Promise<TrainingDataset> {
-		const mailboxGroupRoot = await this.entityClient.load(MailboxGroupRootTypeRef, ownerGroup)
-		const mailbox = await this.entityClient.load(MailBoxTypeRef, mailboxGroupRoot.mailbox)
+		const mailboxGroupRoot = await this.entityClient.load(tutanotaTypeRefs.MailboxGroupRootTypeRef, ownerGroup)
+		const mailbox = await this.entityClient.load(tutanotaTypeRefs.MailBoxTypeRef, mailboxGroupRoot.mailbox)
 
 		const emptyResult = { trainingData: [], lastTrainingDataIndexId: indexStartId, hamCount: 0, spamCount: 0 }
 
 		const modifiedClientSpamTrainingDataIndicesSinceStart = await this.entityClient.loadRange(
-			ClientSpamTrainingDatumIndexEntryTypeRef,
+			tutanotaTypeRefs.ClientSpamTrainingDatumIndexEntryTypeRef,
 			mailbox.modifiedClientSpamTrainingDataIndex,
 			indexStartId,
 			SINGLE_TRAIN_INTERVAL_TRAINING_DATA_LIMIT,
@@ -142,12 +135,12 @@ export class SpamClassifierDataDealer {
 		}
 
 		const clientSpamTrainingData = await this.entityClient.loadMultiple(
-			ClientSpamTrainingDatumTypeRef,
+			tutanotaTypeRefs.ClientSpamTrainingDatumTypeRef,
 			mailbox.clientSpamTrainingData,
 			modifiedClientSpamTrainingDataIndicesSinceStart.map((index) => index.clientSpamTrainingDatumElementId),
 		)
 
-		const { subsampledTrainingData, hamCount, spamCount } = this.subsampleHamAndSpamMails(clientSpamTrainingData)
+		const { subsampledTrainingData, hamCount, spamCount } = this.subsampleHamAndSpamMails(clientSpamTrainingData, this.getMaxMailsCapForDevice(), true)
 
 		return {
 			trainingData: subsampledTrainingData,
@@ -159,13 +152,10 @@ export class SpamClassifierDataDealer {
 
 	// Visible for testing
 	subsampleHamAndSpamMails(
-		clientSpamTrainingData: ClientSpamTrainingDatum[],
+		clientSpamTrainingData: tutanotaTypeRefs.ClientSpamTrainingDatum[],
 		maxMailsCap: number = this.getMaxMailsCapForDevice(),
-	): {
-		subsampledTrainingData: ClientSpamTrainingDatum[]
-		hamCount: number
-		spamCount: number
-	} {
+		isSubSampleForRetraining: boolean = false,
+	): { subsampledTrainingData: tutanotaTypeRefs.ClientSpamTrainingDatum[]; hamCount: number; spamCount: number } {
 		// we always want to include clientSpamTrainingData with high confidence (usually 4), because these mails have been moved explicitly by the user
 		// we always want to include more recently received mails before including older mails
 		const HIGH_CONFIDENCE_THRESHOLD = 4
@@ -180,12 +170,15 @@ export class SpamClassifierDataDealer {
 			(d) => Number(d.confidence) >= HIGH_CONFIDENCE_THRESHOLD && d.spamDecision === SpamDecision.BLACKLIST,
 		)
 
+		const lowConfidenceThreshold = isSubSampleForRetraining ? 1 : 0
 		const hamDataLowConfidence = dateSortedClientSpamTrainingData.filter(
-			(d) => Number(d.confidence) > 0 && Number(d.confidence) < HIGH_CONFIDENCE_THRESHOLD && d.spamDecision === SpamDecision.WHITELIST,
+			(d) =>
+				Number(d.confidence) > lowConfidenceThreshold && Number(d.confidence) < HIGH_CONFIDENCE_THRESHOLD && d.spamDecision === SpamDecision.WHITELIST,
 		)
 
 		const spamDataLowConfidence = dateSortedClientSpamTrainingData.filter(
-			(d) => Number(d.confidence) > 0 && Number(d.confidence) < HIGH_CONFIDENCE_THRESHOLD && d.spamDecision === SpamDecision.BLACKLIST,
+			(d) =>
+				Number(d.confidence) > lowConfidenceThreshold && Number(d.confidence) < HIGH_CONFIDENCE_THRESHOLD && d.spamDecision === SpamDecision.BLACKLIST,
 		)
 
 		const hamCount = hamDataHighConfidence.length + hamDataLowConfidence.length
@@ -228,8 +221,12 @@ export class SpamClassifierDataDealer {
 	}
 
 	// Visible for testing
-	async fetchMailsByMailbagAfterDate(mailbag: MailBag, mailSets: MailSet[], startDate: Date): Promise<Array<Mail>> {
-		const mails = await this.entityClient.loadAll(MailTypeRef, mailbag.mails, timestampToGeneratedId(startDate.getTime()))
+	async fetchMailsByMailbagAfterDate(
+		mailbag: tutanotaTypeRefs.MailBag,
+		mailSets: tutanotaTypeRefs.MailSet[],
+		startDate: Date,
+	): Promise<Array<tutanotaTypeRefs.Mail>> {
+		const mails = await this.entityClient.loadAll(tutanotaTypeRefs.MailTypeRef, mailbag.mails, timestampToGeneratedId(startDate.getTime()))
 		const trashFolder = assertNotNull(mailSets.find((set) => getMailSetKind(set) === MailSetKind.TRASH))
 		return mails.filter((mail) => {
 			const isMailTrashed = mail.sets.some((setId) => isSameId(setId, trashFolder._id))
@@ -237,8 +234,8 @@ export class SpamClassifierDataDealer {
 		})
 	}
 
-	private async fetchMailsForMailbox(mailbox: MailBox, mailSets: MailSet[]): Promise<Array<Mail>> {
-		const downloadedMailClassificationData = new Array<Mail>()
+	private async fetchMailsForMailbox(mailbox: tutanotaTypeRefs.MailBox, mailSets: tutanotaTypeRefs.MailSet[]): Promise<Array<tutanotaTypeRefs.Mail>> {
+		const downloadedMailClassificationData = new Array<tutanotaTypeRefs.Mail>()
 
 		const { LocalTimeDateProvider } = await import("../../../common/api/worker/DateProvider")
 		const startDate = new LocalTimeDateProvider().getStartOfDayShiftedBy(TRAINING_DATA_TIME_LIMIT)
@@ -257,20 +254,27 @@ export class SpamClassifierDataDealer {
 		return downloadedMailClassificationData
 	}
 
-	private async uploadTrainingDataForMails(mails: MailWithMailDetails[], mailBox: MailBox, mailSets: MailSet[]): Promise<void> {
+	private async uploadTrainingDataForMails(
+		mails: MailWithMailDetails[],
+		mailBox: tutanotaTypeRefs.MailBox,
+		mailSets: tutanotaTypeRefs.MailSet[],
+	): Promise<void> {
+		const mailFacade = await this.mailFacade()
 		const unencryptedPopulateClientSpamTrainingData: UnencryptedPopulateClientSpamTrainingDatum[] = await promiseMap(
 			mails,
 			async (mailWithDetail) => {
 				const { mail, mailDetails } = mailWithDetail
 				const allMailFolders = mailSets.filter((mailSet) => isFolder(mailSet)).map((mailFolder) => mailFolder._id)
-				const sourceMailFolderId = assertNotNull(mail.sets.find((setId) => allMailFolders.find((folderId) => isSameId(setId, folderId))))
-				const sourceMailFolder = assertNotNull(mailSets.find((set) => isSameId(set._id, sourceMailFolderId)))
-				const isSpam = getMailSetKind(sourceMailFolder) === MailSetKind.SPAM
+				const mailFolderId = assertNotNull(mail.sets.find((setId) => allMailFolders.find((folderId) => isSameId(setId, folderId))))
+				const mailFolder = assertNotNull(mailSets.find((set) => isSameId(set._id, mailFolderId)))
+				const isSpam = getMailSetKind(mailFolder) === MailSetKind.SPAM
+				const { uploadableVectorLegacy, uploadableVector } = await mailFacade.createModelInputAndUploadableVectors(mail, mailDetails, mailFolder)
 				const unencryptedPopulateClientSpamTrainingData: UnencryptedPopulateClientSpamTrainingDatum = {
 					mailId: mail._id,
 					isSpam,
+					vector: uploadableVectorLegacy,
+					vectorNewFormat: uploadableVector,
 					confidence: getSpamConfidence(mail),
-					vector: await (await this.mailFacade()).vectorizeAndCompressMails({ mail, mailDetails }),
 				}
 				return unencryptedPopulateClientSpamTrainingData
 			},

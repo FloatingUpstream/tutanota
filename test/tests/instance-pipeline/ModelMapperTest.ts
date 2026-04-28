@@ -1,0 +1,235 @@
+import o, { assertThrows } from "@tutao/otest"
+import { random } from "@tutao/crypto"
+import {
+	assertAndSupplyCorrectAssociationClientCardinality,
+	assertCorrectValueCardinality,
+	convertDbToJsType,
+	convertJsToDbType,
+	isDefaultValue,
+	ModelMapper,
+	valueToDefault,
+} from "@tutao/instance-pipeline"
+import {
+	AssociationType,
+	Cardinality,
+	ClientModelParsedInstance,
+	ClientTypeReferenceResolver,
+	GENERATED_MIN_ID,
+	ModelAssociation,
+	ServerModelParsedInstance,
+	ServerTypeReferenceResolver,
+	ValueType,
+} from "@tutao/typerefs"
+import { assertNotNull, downcast, uint8ArrayToBase64 } from "@tutao/utils"
+import { dummyResolver, TestAggregate, TestAggregateRef, TestEntity, TestTypeRef } from "./InstancePipelineTestUtils"
+import { ProgrammingError } from "@tutao/app-env"
+import { removeOriginals } from "../TestUtils"
+import { InvalidModelError } from "@tutao/app-env"
+
+o.spec("ModelMapper", function () {
+	const modelMapper: ModelMapper = new ModelMapper(dummyResolver as ClientTypeReferenceResolver, dummyResolver as ServerTypeReferenceResolver)
+
+	o.spec("convertDbToJsType", function () {
+		o("convert value to JS Date", function () {
+			let value = new Date().getTime().toString()
+			o(convertDbToJsType(ValueType.Date, value)).deepEquals(new Date(parseInt(value)))
+		})
+		o("convert unencrypted Bytes to JS type", function () {
+			const valueBytes = random.generateRandomData(15)
+			const value = uint8ArrayToBase64(valueBytes)
+			const jsBytes = convertDbToJsType(ValueType.Bytes, value)
+			o(jsBytes instanceof Uint8Array).equals(true)
+			o(Array.from(jsBytes as Uint8Array)).deepEquals(Array.from(valueBytes))
+		})
+		o("convert unencrypted Boolean to JS type", function () {
+			o(convertDbToJsType(ValueType.Boolean, "0")).equals(false)
+			o(convertDbToJsType(ValueType.Boolean, "1")).equals(true)
+		})
+		o("convert unencrypted Number to JS type", function () {
+			o(convertDbToJsType(ValueType.Number, "0")).equals("0")
+			o(convertDbToJsType(ValueType.Number, "1")).equals("1")
+			o(convertDbToJsType(ValueType.Number, "12456")).equals("12456")
+		})
+		o("convert unencrypted compressedString to JS type", function () {
+			o(convertDbToJsType(ValueType.CompressedString, "")).equals("")
+			o(convertDbToJsType(ValueType.CompressedString, "QHRlc3Q=")).equals("test")
+		})
+	})
+	o.spec("convertJsToDbType", function () {
+		o("convert unencrypted Date to DB type", function () {
+			let value = new Date()
+			o(convertJsToDbType(ValueType.Date, value)).equals(value.getTime().toString())
+		})
+
+		o("convert unencrypted Bytes to DB type", function () {
+			let valueBytes = random.generateRandomData(15)
+			const dbBytes = convertJsToDbType(ValueType.Bytes, valueBytes)
+			o(dbBytes instanceof Uint8Array).equals(true)
+			o(uint8ArrayToBase64(dbBytes as Uint8Array)).equals(uint8ArrayToBase64(valueBytes))
+		})
+
+		o("convert unencrypted Boolean to DB type", function () {
+			let value = false
+			o(convertJsToDbType(ValueType.Boolean, value)).equals("0")
+			value = true
+			o(convertJsToDbType(ValueType.Boolean, value)).equals("1")
+		})
+
+		o("convert unencrypted Number to DB type", function () {
+			let value = "0"
+			o(convertJsToDbType(ValueType.Number, value)).equals("0")
+			value = "1"
+			o(convertJsToDbType(ValueType.Number, value)).equals("1")
+		})
+	})
+
+	o.spec("mapToInstance", function () {
+		o("happy path", async function () {
+			const parsedInstance: ServerModelParsedInstance = {
+				1: "some encrypted string",
+				5: new Date("2025-01-01T13:00:00.000Z"),
+				3: [{ 2: "123", 6: "123456", 9: [], 10: [] } as unknown as ServerModelParsedInstance],
+				12: "generatedId",
+				13: ["listId", "elementId"],
+				4: ["associatedElementId"],
+				7: true,
+				8: [["listId", "listElementId"]],
+			} as unknown as ServerModelParsedInstance
+			const mappedInstance = (await modelMapper.mapToInstance(TestTypeRef, parsedInstance)) as any
+			removeOriginals(mappedInstance)
+			o(mappedInstance._type).deepEquals(TestTypeRef)
+			o(mappedInstance._id).deepEquals(["listId", "elementId"])
+			o(mappedInstance.testValue).equals("some encrypted string")
+			o(mappedInstance.testBoolean).equals(true)
+			o(mappedInstance.testDate.toISOString()).equals("2025-01-01T13:00:00.000Z")
+			o(mappedInstance.testAssociation[0]).deepEquals({
+				_type: TestAggregateRef,
+				testNumber: "123",
+				_id: "123456",
+				testSecondLevelAssociation: [],
+				testZeroOrOneAggregation: null,
+			})
+			o(mappedInstance.testElementAssociation).equals("associatedElementId")
+			o(mappedInstance.testGeneratedId).equals("generatedId")
+			o(mappedInstance.testListElementAssociation).deepEquals([["listId", "listElementId"]])
+			o(typeof mappedInstance._errors).equals("undefined")
+		})
+		o("wrong cardinality on value field throws", async function () {
+			const parsedInstance: ServerModelParsedInstance = {
+				1: null,
+				5: new Date("2025-01-01T13:00:00.000Z"),
+				3: [{ 2: "123", 6: "123456" } as unknown as ServerModelParsedInstance],
+				4: ["associatedListId"],
+				7: true,
+			} as unknown as ServerModelParsedInstance
+			await assertThrows(ProgrammingError, async () => modelMapper.mapToInstance(TestTypeRef, parsedInstance))
+		})
+		o("wrong aggregation cardinality throws", async function () {
+			const parsedInstance: ServerModelParsedInstance = {
+				1: "some encrypted string",
+				5: new Date("2025-01-01T13:00:00.000Z"),
+				3: [],
+				4: ["associatedListId"],
+				7: true,
+			} as unknown as ServerModelParsedInstance
+			await assertThrows(ProgrammingError, async () => modelMapper.mapToInstance(TestTypeRef, parsedInstance))
+		})
+		o("wrong reference cardinality throws", async function () {
+			const parsedInstance: ServerModelParsedInstance = {
+				1: "some encrypted string",
+				5: new Date("2025-01-01T13:00:00.000Z"),
+				3: [{ 2: "123", 6: "123456" } as unknown as ServerModelParsedInstance],
+				4: [],
+				7: true,
+			} as unknown as ServerModelParsedInstance
+			await assertThrows(ProgrammingError, async () => modelMapper.mapToInstance(TestTypeRef, parsedInstance))
+		})
+	})
+	o.spec("mapToClientModelParsedInstance", function () {
+		o("happy path debug", async function () {
+			const instance: TestEntity = {
+				_type: TestTypeRef,
+				testAssociation: [
+					{
+						_type: TestAggregateRef,
+						testNumber: "123456",
+					} as TestAggregate,
+				],
+				testBoolean: false,
+				testDate: new Date("2025-01-01T13:00:00.000Z"),
+				testElementAssociation: "associatedElementId",
+				testListElementAssociation: [["listId", "listElementId"]],
+				testZeroOrOneListElementAssociation: null,
+				testValue: "some encrypted string",
+				testGeneratedId: GENERATED_MIN_ID,
+				_id: [GENERATED_MIN_ID, GENERATED_MIN_ID],
+				testFinalBoolean: false,
+			}
+			const parsedInstance: ClientModelParsedInstance = await modelMapper.mapToClientModelParsedInstance(TestTypeRef, instance)
+
+			o(parsedInstance[1]).equals("some encrypted string")
+			o(parsedInstance[7]).equals(false)
+			o((parsedInstance[5] as Date).toISOString()).equals("2025-01-01T13:00:00.000Z")
+			const testAssociation = assertNotNull(parsedInstance[3])[0]
+			o(testAssociation[2]).equals("123456")
+			o(testAssociation[6].length).deepEquals(6) // custom generated id
+			o(parsedInstance[4]).deepEquals(["associatedElementId"])
+			o(typeof parsedInstance._errors).equals("undefined")
+		})
+	})
+	o.spec("default value mappings", function () {
+		o("valueToDefault and isDefaultValue are compatible", async function () {
+			const types = JSON.parse(JSON.stringify(ValueType))
+			delete types.GeneratedId
+			delete types.CustomId
+			for (const valueType of Object.values(types as typeof ValueType)) {
+				o(isDefaultValue(valueType, valueToDefault(valueType))).equals(true)
+			}
+
+			await assertThrows(ProgrammingError, async () => valueToDefault(ValueType.GeneratedId))
+			await assertThrows(ProgrammingError, async () => valueToDefault(ValueType.CustomId))
+			await assertThrows(ProgrammingError, async () => isDefaultValue(ValueType.GeneratedId, ""))
+			await assertThrows(ProgrammingError, async () => isDefaultValue(ValueType.CustomId, ""))
+		})
+	})
+	o.spec("cardinality assertions", function () {
+		o("assertCorrectAssociationClientCardinality", async function () {
+			const f = (type, cardinality, value) =>
+				assertAndSupplyCorrectAssociationClientCardinality(
+					TestTypeRef,
+					"1",
+					downcast<ModelAssociation>({
+						type,
+						cardinality,
+					}),
+					value,
+				)
+			o(f(AssociationType.ListAssociation, Cardinality.One, ["v"])).deepEquals("v")
+			o(f(AssociationType.ListAssociation, Cardinality.ZeroOrOne, ["v"])).deepEquals("v")
+			o(f(AssociationType.ListAssociation, Cardinality.ZeroOrOne, [])).deepEquals(null)
+			o(f(AssociationType.ListAssociation, Cardinality.Any, ["v"])).deepEquals(["v"])
+			o(f(AssociationType.ListAssociation, Cardinality.Any, ["v", "v2"])).deepEquals(["v", "v2"])
+			o(f(AssociationType.ListElementAssociationGenerated, Cardinality.ZeroOrOne, [["listId", "listElementId"]])).deepEquals(["listId", "listElementId"])
+			o(f(AssociationType.ListElementAssociationGenerated, Cardinality.One, [["listId", "listElementId"]])).deepEquals(["listId", "listElementId"])
+			o(f(AssociationType.ListElementAssociationGenerated, Cardinality.Any, [["listId", "listElementId"]])).deepEquals([["listId", "listElementId"]])
+			o(f(AssociationType.ListElementAssociationGenerated, Cardinality.Any, [])).deepEquals([])
+
+			await assertThrows(InvalidModelError, async () => f(AssociationType.ListElementAssociationGenerated, Cardinality.One, ["v", "v1", "v2"]))
+			await assertThrows(InvalidModelError, async () => f(AssociationType.ListElementAssociationGenerated, Cardinality.ZeroOrOne, ["v", "v1", "v2"]))
+			await assertThrows(InvalidModelError, async () => f(AssociationType.ListAssociation, Cardinality.One, []))
+			await assertThrows(InvalidModelError, async () => f(AssociationType.ListAssociation, Cardinality.One, ["v", "v2"]))
+			await assertThrows(InvalidModelError, async () => f(AssociationType.ListAssociation, Cardinality.ZeroOrOne, ["v", "v2"]))
+		})
+
+		o("assertCorrectValueCardinality", async function () {
+			const f = (card, value) => assertCorrectValueCardinality(TestTypeRef, "1", card, value)
+			o(f(Cardinality.One, "v")).deepEquals("v")
+			o(f(Cardinality.ZeroOrOne, "v")).deepEquals("v")
+			o(f(Cardinality.ZeroOrOne, null)).deepEquals(null)
+
+			await assertThrows(InvalidModelError, async () => f(Cardinality.One, null))
+			await assertThrows(InvalidModelError, async () => f(Cardinality.Any, null))
+			await assertThrows(InvalidModelError, async () => f(Cardinality.Any, "v"))
+		})
+	})
+})

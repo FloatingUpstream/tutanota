@@ -7,7 +7,7 @@ import { object, when } from "testdouble"
 import { DateProvider } from "../../../../src/common/api/common/DateProvider.js"
 import { AlarmIntervalUnit, StandardAlarmInterval } from "../../../../src/common/calendar/date/CalendarUtils.js"
 import { createTestEntity } from "../../TestUtils"
-import { DefaultAlarmInfoTypeRef, GroupSettingsTypeRef } from "../../../../src/common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { serializeAlarmInterval } from "../../../../src/common/api/common/utils/CommonCalendarUtils"
 
 const dateProvider: DateProvider = object()
@@ -84,9 +84,11 @@ o.spec("CalendarEventAlarmModel", function () {
 		const defaultAlarms = [StandardAlarmInterval.FIVE_MINUTES]
 		const calendarId = "calendarTest"
 		const groupSettings = [
-			createTestEntity(GroupSettingsTypeRef, {
+			createTestEntity(tutanotaTypeRefs.GroupSettingsTypeRef, {
 				group: calendarId,
-				defaultAlarmsList: defaultAlarms.map((alarm) => createTestEntity(DefaultAlarmInfoTypeRef, { trigger: serializeAlarmInterval(alarm) })),
+				defaultAlarmsList: defaultAlarms.map((alarm) =>
+					createTestEntity(tutanotaTypeRefs.DefaultAlarmInfoTypeRef, { trigger: serializeAlarmInterval(alarm) }),
+				),
 			}),
 		]
 

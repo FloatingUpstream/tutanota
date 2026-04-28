@@ -2,23 +2,23 @@ import m from "mithril"
 import type { TranslationKey } from "../../common/misc/LanguageViewModel"
 import { lang } from "../../common/misc/LanguageViewModel"
 import { isDomainOrTopLevelDomain, isMailAddress } from "../../common/misc/FormatValidator"
-import { getSpamRuleField, getSpamRuleType, SpamRuleFieldType, SpamRuleType, TUTA_MAIL_ADDRESS_DOMAINS } from "../../common/api/common/TutanotaConstants"
-import { contains, objectEntries } from "@tutao/tutanota-utils"
+import { SpamRuleFieldType, TUTA_MAIL_ADDRESS_DOMAINS } from "@tutao/app-env"
+import { contains, objectEntries } from "@tutao/utils"
 import { Dialog } from "../../common/gui/base/Dialog"
-import type { EmailSenderListElement } from "../../common/api/entities/sys/TypeRefs.js"
 import stream from "mithril/stream"
 import type { SelectorItemList } from "../../common/gui/base/DropDownSelector.js"
 import { DropDownSelector } from "../../common/gui/base/DropDownSelector.js"
 import { Autocapitalize, TextField } from "../../common/gui/base/TextField.js"
 import { locator } from "../../common/api/main/CommonLocator"
-import { assertMainOrNode } from "../../common/api/common/Env"
+import { assertMainOrNode, SpamRuleType } from "@tutao/app-env"
 import { isOfflineError } from "../../common/api/common/utils/ErrorUtils.js"
+import { getSpamRuleField, getSpamRuleType, sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
-type LoadedData = { customDomains: string[]; existingSpamRules: EmailSenderListElement[] }
+type LoadedData = { customDomains: string[]; existingSpamRules: sysTypeRefs.EmailSenderListElement[] }
 
-export function showAddSpamRuleDialog(existingSpamRuleOrTemplate: EmailSenderListElement | null) {
+export function showAddSpamRuleDialog(existingSpamRuleOrTemplate: sysTypeRefs.EmailSenderListElement | null) {
 	let loadedData: LoadedData | null = null
 
 	const typeItems = getSpamRuleTypeNameMapping()
@@ -96,7 +96,7 @@ export function showAddSpamRuleDialog(existingSpamRuleOrTemplate: EmailSenderLis
 
 async function loadData(): Promise<LoadedData> {
 	const customerServerProperties = await locator.customerFacade.loadCustomerServerProperties()
-	const customer = await locator.logins.getUserController().loadCustomer()
+	const customer = await locator.logins.getUserController().reloadCustomer()
 	const customerInfo = await locator.logins.getUserController().loadCustomerInfo()
 
 	const customDomains = customerInfo.domainInfos.map((d) => d.domain)
@@ -111,7 +111,7 @@ function validate(
 	value: string,
 	field: SpamRuleFieldType,
 	loadedData: LoadedData | null,
-	existingSpamRuleOrTemplate: EmailSenderListElement | null,
+	existingSpamRuleOrTemplate: sysTypeRefs.EmailSenderListElement | null,
 ): TranslationKey | null {
 	let currentValue = value.toLowerCase().trim()
 

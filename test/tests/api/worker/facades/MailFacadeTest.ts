@@ -1,27 +1,7 @@
-import o from "@tutao/otest"
+import o, { assertThrows, verify } from "@tutao/otest"
 import { MailFacade, phishingMarkerValue, validateMimeTypesForAttachments } from "../../../../../src/common/api/worker/facades/lazy/MailFacade.js"
-import {
-	FileTypeRef,
-	InternalRecipientKeyDataTypeRef,
-	Mail,
-	MailAddressTypeRef,
-	MailDetails,
-	MailDetailsBlobTypeRef,
-	MailDetailsTypeRef,
-	MailTypeRef,
-	ReportedMailFieldMarkerTypeRef,
-	SecureExternalRecipientKeyDataTypeRef,
-	SendDraftData,
-	SendDraftDataTypeRef,
-	SymEncInternalRecipientKeyDataTypeRef,
-} from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import {
-	CryptoProtocolVersion,
-	GroupType,
-	MailAuthenticationStatus,
-	MAX_NBR_OF_MAILS_SYNC_OPERATION,
-	ReportedMailFieldType,
-} from "../../../../../src/common/api/common/TutanotaConstants.js"
+import { elementIdPart, getElementId, sysTypeRefs, tutanotaServices, tutanotaTypeRefs } from "@tutao/typerefs"
+import { CryptoProtocolVersion, GroupType, MailAuthenticationStatus, MAX_NBR_OF_MAILS_SYNC_OPERATION, ReportedMailFieldType } from "../../../../../src/app-env"
 import { matchers, object, when } from "testdouble"
 import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade.js"
 import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest.js"
@@ -31,27 +11,14 @@ import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFac
 import { NativeFileApp } from "../../../../../src/common/native/common/FileApp.js"
 import { LoginFacade } from "../../../../../src/common/api/worker/facades/LoginFacade.js"
 import { DataFile } from "../../../../../src/common/api/common/DataFile.js"
-import { downcast, KeyVersion, lazyNumberRange } from "@tutao/tutanota-utils"
-import { ProgrammingError } from "../../../../../src/common/api/common/error/ProgrammingError.js"
+import { downcast, KeyVersion, lazyNumberRange } from "@tutao/utils"
+import { ProgrammingError } from "@tutao/app-env"
 import { createTestEntity } from "../../../TestUtils.js"
 import { KeyLoaderFacade } from "../../../../../src/common/api/worker/facades/KeyLoaderFacade.js"
 import { PublicEncryptionKeyProvider } from "../../../../../src/common/api/worker/facades/PublicEncryptionKeyProvider.js"
-import { assertThrows, verify } from "@tutao/tutanota-test-utils"
-import { UnreadMailStateService } from "../../../../../src/common/api/entities/tutanota/Services"
-import {
-	BucketKeyTypeRef,
-	GroupInfoTypeRef,
-	GroupMembershipTypeRef,
-	InstanceSessionKey,
-	InstanceSessionKeyTypeRef,
-	MailAddressAliasTypeRef,
-	UserTypeRef,
-} from "../../../../../src/common/api/entities/sys/TypeRefs"
 import { OwnerEncSessionKeyProvider } from "../../../../../src/common/api/worker/rest/EntityRestClient"
-import { elementIdPart, getElementId } from "../../../../../src/common/api/common/utils/EntityUtils"
-import { CryptoWrapper, VersionedEncryptedKey } from "../../../../../src/common/api/worker/crypto/CryptoWrapper"
 import { Recipient } from "../../../../../src/common/api/common/recipients/Recipient"
-import { AesKey } from "@tutao/tutanota-crypto"
+import { AesKey, CryptoWrapper, VersionedEncryptedKey } from "@tutao/crypto"
 import { RecipientsNotFoundError } from "../../../../../src/common/api/common/error/RecipientsNotFoundError"
 import { KeyVerificationMismatchError } from "../../../../../src/common/api/common/error/KeyVerificationMismatchError"
 import { SpamClassifier } from "../../../../../src/mail-app/workerUtils/spamClassification/SpamClassifier"
@@ -98,23 +65,23 @@ o.spec("MailFacade test", function () {
 	})
 
 	o.spec("checkMailForPhishing", function () {
-		let mailDetails: MailDetails
-		let mail: Mail
+		let mailDetails: tutanotaTypeRefs.MailDetails
+		let mail: tutanotaTypeRefs.Mail
 		o.beforeEach(function () {
 			const mailDetailsListId = "mailDetailsListId"
 			const mailDetailsElementId = "mailDetailsElementId"
-			mailDetails = createTestEntity(MailDetailsTypeRef, { authStatus: MailAuthenticationStatus.AUTHENTICATED })
-			mail = createTestEntity(MailTypeRef, {
+			mailDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, { authStatus: MailAuthenticationStatus.AUTHENTICATED })
+			mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				mailDetails: [mailDetailsListId, mailDetailsElementId],
 				subject: "Test",
-				sender: createTestEntity(MailAddressTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					name: "a",
 					address: "test@example.com",
 				}),
 			})
-			when(entityClient.loadMultiple(MailDetailsBlobTypeRef, mailDetailsListId, [mailDetailsElementId], matchers.anything())).thenResolve([
-				createTestEntity(MailDetailsBlobTypeRef, { details: mailDetails }),
-			])
+			when(
+				entityClient.loadMultiple(tutanotaTypeRefs.MailDetailsBlobTypeRef, mailDetailsListId, [mailDetailsElementId], matchers.anything()),
+			).thenResolve([createTestEntity(tutanotaTypeRefs.MailDetailsBlobTypeRef, { details: mailDetails })])
 		})
 
 		o("not phishing if no markers", async function () {
@@ -123,10 +90,10 @@ o.spec("MailFacade test", function () {
 
 		o("not phishing if no matching markers", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test 2"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example2.com"),
 				}),
 			])
@@ -136,10 +103,10 @@ o.spec("MailFacade test", function () {
 
 		o("not phishing if only from domain matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test 2"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example.com"),
 				}),
 			])
@@ -149,10 +116,10 @@ o.spec("MailFacade test", function () {
 
 		o("not phishing if only subject matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example2.com"),
 				}),
 			])
@@ -162,10 +129,10 @@ o.spec("MailFacade test", function () {
 
 		o("is phishing if subject and sender domain matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example.com"),
 				}),
 			])
@@ -176,10 +143,10 @@ o.spec("MailFacade test", function () {
 		o("is phishing if subject with whitespaces and sender domain matches", async function () {
 			mail.subject = "\tTest spaces \n"
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Testspaces"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example.com"),
 				}),
 			])
@@ -190,10 +157,10 @@ o.spec("MailFacade test", function () {
 		o("is not phishing if subject and sender domain matches but not authenticated", async function () {
 			mailDetails.authStatus = MailAuthenticationStatus.SOFT_FAIL
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN, "example.com"),
 				}),
 			])
@@ -203,10 +170,10 @@ o.spec("MailFacade test", function () {
 
 		o("is phishing if subject and sender address matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_ADDRESS, "test@example.com"),
 				}),
 			])
@@ -217,10 +184,10 @@ o.spec("MailFacade test", function () {
 		o("is not phishing if subject and sender address matches but not authenticated", async function () {
 			mailDetails.authStatus = MailAuthenticationStatus.SOFT_FAIL
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_ADDRESS, "test@example.com"),
 				}),
 			])
@@ -231,10 +198,10 @@ o.spec("MailFacade test", function () {
 		o("is phishing if subject and non auth sender domain matches", async function () {
 			mailDetails.authStatus = MailAuthenticationStatus.SOFT_FAIL
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_DOMAIN_NON_AUTH, "example.com"),
 				}),
 			])
@@ -245,10 +212,10 @@ o.spec("MailFacade test", function () {
 		o("is phishing if subject and non auth sender address matches", async function () {
 			mailDetails.authStatus = MailAuthenticationStatus.SOFT_FAIL
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.FROM_ADDRESS_NON_AUTH, "test@example.com"),
 				}),
 			])
@@ -258,10 +225,10 @@ o.spec("MailFacade test", function () {
 
 		o("is phishing if subject and link matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.LINK, "https://example.com"),
 				}),
 			])
@@ -271,10 +238,10 @@ o.spec("MailFacade test", function () {
 
 		o("is not phishing if just two links match", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.LINK, "https://example.com"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.LINK, "https://example2.com"),
 				}),
 			])
@@ -289,10 +256,10 @@ o.spec("MailFacade test", function () {
 
 		o("is phishing if subject and link domain matches", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.LINK_DOMAIN, "example.com"),
 				}),
 			])
@@ -302,10 +269,10 @@ o.spec("MailFacade test", function () {
 
 		o("does not throw on invalid link", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.LINK_DOMAIN, "example.com"),
 				}),
 			])
@@ -321,7 +288,7 @@ o.spec("MailFacade test", function () {
 
 		o("is phishing if subject and suspicious link", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
 			])
@@ -338,7 +305,7 @@ o.spec("MailFacade test", function () {
 
 		o("link is not suspicious if on the same domain", async function () {
 			facade.phishingMarkersUpdateReceived([
-				createTestEntity(ReportedMailFieldMarkerTypeRef, {
+				createTestEntity(tutanotaTypeRefs.ReportedMailFieldMarkerTypeRef, {
 					marker: phishingMarkerValue(ReportedMailFieldType.SUBJECT, "Test"),
 				}),
 			])
@@ -400,14 +367,14 @@ o.spec("MailFacade test", function () {
 		})
 
 		o("isTutaCryptMail", () => {
-			const pqRecipient = createTestEntity(InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.TUTA_CRYPT })
-			const rsaRecipient = createTestEntity(InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.RSA })
-			const secureExternalRecipient = createTestEntity(SecureExternalRecipientKeyDataTypeRef, {})
-			const symEncInternalRecipient = createTestEntity(SymEncInternalRecipientKeyDataTypeRef, {})
+			const pqRecipient = createTestEntity(tutanotaTypeRefs.InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.TUTA_CRYPT })
+			const rsaRecipient = createTestEntity(tutanotaTypeRefs.InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.RSA })
+			const secureExternalRecipient = createTestEntity(tutanotaTypeRefs.SecureExternalRecipientKeyDataTypeRef, {})
+			const symEncInternalRecipient = createTestEntity(tutanotaTypeRefs.SymEncInternalRecipientKeyDataTypeRef, {})
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [pqRecipient],
 						secureExternalRecipientKeyData: [],
 						symEncInternalRecipientKeyData: [],
@@ -417,7 +384,7 @@ o.spec("MailFacade test", function () {
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [pqRecipient, pqRecipient],
 						secureExternalRecipientKeyData: [],
 						symEncInternalRecipientKeyData: [],
@@ -427,7 +394,7 @@ o.spec("MailFacade test", function () {
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [],
 						secureExternalRecipientKeyData: [],
 						symEncInternalRecipientKeyData: [],
@@ -437,7 +404,7 @@ o.spec("MailFacade test", function () {
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [pqRecipient, rsaRecipient],
 						secureExternalRecipientKeyData: [],
 						symEncInternalRecipientKeyData: [],
@@ -447,7 +414,7 @@ o.spec("MailFacade test", function () {
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [pqRecipient],
 						secureExternalRecipientKeyData: [secureExternalRecipient],
 						symEncInternalRecipientKeyData: [],
@@ -457,7 +424,7 @@ o.spec("MailFacade test", function () {
 
 			o(
 				facade.isTutaCryptMail(
-					createTestEntity(SendDraftDataTypeRef, {
+					createTestEntity(tutanotaTypeRefs.SendDraftDataTypeRef, {
 						internalRecipientKeyData: [pqRecipient],
 						secureExternalRecipientKeyData: [],
 						symEncInternalRecipientKeyData: [symEncInternalRecipient],
@@ -472,7 +439,7 @@ o.spec("MailFacade test", function () {
 			await facade.markMails(testIds, true)
 			verify(
 				serviceExecutor.post(
-					UnreadMailStateService,
+					tutanotaServices.UnreadMailStateService,
 					matchers.contains({
 						mails: testIds,
 						unread: true,
@@ -489,7 +456,7 @@ o.spec("MailFacade test", function () {
 			await facade.markMails(testIds, true)
 			verify(
 				serviceExecutor.post(
-					UnreadMailStateService,
+					tutanotaServices.UnreadMailStateService,
 					matchers.contains({
 						mails: testIds,
 						unread: true,
@@ -508,7 +475,7 @@ o.spec("MailFacade test", function () {
 			for (let i = 0; i < expectedBatches; i++) {
 				verify(
 					serviceExecutor.post(
-						UnreadMailStateService,
+						tutanotaServices.UnreadMailStateService,
 						matchers.contains({
 							mails: testIds.slice(i * MAX_NBR_OF_MAILS_SYNC_OPERATION, (i + 1) * MAX_NBR_OF_MAILS_SYNC_OPERATION),
 							unread: true,
@@ -517,7 +484,7 @@ o.spec("MailFacade test", function () {
 				)
 			}
 
-			verify(serviceExecutor.post(UnreadMailStateService, matchers.anything()), { times: expectedBatches })
+			verify(serviceExecutor.post(tutanotaServices.UnreadMailStateService, matchers.anything()), { times: expectedBatches })
 		})
 	})
 
@@ -526,16 +493,16 @@ o.spec("MailFacade test", function () {
 			return `attachmentId_mail_${mailIndex}_attachment_${attachmentIndex}`
 		}
 
-		function setUpMail(mailIndex: number, attachmentCount: number): Mail {
-			const mail = createTestEntity(MailTypeRef, {
-				bucketKey: createTestEntity(BucketKeyTypeRef, {
+		function setUpMail(mailIndex: number, attachmentCount: number): tutanotaTypeRefs.Mail {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				bucketKey: createTestEntity(sysTypeRefs.BucketKeyTypeRef, {
 					_id: `hey I'm an ID for bucket key #${mailIndex}`,
 				}),
 			})
-			const instanceSessionKeys: InstanceSessionKey[] = []
+			const instanceSessionKeys: sysTypeRefs.InstanceSessionKey[] = []
 			for (const attachmentIndex of lazyNumberRange(0, attachmentCount)) {
 				const attachmentId = sessionKeyId(mailIndex, attachmentIndex)
-				const instanceSessionKey = createTestEntity(InstanceSessionKeyTypeRef, {
+				const instanceSessionKey = createTestEntity(sysTypeRefs.InstanceSessionKeyTypeRef, {
 					instanceId: attachmentId,
 					symEncSessionKey: new Uint8Array([mailIndex, attachmentIndex, 3, 4]),
 					symKeyVersion: `${mailIndex}`,
@@ -551,10 +518,10 @@ o.spec("MailFacade test", function () {
 			return mail
 		}
 
-		async function checkMail(resolver: OwnerEncSessionKeyProvider, fileCount: number, mails: readonly Mail[]) {
+		async function checkMail(resolver: OwnerEncSessionKeyProvider, fileCount: number, mails: readonly tutanotaTypeRefs.Mail[]) {
 			for (const [mailIndex, mail] of mails.entries()) {
 				for (const [attachmentIndex, attachmentId] of mail.attachments.entries()) {
-					const attachment = createTestEntity(FileTypeRef, {
+					const attachment = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 						_id: attachmentId,
 						name: `file_${attachmentIndex}`,
 					})
@@ -567,7 +534,7 @@ o.spec("MailFacade test", function () {
 		}
 
 		o.test("one mail with no bucket key", async () => {
-			const mail = createTestEntity(MailTypeRef)
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef)
 			await facade.createOwnerEncSessionKeyProviderForAttachments([mail])
 			// since our resolver will do nothing, we just need to ensure that cryptoFacade was never called in the first place
 			verify(cryptoFacade.resolveWithBucketKey(matchers.anything()), { times: 0 })
@@ -581,7 +548,7 @@ o.spec("MailFacade test", function () {
 		o.test("a lot of mails with one file instance", async () => {
 			const count = 100
 			const instanceCount = 1
-			const mails: Mail[] = []
+			const mails: tutanotaTypeRefs.Mail[] = []
 			for (let i = 0; i < count; i++) {
 				mails.push(setUpMail(i, instanceCount))
 			}
@@ -598,7 +565,7 @@ o.spec("MailFacade test", function () {
 		o.test("a lot of mails with many file instances", async () => {
 			const count = 100
 			const instanceCount = 64
-			const mails: Mail[] = []
+			const mails: tutanotaTypeRefs.Mail[] = []
 			for (let i = 0; i < count; i++) {
 				mails.push(setUpMail(i, instanceCount))
 			}
@@ -615,7 +582,7 @@ o.spec("MailFacade test", function () {
 				key: new Uint8Array([1, 2, 3, 4]),
 				encryptingKeyVersion: 10,
 			}
-			const attachment = createTestEntity(FileTypeRef, {
+			const attachment = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 				_id: mail.attachments[0],
 				_ownerEncSessionKey: expectedSK.key,
 				_ownerKeyVersion: String(expectedSK.encryptingKeyVersion),
@@ -628,7 +595,7 @@ o.spec("MailFacade test", function () {
 	o.spec("addRecipientKeyData", function () {
 		o("correctly throws RecipientsNotFoundError", async function () {
 			const bucketKey: AesKey = object()
-			const sendDraftData: SendDraftData = object()
+			const sendDraftData: tutanotaTypeRefs.SendDraftData = object()
 			const senderMailGroupId: Id = object()
 
 			const notFoundRecipient1: Recipient = object()
@@ -680,7 +647,7 @@ o.spec("MailFacade test", function () {
 
 		o("correctly throws KeyVerificationMismatchError", async function () {
 			const bucketKey: AesKey = object()
-			const sendDraftData: SendDraftData = object()
+			const sendDraftData: tutanotaTypeRefs.SendDraftData = object()
 			const senderMailGroupId: Id = object()
 
 			const unverifiedRecipient1: Recipient = object()
@@ -733,46 +700,49 @@ o.spec("MailFacade test", function () {
 
 	o.spec("getAllMailAddressesForUser", function () {
 		o("getAllMailAddressesForUser returns all mail addresses from all mail groups", async function () {
-			const mailGroupInfoUser = createTestEntity(GroupInfoTypeRef, {
+			const mailGroupInfoUser = createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddressAliases: [
-					createTestEntity(MailAddressAliasTypeRef, { mailAddress: "user@tutanota.de", enabled: true }),
-					createTestEntity(MailAddressAliasTypeRef, { mailAddress: "deactivated-alias@tutanota.de", enabled: false }),
-					createTestEntity(MailAddressAliasTypeRef, { mailAddress: "activated-alias-alias@tutanota.de", enabled: true }),
+					createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, { mailAddress: "user@tutanota.de", enabled: true }),
+					createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, { mailAddress: "deactivated-alias@tutanota.de", enabled: false }),
+					createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, {
+						mailAddress: "activated-alias-alias@tutanota.de",
+						enabled: true,
+					}),
 				],
 			})
 
-			const user = createTestEntity(UserTypeRef, {
+			const user = createTestEntity(sysTypeRefs.UserTypeRef, {
 				memberships: [
-					createTestEntity(GroupMembershipTypeRef, {
+					createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 						groupType: GroupType.Mail,
 						groupInfo: ["groupInfoListId", "mailGroupInfoElementId"],
 					}),
-					createTestEntity(GroupMembershipTypeRef, {
+					createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 						groupType: GroupType.Mail,
 						groupInfo: ["groupInfoListId", "mailGroupInfoElementIdEmpty"],
 					}),
-					createTestEntity(GroupMembershipTypeRef, {
+					createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 						groupType: GroupType.Contact,
 						groupInfo: ["groupInfoListId", "contactGroupInfoElementId2"],
 					}),
 				],
-				userGroup: createTestEntity(GroupMembershipTypeRef, {
+				userGroup: createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 					groupInfo: ["groupInfoListId", "userGroupElementId"],
 				}),
 			})
-			when(entityClient.load(GroupInfoTypeRef, ["groupInfoListId", "userGroupElementId"])).thenResolve(mailGroupInfoUser)
-			const mailGroupInfo = createTestEntity(GroupInfoTypeRef, {
+			when(entityClient.load(sysTypeRefs.GroupInfoTypeRef, ["groupInfoListId", "userGroupElementId"])).thenResolve(mailGroupInfoUser)
+			const mailGroupInfo = createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddressAliases: [
-					createTestEntity(MailAddressAliasTypeRef, { mailAddress: "alias1-mail-group@tutanota.de", enabled: true }),
-					createTestEntity(MailAddressAliasTypeRef, { mailAddress: "alias2-mail-group@tutanota.de", enabled: true }),
+					createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, { mailAddress: "alias1-mail-group@tutanota.de", enabled: true }),
+					createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, { mailAddress: "alias2-mail-group@tutanota.de", enabled: true }),
 				],
 			})
-			when(entityClient.load(GroupInfoTypeRef, ["groupInfoListId", "mailGroupInfoElementId"])).thenResolve(mailGroupInfo)
+			when(entityClient.load(sysTypeRefs.GroupInfoTypeRef, ["groupInfoListId", "mailGroupInfoElementId"])).thenResolve(mailGroupInfo)
 
-			const mailGroupInfoEmpty = createTestEntity(GroupInfoTypeRef, {
+			const mailGroupInfoEmpty = createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddressAliases: [],
 			})
-			when(entityClient.load(GroupInfoTypeRef, ["groupInfoListId", "mailGroupInfoElementIdEmpty"])).thenResolve(mailGroupInfoEmpty)
+			when(entityClient.load(sysTypeRefs.GroupInfoTypeRef, ["groupInfoListId", "mailGroupInfoElementIdEmpty"])).thenResolve(mailGroupInfoEmpty)
 			const mailAliases = await facade.getAllMailAddressesForUser(user)
 
 			o(mailAliases).deepEquals([

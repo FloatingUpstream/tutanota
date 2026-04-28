@@ -1,43 +1,28 @@
-import { Dialog, DialogType } from "../../common/gui/base/Dialog.js"
-import { assertNotNull, getFirstOrThrow, ofClass, promiseMap } from "@tutao/tutanota-utils"
+import { Dialog } from "../../common/gui/base/Dialog.js"
+import { assertNotNull, getFirstOrThrow, ofClass, promiseMap } from "@tutao/utils"
 import { locator } from "../../common/api/main/CommonLocator.js"
 import { vCardFileToVCards, vCardListToContacts } from "./VCardImporter.js"
 import { ImportError } from "../../common/api/common/error/ImportError.js"
-import { lang, MaybeTranslation } from "../../common/misc/LanguageViewModel.js"
+import { lang } from "../../common/misc/LanguageViewModel.js"
 import { showProgressDialog } from "../../common/gui/dialogs/ProgressDialog.js"
 import { ContactFacade } from "../../common/api/worker/facades/lazy/ContactFacade.js"
-import {
-	Contact,
-	createContact,
-	createContactAddress,
-	createContactCustomDate,
-	createContactMailAddress,
-	createContactMessengerHandle,
-	createContactPhoneNumber,
-	createContactRelationship,
-	createContactWebsite,
-} from "../../common/api/entities/tutanota/TypeRefs.js"
-import m from "mithril"
-import { List, ListAttrs, ListLoadingState, MultiselectMode, RenderConfig } from "../../common/gui/base/List.js"
-import { component_size, size } from "../../common/gui/size.js"
 import { UserError } from "../../common/api/main/UserError.js"
-import { DialogHeaderBar, DialogHeaderBarAttrs } from "../../common/gui/base/DialogHeaderBar.js"
-import { ButtonType } from "../../common/gui/base/Button.js"
 import { ImportNativeContactBooksDialog } from "./view/ImportNativeContactBooksDialog.js"
 import { StructuredContact } from "../../common/native/common/generatedipc/StructuredContact.js"
 import { isoDateToBirthday } from "../../common/api/common/utils/BirthdayUtils.js"
 import { ContactBook } from "../../common/native/common/generatedipc/ContactBook.js"
 import { PermissionType } from "../../common/native/common/generatedipc/PermissionType.js"
 import { SystemPermissionHandler } from "../../common/native/main/SystemPermissionHandler.js"
-import { KindaContactRow } from "./view/ContactListView.js"
-import { SelectAllCheckbox } from "../../common/gui/SelectAllCheckbox.js"
 import { mailLocator } from "../mailLocator.js"
 import { FileReference } from "../../common/api/common/utils/FileUtils.js"
 import { AttachmentType, getAttachmentType } from "../../common/gui/AttachmentBubble.js"
 import { NativeFileApp } from "../../common/native/common/FileApp.js"
 import { MobileContactsFacade } from "../../common/native/common/generatedipc/MobileContactsFacade.js"
 import { NativeContactsSyncManager } from "./model/NativeContactsSyncManager"
-import { isIOSApp } from "../../common/api/common/Env"
+import { _compareContactsForMerge } from "./ContactMergeUtils"
+import { ContactSelectionDialogAttrs, ContactSelectionDialogSize, showContactSelectionDialog } from "./view/ContactSelectionDialog"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { ContactComparisonResult, isIOSApp } from "@tutao/app-env"
 
 export class ContactImporter {
 	constructor(
@@ -55,14 +40,23 @@ export class ContactImporter {
 		const contactMembership = getFirstOrThrow(locator.logins.getUserController().getContactGroupMemberships())
 		const contacts = vCardListToContacts(vCardList, contactMembership.group)
 
-		return showContactImportDialog(
-			contacts,
-			(dialog, selectedContacts) => {
-				dialog.close()
-				this.importContacts(selectedContacts, contactListId)
-			},
-			"importVCard_action",
-		)
+		const attrs: ContactSelectionDialogAttrs = {
+			okActionText: "import_action",
+			titleText: "importVCard_action",
+			dialogSize: ContactSelectionDialogSize.Large,
+		}
+
+		return showContactSelectionDialog(attrs, contacts, (dialog, selectedContacts) => {
+			dialog.close()
+			// the contactSelectionDialog uses a listModel which expects _id's to be set
+			// we remove them here again to not cause problems when importing
+			selectedContacts = selectedContacts.map((contact) => {
+				// @ts-ignore
+				contact._id = null
+				return contact
+			})
+			this.importContacts(selectedContacts, contactListId)
+		})
 	}
 
 	private static combineVCardData(vCardData: string[]): string[] | null {
@@ -70,9 +64,14 @@ export class ContactImporter {
 		return combinedVCardData.filter((vCard) => vCard != null) as string[]
 	}
 
-	async importContacts(contacts: ReadonlyArray<Contact>, contactListId: string) {
+	async importContacts(selectedContacts: readonly tutanotaTypeRefs.Contact[], contactListId: string) {
+		//loading all contacts to avoid duplicating contacts while importing
+		const allContacts = await locator.entityClient.loadAll(tutanotaTypeRefs.ContactTypeRef, contactListId)
+
+		const deDuplicatedContacts = this.getDeDuplicatedContacts(allContacts, selectedContacts)
+
 		const importPromise = this.contactFacade
-			.importContactList(contacts, contactListId)
+			.importContactList(deDuplicatedContacts, contactListId)
 			.catch(
 				ofClass(ImportError, (e) =>
 					Dialog.message(
@@ -80,7 +79,7 @@ export class ContactImporter {
 							"confirm_msg",
 							lang.get("importContactsError_msg", {
 								"{amount}": e.numFailed + "",
-								"{total}": contacts.length + "",
+								"{total}": deDuplicatedContacts.length + "",
 							}),
 						),
 					),
@@ -91,9 +90,14 @@ export class ContactImporter {
 		await Dialog.message(
 			lang.makeTranslation(
 				"confirm_msg",
-				lang.get("importVCardSuccess_msg", {
-					"{1}": contacts.length,
-				}),
+				selectedContacts.length === deDuplicatedContacts.length
+					? lang.get("importVCardSuccess_msg", {
+							"{1}": deDuplicatedContacts.length,
+						})
+					: lang.get("importContactDuplicates_msg", {
+							"{duplicates}": selectedContacts.length - deDuplicatedContacts.length,
+							"{newContacts}": deDuplicatedContacts.length,
+						}),
 			),
 		)
 	}
@@ -126,24 +130,38 @@ export class ContactImporter {
 				async (book) => await mobileContactsFacade.getContactsInContactBook(book.id, locator.logins.getUserController().loginUsername),
 			)
 		).flat()
-		const allImportableContacts = new Map(
-			allImportableStructuredContacts.map((structuredContact) => [
-				this.contactFromStructuredContact(contactGroupId, structuredContact),
+		const allImportableContactsToStructuredContact = new Map(
+			allImportableStructuredContacts.map((structuredContact, index) => [
+				this.contactFromStructuredContact(contactGroupId, structuredContact, index),
 				structuredContact,
 			]),
 		)
 
-		showContactImportDialog(
-			[...allImportableContacts.keys()],
-			async (dialog, selectedContacts) => {
-				dialog.close()
-				await this.onContactImportConfirmed(contactListId, selectedContacts, allImportableContacts)
-			},
-			"importContacts_label",
-		)
+		const attrs: ContactSelectionDialogAttrs = {
+			okActionText: "import_action",
+			titleText: "importContacts_label",
+			dialogSize: ContactSelectionDialogSize.Large,
+		}
+
+		const allImportableContacts = allImportableContactsToStructuredContact.keys()
+		showContactSelectionDialog(attrs, [...allImportableContacts], async (dialog, selectedContacts) => {
+			dialog.close()
+			// the contactSelectionDialog uses a listModel which expects _id's to be set
+			// we remove them here again to not cause problems when importing
+			selectedContacts = selectedContacts.map((contact) => {
+				// @ts-ignore
+				contact._id = null
+				return contact
+			})
+			await this.onContactImportConfirmed(contactListId, selectedContacts, allImportableContactsToStructuredContact)
+		})
 	}
 
-	private async onContactImportConfirmed(contactListId: string | null, selectedContacts: Contact[], allImportableContacts: Map<Contact, StructuredContact>) {
+	private async onContactImportConfirmed(
+		contactListId: string | null,
+		selectedContacts: tutanotaTypeRefs.Contact[],
+		allImportableContacts: Map<tutanotaTypeRefs.Contact, StructuredContact>,
+	) {
 		const importer = await mailLocator.contactImporter()
 		const mobileContactsFacade = assertNotNull(this.mobileContactsFacade)
 		const nativeContactSyncManager = assertNotNull(this.nativeContactSyncManager)
@@ -168,6 +186,16 @@ export class ContactImporter {
 		}
 	}
 
+	getDeDuplicatedContacts(
+		allContacts: readonly tutanotaTypeRefs.Contact[],
+		selectedContacts: readonly tutanotaTypeRefs.Contact[],
+	): tutanotaTypeRefs.Contact[] {
+		return selectedContacts.filter(
+			(selectedContact) =>
+				!allContacts.some((serverContact) => _compareContactsForMerge(serverContact, selectedContact) === ContactComparisonResult.Equal),
+		)
+	}
+
 	private async selectContactBooks(mobileContactsFacade: MobileContactsFacade): Promise<readonly ContactBook[] | null> {
 		const contactBooks = await showProgressDialog("pleaseWait_msg", mobileContactsFacade.getContactBooks())
 		if (contactBooks.length === 0) {
@@ -182,29 +210,30 @@ export class ContactImporter {
 		}
 	}
 
-	private contactFromStructuredContact(ownerGroupId: Id, contact: StructuredContact): Contact {
-		return createContact({
+	private contactFromStructuredContact(ownerGroupId: Id, contact: StructuredContact, index: number): tutanotaTypeRefs.Contact {
+		return tutanotaTypeRefs.createContact({
+			_id: ["dummyContactListId", "dummyContactElementId" + index],
 			_ownerGroup: ownerGroupId,
 			nickname: contact.nickname,
 			firstName: contact.firstName,
 			lastName: contact.lastName,
 			company: contact.company,
 			addresses: contact.addresses.map((address) =>
-				createContactAddress({
+				tutanotaTypeRefs.createContactAddress({
 					type: address.type,
 					address: address.address,
 					customTypeName: address.customTypeName,
 				}),
 			),
 			mailAddresses: contact.mailAddresses.map((address) =>
-				createContactMailAddress({
+				tutanotaTypeRefs.createContactMailAddress({
 					type: address.type,
 					address: address.address,
 					customTypeName: address.customTypeName,
 				}),
 			),
 			phoneNumbers: contact.phoneNumbers.map((number) =>
-				createContactPhoneNumber({
+				tutanotaTypeRefs.createContactPhoneNumber({
 					type: number.type,
 					number: number.number,
 					customTypeName: number.customTypeName,
@@ -217,16 +246,16 @@ export class ContactImporter {
 			socialIds: [],
 			birthdayIso: this.validateBirthdayOfContact(contact),
 			pronouns: [],
-			customDate: contact.customDate.map((date) => createContactCustomDate(date)),
+			customDate: contact.customDate.map((date) => tutanotaTypeRefs.createContactCustomDate(date)),
 			department: contact.department,
-			messengerHandles: contact.messengerHandles.map((handle) => createContactMessengerHandle(handle)),
+			messengerHandles: contact.messengerHandles.map((handle) => tutanotaTypeRefs.createContactMessengerHandle(handle)),
 			middleName: contact.middleName,
 			nameSuffix: contact.nameSuffix,
 			phoneticFirst: contact.phoneticFirst,
 			phoneticLast: contact.phoneticLast,
 			phoneticMiddle: contact.phoneticMiddle,
-			relationships: contact.relationships.map((relation) => createContactRelationship(relation)),
-			websites: contact.websites.map((website) => createContactWebsite(website)),
+			relationships: contact.relationships.map((relation) => tutanotaTypeRefs.createContactRelationship(relation)),
+			websites: contact.websites.map((website) => tutanotaTypeRefs.createContactWebsite(website)),
 			comment: contact.notes,
 			title: contact.title ?? "",
 			role: contact.role,
@@ -243,138 +272,6 @@ export class ContactImporter {
 			}
 		} else {
 			return null
-		}
-	}
-}
-
-/**
- * Show a dialog with a preview of a given list of contacts
- * @param contacts The contact list to be previewed
- * @param okAction The action to be executed when the user press the import button with at least one contact selected
- */
-export function showContactImportDialog(contacts: Contact[], okAction: (dialog: Dialog, selectedContacts: Contact[]) => unknown, title: MaybeTranslation) {
-	const viewModel: ContactImportDialogViewModel = new ContactImportDialogViewModel()
-	viewModel.selectContacts(contacts)
-	const renderConfig: RenderConfig<Contact, KindaContactRow> = {
-		itemHeight: component_size.list_row_height,
-		multiselectionAllowed: MultiselectMode.Enabled,
-		swipe: null,
-		createElement: (dom) => {
-			return new KindaContactRow(
-				dom,
-				(selectedContact: Contact) => viewModel.selectSingleContact(selectedContact),
-				() => true,
-			)
-		},
-	}
-
-	const dialog = new Dialog(DialogType.EditSmall, {
-		view: () => [
-			/** fixed-height header with a title, left and right buttons that's fixed to the top of the dialog's area */
-			m(DialogHeaderBar, {
-				left: [
-					{
-						type: ButtonType.Secondary,
-						label: "cancel_action",
-						click: () => {
-							dialog.close()
-						},
-					},
-				],
-				middle: title,
-				right: [
-					{
-						type: ButtonType.Primary,
-						label: "import_action",
-						click: () => {
-							const selectedContacts = [...viewModel.getSelectedContacts()]
-							if (selectedContacts.length <= 0) {
-								Dialog.message("noContact_msg")
-							} else {
-								okAction(dialog, selectedContacts)
-							}
-						},
-					},
-				],
-			} satisfies DialogHeaderBarAttrs),
-			/** variable-size child container that may be scrollable. */
-			m(".dialog-max-height.plr-4.pb-16.text-break.nav-bg", [
-				m(
-					".list-bg.border-radius.mt-8.ml-8.mr-8",
-					m(SelectAllCheckbox, {
-						style: {
-							"padding-left": "0",
-						},
-						selected: viewModel.isAllContactsSelected(contacts),
-						selectNone: () => viewModel.clearSelection(),
-						selectAll: () => viewModel.selectContacts(contacts),
-					}),
-				),
-				m(
-					".flex.col.rel.mt-8",
-					{
-						style: {
-							height: "80vh",
-						},
-					},
-					m(List, {
-						renderConfig,
-						state: {
-							items: contacts,
-							loadingStatus: ListLoadingState.Done,
-							loadingAll: false,
-							selectedItems: viewModel.getSelectedContacts(),
-							inMultiselect: true,
-							activeIndex: null,
-						},
-						onLoadMore() {},
-						onRangeSelectionTowards(item: Contact) {},
-						onRetryLoading() {},
-						onSingleSelection(item: Contact) {
-							viewModel.selectSingleContact(item)
-						},
-						onSingleTogglingMultiselection(item: Contact) {},
-						onStopLoading() {},
-					} satisfies ListAttrs<Contact, KindaContactRow>),
-				),
-			]),
-		],
-	}).show()
-}
-
-// Controls the selected contacts in `showContactImportDialog()`
-class ContactImportDialogViewModel {
-	private readonly selectedContacts: Set<Contact> = new Set()
-
-	getSelectedContacts(): Set<Contact> {
-		return new Set(this.selectedContacts)
-	}
-
-	// Compares the selected contacts against a list of contacts and returns whether they contain the same contacts
-	isAllContactsSelected(contacts: Contact[]): boolean {
-		const unselectedContacts = contacts.filter((contact) => !this.selectedContacts.has(contact))
-		return unselectedContacts.length <= 0
-	}
-
-	// Deselects all the selected contacts
-	clearSelection(): void {
-		this.selectedContacts.clear()
-	}
-
-	// Toggles the presence of a contact within the selected contacts
-	selectSingleContact(selectedContact: Contact): void {
-		if (this.selectedContacts.has(selectedContact)) {
-			this.selectedContacts.delete(selectedContact)
-		} else {
-			this.selectedContacts.add(selectedContact)
-		}
-	}
-
-	// Replaces the selected contacts with the provided contacts
-	selectContacts(contacts: Contact[]): void {
-		this.selectedContacts.clear()
-		for (const contact of contacts) {
-			this.selectedContacts.add(contact)
 		}
 	}
 }

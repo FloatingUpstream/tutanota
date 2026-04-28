@@ -15,24 +15,22 @@ import {
 	memoized,
 	millisToDays,
 	noOp,
-} from "@tutao/tutanota-utils"
-import { CalendarEvent, CalendarEventTypeRef, Contact, ContactTypeRef, GroupSettings } from "../../../common/api/entities/tutanota/TypeRefs.js"
+} from "@tutao/utils"
+import { entityUpdateUtils, getElementId, getListId, getWeekStart, isSameId, listIdPart, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import {
 	DEFAULT_CALENDAR_COLOR,
 	EndType,
 	EXTERNAL_CALENDAR_SYNC_INTERVAL,
-	getWeekStart,
 	GroupType,
 	NewPaidPlans,
 	OperationType,
 	TimeFormat,
+	UpgradePromptType,
 	WeekStart,
-} from "../../../common/api/common/TutanotaConstants"
-import { NotAuthorizedError, NotFoundError } from "../../../common/api/common/error/RestError"
-import { getElementId, getListId, isSameId, listIdPart } from "../../../common/api/common/utils/EntityUtils"
+} from "@tutao/app-env"
+import * as restError from "@tutao/rest-client/error"
 import { LoginController } from "../../../common/api/main/LoginController"
 import { IProgressMonitor } from "../../../common/api/common/utils/ProgressMonitor"
-import { CustomerInfoTypeRef, GroupInfo, ReceivedGroupInvitation } from "../../../common/api/entities/sys/TypeRefs.js"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import {
@@ -59,10 +57,10 @@ import { EntityClient } from "../../../common/api/common/EntityClient"
 import { ProgressTracker } from "../../../common/api/main/ProgressTracker"
 import { deviceConfig, DeviceConfig } from "../../../common/misc/DeviceConfig"
 import type { EventDragHandlerCallbacks } from "./EventDragHandler"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { CalendarEventsRepository, DaysToEvents } from "../../../common/calendar/date/CalendarEventsRepository.js"
 import { CalendarEventPreviewViewModel } from "../gui/eventpopup/CalendarEventPreviewViewModel.js"
-import { EntityUpdateData, isUpdateFor, isUpdateForTypeRef } from "../../../common/api/common/utils/EntityUpdateUtils.js"
+
 import { MailboxModel } from "../../../common/mailFunctionality/MailboxModel.js"
 import { getEnabledMailAddressesWithUser } from "../../../common/mailFunctionality/SharedMailUtils.js"
 import { ContactModel } from "../../../common/contactsFunctionality/ContactModel.js"
@@ -130,7 +128,7 @@ export interface EventWrapperFlags {
  */
 export interface EventWrapper {
 	/** The core calendar event instance */
-	event: CalendarEvent
+	event: tutanotaTypeRefs.CalendarEvent
 
 	/**
 	 * Visual and behavioral flags that modify how the event is rendered.
@@ -162,16 +160,20 @@ export type DraggedEventContainer = {
 }
 
 export type MouseOrPointerEvent = MouseEvent | PointerEvent
-export type CalendarEventBubbleClickHandler = (arg0: CalendarEvent, arg1: MouseOrPointerEvent) => unknown
-export type CalendarEventBubbleKeyDownHandler = (arg0: CalendarEvent, arg1: KeyboardEvent) => unknown
-export type CalendarEventEditModelsFactory = (mode: CalendarOperation, event: CalendarEvent) => Promise<CalendarEventModel | null>
+export type CalendarEventBubbleClickHandler = (arg0: tutanotaTypeRefs.CalendarEvent, arg1: MouseOrPointerEvent) => unknown
+export type CalendarEventBubbleKeyDownHandler = (arg0: tutanotaTypeRefs.CalendarEvent, arg1: KeyboardEvent) => unknown
+export type CalendarEventModelFactory = (mode: CalendarOperation, event: tutanotaTypeRefs.CalendarEvent) => Promise<CalendarEventModel | null>
 
 export type CalendarEventPreviewModelFactory = (
-	selectedEvent: CalendarEvent,
+	selectedEvent: tutanotaTypeRefs.CalendarEvent,
 	calendars: ReadonlyMap<string, CalendarInfo>,
 	highlightedTokens: readonly SearchToken[],
 ) => Promise<CalendarEventPreviewViewModel>
-export type CalendarContactPreviewModelFactory = (event: CalendarEvent, contact: Contact, canEdit: boolean) => Promise<CalendarContactPreviewViewModel>
+export type CalendarContactPreviewModelFactory = (
+	event: tutanotaTypeRefs.CalendarEvent,
+	contact: tutanotaTypeRefs.Contact,
+	canEdit: boolean,
+) => Promise<CalendarContactPreviewViewModel>
 export type CalendarPreviewModels = CalendarEventPreviewViewModel | CalendarContactPreviewViewModel
 
 export type ScrollByListener = (amount: number) => void
@@ -186,7 +188,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 	 *
 	 * We keep track of event separately to avoid races with selecting multiple events shortly one after another.
 	 */
-	private previewedEvent: Stream<{ event: CalendarEvent; model: CalendarPreviewModels | null } | null> = stream(null)
+	private previewedEvent: Stream<{ event: tutanotaTypeRefs.CalendarEvent; model: CalendarPreviewModels | null } | null> = stream(null)
 	private previewedEventId: IdTuple | null = null
 
 	private _hiddenCalendars: Set<Id>
@@ -223,7 +225,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 
 	constructor(
 		private readonly logins: LoginController,
-		private readonly createCalendarEventEditModel: CalendarEventEditModelsFactory,
+		private readonly createCalendarEventModel: CalendarEventModelFactory,
 		private readonly createCalendarEventPreviewModel: CalendarEventPreviewModelFactory,
 		private readonly createCalendarContactPreviewModel: CalendarContactPreviewModelFactory,
 		private readonly calendarModel: CalendarModel,
@@ -272,7 +274,10 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 			this.preloadMonthsAroundSelectedDate()
 		})
 
-		eventController.addEntityListener((updates) => this.entityEventReceived(updates))
+		eventController.addEntityListener({
+			onEntityUpdatesReceived: (updates) => this.entityEventReceived(updates),
+			priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
+		})
 
 		calendarInvitationsModel.init()
 
@@ -347,17 +352,17 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		return this.calendarColorsMap(availableCalendars)
 	}
 
-	async getCalendarNameData(groupInfo: GroupInfo): Promise<GroupNameData> {
+	async getCalendarNameData(groupInfo: sysTypeRefs.GroupInfo): Promise<GroupNameData> {
 		const groupSettingModel = await this.groupSettingsModel()
 		return groupSettingModel.getGroupNameData(groupInfo)
 	}
 
-	async setCalendarGroupInfoName(groupInfo: GroupInfo, name: string): Promise<void> {
+	async setCalendarGroupInfoName(groupInfo: sysTypeRefs.GroupInfo, name: string): Promise<void> {
 		const groupSettingModel = await this.groupSettingsModel()
 		groupSettingModel.updateGroupInfoName(groupInfo, name)
 	}
 
-	async setCalendarGroupSettings(groupInfo: GroupInfo, groupSettings: Partial<GroupSettings>): Promise<void> {
+	async setCalendarGroupSettings(groupInfo: sysTypeRefs.GroupInfo, groupSettings: Partial<tutanotaTypeRefs.GroupSettings>): Promise<void> {
 		const groupSettingModel = await this.groupSettingsModel()
 		groupSettingModel.updateGroupSettings(groupInfo, groupSettings)
 	}
@@ -402,7 +407,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		}
 	})
 
-	get calendarInvitations(): Stream<Array<ReceivedGroupInvitation>> {
+	get calendarInvitations(): Stream<Array<sysTypeRefs.ReceivedGroupInvitation>> {
 		return this.calendarInvitationsModel.invitations
 	}
 
@@ -428,14 +433,14 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 
 	// visibleForTesting
 	allowDrag(eventWrapper: EventWrapper): boolean {
-		return !eventWrapper.flags?.isGhost || this.canFullyEditEvent(eventWrapper.event)
+		return this.canFullyEditEvent(eventWrapper.event)
 	}
 
 	/**
 	 * Partially mirrors the logic from CalendarEventModel.prototype.isFullyWritable() to determine
 	 * if the user can edit more than just alarms for a given event
 	 */
-	private canFullyEditEvent(event: CalendarEvent): boolean {
+	private canFullyEditEvent(event: tutanotaTypeRefs.CalendarEvent): boolean {
 		const userController = this.logins.getUserController()
 		const userMailGroup = userController.getUserMailGroupMembership().group
 		const mailboxDetailsArray = this.mailboxModel.mailboxDetails()
@@ -509,26 +514,26 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		}
 	}
 
-	async duplicateEvent(event: CalendarEvent, timeToMoveBy: number) {
-		const editModel = await this.createCalendarEventEditModel(CalendarOperation.Create, event)
-		if (!editModel) {
-			throw new Error("Failed to duplicate event ${event._id} - Failed to instantiate editModel")
+	async duplicateEvent(event: tutanotaTypeRefs.CalendarEvent, timeToMoveBy: number) {
+		const calendarEventModel = await this.createCalendarEventModel(CalendarOperation.Create, event)
+		if (!calendarEventModel) {
+			throw new Error("Failed to duplicate event ${event._id} - Failed to instantiate calendarEventModel")
 		}
 
-		editModel.editModels.summary.content = lang.get("copyOf_title", {
-			"{title}": editModel.editModels.summary.content,
+		calendarEventModel.editModels.summary.content = lang.get("copyOf_title", {
+			"{title}": calendarEventModel.editModels.summary.content,
 		})
-		editModel.editModels.whenModel.rescheduleEvent({ millisecond: timeToMoveBy })
-		editModel.editModels.whenModel.deleteExcludedDates()
-		editModel.editModels.whoModel.resetGuestsStatus()
+		calendarEventModel.editModels.whenModel.shiftEvent({ millisecond: timeToMoveBy })
+		calendarEventModel.editModels.whenModel.deleteExcludedDates()
+		calendarEventModel.editModels.whoModel.resetGuestsStatus()
 
-		await editModel.editModels.alarmModel.removeCalendarDefaultAlarms(
+		await calendarEventModel.editModels.alarmModel.removeCalendarDefaultAlarms(
 			event._ownerGroup,
 			this.logins.getUserController().userSettingsGroupRoot.groupSettings,
 		)
 
 		const dialog = new EventEditorDialog()
-		return await dialog.showNewCalendarEventEditDialog(editModel)
+		return await dialog.showNewCalendarEventEditDialog(calendarEventModel)
 	}
 
 	onDragCancel() {
@@ -633,12 +638,12 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 	 * @param diff the amount of milliseconds to shift the event by
 	 * @param mode which parts of the series should be rescheduled?
 	 */
-	private async moveEvent(event: CalendarEvent, diff: number, mode: CalendarOperation): Promise<EventSaveResult> {
+	private async moveEvent(event: tutanotaTypeRefs.CalendarEvent, diff: number, mode: CalendarOperation): Promise<EventSaveResult> {
 		if (event.uid == null) {
 			throw new ProgrammingError("called moveEvent for an event without uid")
 		}
 
-		const editModel = await this.createCalendarEventEditModel(mode, event)
+		const editModel = await this.createCalendarEventModel(mode, event)
 		if (editModel == null) {
 			return EventSaveResult.Failed
 		}
@@ -646,12 +651,13 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		// Passing only the milliseconds doesn't handle daylight saving times
 		// but by passing the object with days, hours and minutes forces luxon to handle it for us
 		const days = millisToDays(diff)
-		editModel.editModels.whenModel.rescheduleEvent({ days })
+		editModel.editModels.whenModel.shiftEvent({ days })
 
 		if (getNonOrganizerAttendees(event).length > 0) {
 			const response = await askIfShouldSendCalendarUpdatesToAttendees()
 			if (response === "yes") {
 				editModel.editModels.whoModel.shouldSendUpdates = true
+				editModel.editModels.whoModel.resetGuestsStatus() // reset guest status if time has changed, so they must reconfirm
 			} else if (response === "cancel") {
 				return EventSaveResult.Failed
 			}
@@ -661,7 +667,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		return await editModel.apply()
 	}
 
-	private async moveThisAndFuture(event: CalendarEvent, diff: number): Promise<EventSaveResult> {
+	private async moveThisAndFuture(event: tutanotaTypeRefs.CalendarEvent, diff: number): Promise<EventSaveResult> {
 		const progenitor = await this.calendarModel.resolveCalendarEventProgenitor(event)
 		if (!progenitor) {
 			throw new Error("Could not resolve progenitor.")
@@ -671,8 +677,8 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 			return await this.moveEvent(event, diff, CalendarOperation.EditAll)
 		}
 
-		const progenitorModel = await this.createCalendarEventEditModel(CalendarOperation.StopSeriesAtDate, progenitor)
-		const newEventModel = await this.createCalendarEventEditModel(CalendarOperation.Create, event)
+		const progenitorModel = await this.createCalendarEventModel(CalendarOperation.StopSeriesAtDate, progenitor)
+		const newEventModel = await this.createCalendarEventModel(CalendarOperation.Create, event)
 
 		if (!newEventModel) {
 			throw new Error("Failed to split original series and instantiate a new event model.")
@@ -684,7 +690,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 
 		newEventModel.editModels.whenModel.deleteExcludedDates()
 		newEventModel.editModels.whoModel.resetGuestsStatus()
-		newEventModel.editModels.whenModel.rescheduleEvent({ millisecond: diff })
+		newEventModel.editModels.whenModel.shiftEvent({ millisecond: diff })
 		if (newEventModel.editModels.whenModel.repeatEndType === EndType.Count) {
 			const generationRange: CalendarTimeRange = {
 				start: progenitor.startTime.getTime(),
@@ -735,7 +741,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		return this.previewedEvent()?.model ?? null
 	}
 
-	get previewedEventTuple(): Stream<{ event: CalendarEvent; model: CalendarPreviewModels | null } | null> {
+	get previewedEventTuple(): Stream<{ event: tutanotaTypeRefs.CalendarEvent; model: CalendarPreviewModels | null } | null> {
 		return this.previewedEvent.map(identity)
 	}
 
@@ -752,7 +758,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 	 * selection, with the old times, this function only works if the selected date changed, but not if the event times
 	 * changed.
 	 */
-	async updatePreviewedEvent(event: CalendarEvent | null) {
+	async updatePreviewedEvent(event: tutanotaTypeRefs.CalendarEvent | null) {
 		if (event == null) {
 			this.previewedEvent(null)
 			this.doRedraw()
@@ -774,25 +780,25 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		}
 	}
 
-	private async entityEventReceived<T>(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	private async entityEventReceived<T>(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		for (const update of updates) {
-			if (isUpdateForTypeRef(CalendarEventTypeRef, update)) {
+			if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, update)) {
 				const eventId: IdTuple = [update.instanceListId, update.instanceId]
 				const previewedEvent = this.previewedEvent()
-				if (previewedEvent != null && isUpdateFor(previewedEvent.event, update)) {
+				if (previewedEvent != null && entityUpdateUtils.isUpdateFor(previewedEvent.event, update)) {
 					if (update.operation === OperationType.DELETE) {
 						this.previewedEvent(null)
 						this.previewedEventId = null
 						this.doRedraw()
 					} else {
 						try {
-							const event = await this.entityClient.load(CalendarEventTypeRef, eventId)
+							const event = await this.entityClient.load(tutanotaTypeRefs.CalendarEventTypeRef, eventId)
 							await this.updatePreviewedEvent(event)
 						} catch (e) {
-							if (e instanceof NotAuthorizedError) {
+							if (e instanceof restError.NotAuthorizedError) {
 								// return updates that are not in cache Range if NotAuthorizedError (for those updates that are in cache range)
 								console.log("NotAuthorizedError for event in entityEventsReceived of view", e)
-							} else if (e instanceof NotFoundError) {
+							} else if (e instanceof restError.NotFoundError) {
 								console.log("Not found event in entityEventsReceived of view", e)
 							} else {
 								throw e
@@ -805,10 +811,10 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 					this._removeTransientEvent(transientEvent)
 					this.doRedraw()
 				}
-			} else if (isUpdateForTypeRef(ContactTypeRef, update) && this.isNewPaidPlan) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactTypeRef, update) && this.isNewPaidPlan) {
 				await this.eventsRepository.handleContactEvent(update.operation, [update.instanceListId, update.instanceId])
 				this.doRedraw()
-			} else if (isUpdateForTypeRef(CustomerInfoTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.CustomerInfoTypeRef, update)) {
 				this.logins
 					.getUserController()
 					.isNewPaidPlan()
@@ -869,7 +875,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 		this.scrollByListener(by)
 	}
 
-	forceSyncExternal(groupSettings: GroupSettings | null, longErrorMessage: boolean = false) {
+	forceSyncExternal(groupSettings: tutanotaTypeRefs.GroupSettings | null, longErrorMessage: boolean = false) {
 		if (!groupSettings) {
 			return
 		}
@@ -893,7 +899,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 
 	toggleHiddenCalendar = (calendarId: string) => {
 		if (isBirthdayCalendar(calendarId) && !this.isNewPaidPlan) {
-			showPlanUpgradeRequiredDialog(NewPaidPlans)
+			showPlanUpgradeRequiredDialog(UpgradePromptType.BIRTHDAY_CALENDAR, NewPaidPlans)
 			return
 		}
 
@@ -931,7 +937,7 @@ export class CalendarViewModel implements EventDragHandlerCallbacks {
 	}
 }
 
-function updateTemporaryEventWithDiff(eventClone: CalendarEvent, originalEvent: CalendarEvent, mouseDiff: number) {
+function updateTemporaryEventWithDiff(eventClone: tutanotaTypeRefs.CalendarEvent, originalEvent: tutanotaTypeRefs.CalendarEvent, mouseDiff: number) {
 	eventClone.startTime = new Date(originalEvent.startTime.getTime() + mouseDiff)
 	eventClone.endTime = new Date(originalEvent.endTime.getTime() + mouseDiff)
 }

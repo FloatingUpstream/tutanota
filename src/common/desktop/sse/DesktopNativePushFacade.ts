@@ -4,12 +4,12 @@ import { DesktopAlarmStorage } from "./DesktopAlarmStorage.js"
 import { ExtendedNotificationMode } from "../../native/common/generatedipc/ExtendedNotificationMode.js"
 import { SseStorage } from "./SseStorage.js"
 import { TutaSseFacade } from "./TutaSseFacade.js"
-import { ClientModelUntypedInstance, ServerModelUntypedInstance } from "../../api/common/EntityTypes"
-import { InstancePipeline } from "../../api/worker/crypto/InstancePipeline"
-import { Base64, base64ToUint8Array } from "@tutao/tutanota-utils"
-import { uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
-import { AlarmNotificationTypeRef } from "../../api/entities/sys/TypeRefs"
+import { ClientModelUntypedInstance, ServerModelUntypedInstance } from "@tutao/typerefs"
+import { InstancePipeline } from "@tutao/instance-pipeline"
+import { Base64 } from "@tutao/utils"
+import { base64ToKey } from "@tutao/crypto"
 import { log } from "../DesktopLog"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export class DesktopNativePushFacade implements NativePushFacade {
 	constructor(
@@ -54,9 +54,9 @@ export class DesktopNativePushFacade implements NativePushFacade {
 	async scheduleAlarms(alarmNotificationWireFormat: string, newDeviceSessionKey: Base64): Promise<void> {
 		const alarms: ClientModelUntypedInstance[] = JSON.parse(alarmNotificationWireFormat)
 		for (const alarm of alarms) {
-			const sk = uint8ArrayToBitArray(base64ToUint8Array(newDeviceSessionKey))
+			const sk = base64ToKey(newDeviceSessionKey)
 			const alarmNotification = await this.alarmStorageInstancePipeline.decryptAndMap(
-				AlarmNotificationTypeRef,
+				sysTypeRefs.AlarmNotificationTypeRef,
 				alarm as unknown as ServerModelUntypedInstance,
 				sk,
 			)

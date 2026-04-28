@@ -1,5 +1,5 @@
-import { noOp } from "@tutao/tutanota-utils"
-import { Mode } from "../api/common/Env"
+import { noOp } from "@tutao/utils"
+import { Mode } from "@tutao/app-env"
 
 type LogFn = (...args: any) => void
 export const log: {

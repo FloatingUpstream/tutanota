@@ -1,11 +1,11 @@
 import m, { Component, Vnode } from "mithril"
 import { component_size, font_size, px, size } from "../../gui/size"
 import { lang } from "../../misc/LanguageViewModel"
-import { type Callback } from "@tutao/tutanota-utils"
-import { PLAN_SELECTOR_SELECTED_BOX_SCALE, PlanType, PlanTypeToName } from "../../api/common/TutanotaConstants"
+import { type Callback } from "@tutao/utils"
+import { PLAN_SELECTOR_SELECTED_BOX_SCALE } from "@tutao/app-env"
 import { PaymentInterval, PriceAndConfigProvider } from "../utils/PriceUtils"
 import Stream from "mithril/stream"
-import { Theme, theme } from "../../gui/theme.js"
+import { isLightTheme, theme, Theme } from "../../gui/theme.js"
 import { ReplacementKey } from "../FeatureListProvider.js"
 import { Icon, IconSize } from "../../gui/base/Icon.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
@@ -17,6 +17,8 @@ import { PlanConfig } from "./BusinessPlanContainer"
 import { boxShadowHigh } from "../../gui/main-styles"
 import { blackFridayTheme, DiscountDetail, getBorderColor, getBorderRadius, getBorderWidth, getHasCampaign, PlanBoxPosition } from "../utils/PlanSelectorUtils"
 import { PromotionRibbon } from "./PromotionRibbon"
+import { PlanTypeToName } from "@tutao/typerefs"
+import { PlanType } from "@tutao/app-env"
 
 type PersonalPlanBoxAttrs = {
 	planConfig: PlanConfig
@@ -154,6 +156,7 @@ export class PersonalPaidPlanBox implements Component<PersonalPlanBoxAttrs> {
 						checked: isSelected,
 						style: {
 							opacity: isDisabled ? "0" : "1",
+							"accent-color": isLightTheme() ? localTheme.primary : localTheme.primary_container,
 						},
 						disabled: isDisabled,
 					}),

@@ -10,11 +10,11 @@ import { Dialog, DialogType } from "../gui/base/Dialog"
 import type { WizardPageAttrs, WizardPageN } from "../gui/base/WizardDialog.js"
 import { emitWizardEvent, WizardEventType } from "../gui/base/WizardDialog.js"
 import { DefaultAnimationTime } from "../gui/animation/Animations"
-import { AvailablePlanType, Keys, PlanType, SubscriptionType } from "../api/common/TutanotaConstants"
+import { Keys } from "@tutao/app-env"
 import { Checkbox } from "../gui/base/Checkbox.js"
 import { UpgradePriceType } from "./FeatureListProvider"
 import { PaymentInterval } from "./utils/PriceUtils.js"
-import { lazy } from "@tutao/tutanota-utils"
+import { lazy } from "@tutao/utils"
 import { LoginButtonAttrs } from "../gui/base/buttons/LoginButton.js"
 import { stringToSubscriptionType } from "../misc/LoginUtils.js"
 import { PlanSelector } from "./PlanSelector.js"
@@ -22,12 +22,12 @@ import { styles } from "../gui/styles.js"
 import { Icon, IconSize } from "../gui/base/Icon.js"
 import { Icons } from "../gui/base/icons/Icons.js"
 import { theme } from "../gui/theme.js"
-import { BootIcons } from "../gui/base/icons/BootIcons.js"
 import { SignupFlowStage, SignupFlowUsageTestController } from "./usagetest/UpgradeSubscriptionWizardUsageTestUtils.js"
 import { anyHasGlobalFirstYearCampaign, getDiscountDetails, isPersonalPlanAvailable } from "./utils/PlanSelectorUtils"
 import { TranslationKeyType } from "../misc/TranslationKey"
 import { PlanSelectorHeadline } from "./components/PlanSelectorHeadline"
 import { px } from "../gui/size"
+import { AvailablePlanType, PlanType, SubscriptionType } from "@tutao/app-env"
 
 /** Subscription type passed from the website */
 export const PlanTypeParameter = Object.freeze({
@@ -91,7 +91,7 @@ export class SubscriptionPage implements WizardPageN<UpgradeSubscriptionData> {
 				anyHasGlobalFirstYearCampaign(discountDetails) &&
 				m(PlanSelectorHeadline, {
 					translation: lang.getTranslation("pricing.cyber_monday_msg"),
-					icon: BootIcons.Heart,
+					icon: Icons.HeartFilled,
 				}),
 			// Headline for general messages
 			data.msg && m(PlanSelectorHeadline, { translation: data.msg }),
@@ -317,7 +317,7 @@ export function getPrivateBusinessSwitchButton(businessUse: Stream<boolean>, ava
 		icon: styles.isMobileLayout()
 			? null
 			: m(Icon, {
-					icon: isBusiness ? BootIcons.User : Icons.Business,
+					icon: isBusiness ? Icons.PersonFilled : Icons.SkyscraperOutline,
 					size: IconSize.PX20,
 					class: "mr-4",
 					style: {

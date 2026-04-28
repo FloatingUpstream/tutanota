@@ -108,7 +108,6 @@ pipeline {
 						sh '''
 							node buildSrc/getNodeGypLibrary.js @signalapp/sqlcipher --copy-target node_sqlcipher --environment node --root-dir . &
 							PID1=$!
-							npm run build-packages &
 							PID2=$!
 							wait $PID1
 							EXIT_CODE1=$?
@@ -199,6 +198,33 @@ pipeline {
 				}
 			}
 		}
+		stage("Build preps") {
+		    parallel {
+		        stage("make crypto") {
+		            agent {
+		                node {
+		                    label 'linux'
+		                    customWorkspace linuxWorkspaceClones[0]
+		                }
+                    }
+                    steps {
+                        sh 'cd src/crypto && node make ../../build && node make ../../build-calendar-app && node make ../../test/build && cd -'
+                   }
+                }
+
+                stage("make mimimi") {
+                    agent {
+		                node {
+		                    label 'linux'
+		                    customWorkspace linuxWorkspaceClones[1]
+		                }
+                    }
+                    steps {
+                        sh 'cd src/mimimi && node make --release && cd -'
+                   }
+                }
+		    }
+		}
 		stage("Testing and Building") {
 			parallel {
 				stage("tests") {
@@ -212,7 +238,7 @@ pipeline {
 								}
 							}
 							steps {
-								sh 'cd test && node test'
+								sh 'npm run test-ci'
 							}
 						}
 						stage("browser tests") {
@@ -223,7 +249,7 @@ pipeline {
 								}
 							}
 							steps {
-								sh 'npm run test:app -- --no-run --browser --browser-cmd \'$(which chromium) --no-sandbox --enable-logging=stderr --headless=new --disable-gpu\''
+								sh 'npm run test-ci -- --no-run --browser --browser-cmd \'$(which chromium) --no-sandbox --enable-logging=stderr --headless=new --disable-gpu\''
 							}
 						}
 						stage("android tests") {
@@ -242,21 +268,7 @@ pipeline {
 						}
 					}
 				}
-				stage("packages test") {
-					agent {
-						node {
-							label 'linux'
-							customWorkspace linuxWorkspaceClones[0]
-						}
-					}
-					when {
-						expression { hasRelevantChangesIn(changeset, "packages") }
-					}
-					steps {
-						sh 'npm run --if-present test -ws'
-					}
-				}
-				stage("build web app") {
+				stage("build mail web app") {
 					agent {
 						node {
 							label 'linux'
@@ -264,10 +276,10 @@ pipeline {
 						}
 					}
 					steps {
-						sh 'node webapp --disable-minify'
+						sh 'node webapp --disable-minify --app mail'
 					}
 				}
-				stage("build web app calendar") {
+				stage("build calendar web app") {
 					agent {
 						node {
 							label 'linux'
@@ -289,9 +301,9 @@ pipeline {
 						expression { hasRelevantChangesIn(changeset, "tuta-sdk") }
 					}
 					steps {
-						// once we spin local http server, we should also include more test by:
+						// once we spin local http server, we should also include more tuta sdk tests by:
 						// --features test-with-local-http-server
-						sh "cargo test --package tuta-sdk"
+						sh "cargo test --all"
 					}
 				}
 
@@ -511,7 +523,7 @@ boolean shouldRunNpmCi() {
 
 void findFixmes() {
 	sh '''
-		if grep "FIXME\\|[fF]ixme" -r src buildSrc test/tests packages/*/lib app-android/app/src app-ios/tutanota/Sources tuta-sdk; then
+		if grep "FIXME\\|[fF]ixme" -r src buildSrc test/tests app-android/app/src app-ios/tutanota/Sources tuta-sdk --exclude-dir=dist --exclude-dir=node_modules; then
 			echo 'FIXMEs in src';
 			exit 1;
 		else

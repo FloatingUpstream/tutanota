@@ -1,14 +1,14 @@
 import { UpdatableSettingsDetailsViewer } from "./Interfaces.js"
 import m from "mithril"
-import { EntityUpdateData } from "../api/common/utils/EntityUpdateUtils.js"
 import { ListColumnWrapper } from "../gui/ListColumnWrapper.js"
 import { ColumnWidth, Table, TableLineAttrs } from "../gui/base/Table.js"
 import { mailLocator } from "../../mail-app/mailLocator.js"
 import { formatShortMonthYear2Digit } from "../misc/Formatter.js"
 import { AffiliateViewModel } from "./AffiliateViewModel.js"
 import { formatPrice } from "../subscription/utils/PriceUtils.js"
-import { LazyLoaded } from "@tutao/tutanota-utils"
+import { LazyLoaded } from "@tutao/utils"
 import { DateTime } from "luxon"
+import { entityUpdateUtils } from "@tutao/typerefs"
 
 export class AffiliateKpisViewer implements UpdatableSettingsDetailsViewer {
 	private readonly affiliateViewModel: LazyLoaded<AffiliateViewModel> = new LazyLoaded<AffiliateViewModel>(async () => await mailLocator.affiliateViewModel())
@@ -89,7 +89,7 @@ export class AffiliateKpisViewer implements UpdatableSettingsDetailsViewer {
 		}
 	}
 
-	entityEventsReceived(updates: readonly EntityUpdateData[]): Promise<unknown> {
+	entityEventsReceived(updates: readonly entityUpdateUtils.EntityUpdateData[]): Promise<unknown> {
 		return Promise.resolve()
 	}
 }

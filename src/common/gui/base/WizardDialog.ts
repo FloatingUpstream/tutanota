@@ -7,9 +7,9 @@ import { Icon, IconSize } from "./Icon"
 import { theme } from "../theme"
 import { lang, MaybeTranslation, TranslationKey } from "../../misc/LanguageViewModel"
 import type { DialogHeaderBarAttrs } from "./DialogHeaderBar"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants"
-import { assertMainOrNode } from "../../api/common/Env"
-import { $Promisable } from "@tutao/tutanota-utils"
+import { Keys, TabIndex } from "@tutao/app-env"
+import { assertMainOrNode } from "@tutao/app-env"
+import { $Promisable } from "@tutao/utils"
 import { windowFacade } from "../../misc/WindowFacade.js"
 
 assertMainOrNode()

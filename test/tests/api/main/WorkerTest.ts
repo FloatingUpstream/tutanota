@@ -1,12 +1,11 @@
-import o from "@tutao/otest"
+import o, { assertThrows } from "@tutao/otest"
 import type { WorkerClient } from "../../../../src/common/api/main/WorkerClient.js"
-import { NotAuthenticatedError } from "../../../../src/common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { Request } from "../../../../src/common/api/common/threading/MessageDispatcher.js"
-import { ProgrammingError } from "../../../../src/common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { initCommonLocator, locator } from "../../../../src/common/api/main/CommonLocator.js"
-import { assertThrows } from "@tutao/tutanota-test-utils"
 import { SessionType } from "../../../../src/common/api/common/SessionType.js"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
+import { CryptoError } from "@tutao/crypto/error"
 import { mailLocator } from "../../../../src/mail-app/mailLocator.js"
 
 o.spec(
@@ -64,7 +63,7 @@ o.spec(
 		})
 		o("rest error handling", async function () {
 			o.timeout(2000)
-			const e = await assertThrows(NotAuthenticatedError, () =>
+			const e = await assertThrows(restError.NotAuthenticatedError, () =>
 				worker._postRequest(
 					new Request("testError", [
 						{

@@ -1,23 +1,21 @@
 import m, { Children } from "mithril"
-import type { GroupInfo } from "../../../common/api/entities/sys/TypeRefs.js"
-import { GroupInfoTypeRef, GroupMemberTypeRef } from "../../../common/api/entities/sys/TypeRefs.js"
-import { LazyLoaded, memoized, noOp } from "@tutao/tutanota-utils"
+import { entityUpdateUtils, sysTypeRefs } from "@tutao/typerefs"
+import { LazyLoaded, memoized, noOp } from "@tutao/utils"
 import { GroupDetailsView } from "../../../common/settings/groups/GroupDetailsView.js"
 import * as AddGroupDialog from "./AddGroupDialog.js"
 import { Icon } from "../../../common/gui/base/Icon.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
-import { BootIcons } from "../../../common/gui/base/icons/BootIcons.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
 import { ListColumnWrapper } from "../../../common/gui/ListColumnWrapper.js"
-import { assertMainOrNode } from "../../../common/api/common/Env.js"
+import { assertMainOrNode, UpgradePromptType } from "@tutao/app-env"
 import { GroupDetailsModel } from "./GroupDetailsModel.js"
 import { SelectableRowContainer, SelectableRowSelectedSetter, setVisibility } from "../../../common/gui/SelectableRowContainer.js"
 import Stream from "mithril/stream"
 import { List, ListAttrs, MultiselectMode, RenderConfig } from "../../../common/gui/base/List.js"
-import { component_size, size } from "../../../common/gui/size.js"
+import { component_size } from "../../../common/gui/size.js"
 import { ListElementListModel } from "../../../common/misc/ListElementListModel.js"
 import { compareGroupInfos } from "../../../common/api/common/utils/GroupUtils.js"
-import { NotFoundError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { listSelectionKeyboardShortcuts, onlySingleSelection, VirtualRow } from "../../../common/gui/base/ListUtils.js"
 import { keyManager } from "../../../common/misc/KeyManager.js"
 import { BaseSearchBar, BaseSearchBarAttrs } from "../../../common/gui/base/BaseSearchBar.js"
@@ -25,7 +23,6 @@ import { lang } from "../../../common/misc/LanguageViewModel.js"
 import ColumnEmptyMessageBox from "../../../common/gui/base/ColumnEmptyMessageBox.js"
 import { theme } from "../../../common/gui/theme.js"
 import { IconButton } from "../../../common/gui/base/IconButton.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../../common/api/common/utils/EntityUpdateUtils.js"
 import { ListAutoSelectBehavior } from "../../../common/misc/DeviceConfig.js"
 import { UpdatableSettingsViewer } from "../../../common/settings/Interfaces.js"
 
@@ -34,8 +31,8 @@ const className = "group-list"
 
 export class GroupListView implements UpdatableSettingsViewer {
 	private searchQuery: string = ""
-	private listModel: ListElementListModel<GroupInfo>
-	private readonly renderConfig: RenderConfig<GroupInfo, GroupRow> = {
+	private listModel: ListElementListModel<sysTypeRefs.GroupInfo>
+	private readonly renderConfig: RenderConfig<sysTypeRefs.GroupInfo, GroupRow> = {
 		itemHeight: component_size.list_row_height,
 		multiselectionAllowed: MultiselectMode.Disabled,
 		swipe: null,
@@ -57,7 +54,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 		this.listId = new LazyLoaded(() => {
 			return locator.logins
 				.getUserController()
-				.loadCustomer()
+				.reloadCustomer()
 				.then((customer) => {
 					return customer.teamGroups
 				})
@@ -97,7 +94,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 						".mr-negative-8",
 						m(IconButton, {
 							title: "createSharedMailbox_label",
-							icon: Icons.Add,
+							icon: Icons.Plus,
 							click: () => this.addButtonClicked(),
 						}),
 					),
@@ -106,7 +103,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 			this.listModel.isEmptyAndDone()
 				? m(ColumnEmptyMessageBox, {
 						color: theme.on_surface_variant,
-						icon: Icons.People,
+						icon: Icons.PeopleFilled,
 						message: "noEntries_msg",
 					})
 				: m(List, {
@@ -115,13 +112,13 @@ export class GroupListView implements UpdatableSettingsViewer {
 						onLoadMore: () => this.listModel.loadMore(),
 						onRetryLoading: () => this.listModel.retryLoading(),
 						onStopLoading: () => this.listModel.stopLoading(),
-						onSingleSelection: (item: GroupInfo) => {
+						onSingleSelection: (item: sysTypeRefs.GroupInfo) => {
 							this.listModel.onSingleSelection(item)
 							this.focusDetailsViewer()
 						},
 						onSingleTogglingMultiselection: noOp,
 						onRangeSelectionTowards: noOp,
-					} satisfies ListAttrs<GroupInfo, GroupRow>),
+					} satisfies ListAttrs<sysTypeRefs.GroupInfo, GroupRow>),
 		)
 	}
 
@@ -137,15 +134,15 @@ export class GroupListView implements UpdatableSettingsViewer {
 		} else {
 			const msg = lang.makeTranslation("upgrade_text", lang.get("newPaidPlanRequired_msg") + " " + lang.get("sharedMailboxesMultiUser_msg"))
 			const wizard = await import("../../../common/subscription/UpgradeSubscriptionWizard")
-			await wizard.showUpgradeWizard({ logins: locator.logins, msg })
+			await wizard.showUpgradeWizard({ upgradePromptType: UpgradePromptType.SHARED_MAILBOX, logins: locator.logins, msg })
 		}
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		for (const update of updates) {
-			if (isUpdateForTypeRef(GroupInfoTypeRef, update) && this.listId.getSync() === update.instanceListId) {
+			if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.GroupInfoTypeRef, update) && this.listId.getSync() === update.instanceListId) {
 				await this.listModel.entityEventReceived(update.instanceListId, update.instanceId, update.operation)
-			} else if (isUpdateForTypeRef(GroupMemberTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.GroupMemberTypeRef, update)) {
 				this.listModel.reapplyFilter()
 			}
 
@@ -153,22 +150,22 @@ export class GroupListView implements UpdatableSettingsViewer {
 		}
 	}
 
-	private makeListModel(): ListElementListModel<GroupInfo> {
-		const listModel = new ListElementListModel<GroupInfo>({
+	private makeListModel(): ListElementListModel<sysTypeRefs.GroupInfo> {
+		const listModel = new ListElementListModel<sysTypeRefs.GroupInfo>({
 			sortCompare: compareGroupInfos,
 			fetch: async (_lastFetchedEntity, _count) => {
 				// load all entries at once to apply custom sort order
 				const listId = await this.listId.getAsync()
-				const allGroupInfos = await locator.entityClient.loadAll(GroupInfoTypeRef, listId)
+				const allGroupInfos = await locator.entityClient.loadAll(sysTypeRefs.GroupInfoTypeRef, listId)
 
 				return { items: allGroupInfos, complete: true }
 			},
 			loadSingle: async (_listId: Id, elementId: Id) => {
 				const listId = await this.listId.getAsync()
 				try {
-					return await locator.entityClient.load<GroupInfo>(GroupInfoTypeRef, [listId, elementId])
+					return await locator.entityClient.load<sysTypeRefs.GroupInfo>(sysTypeRefs.GroupInfoTypeRef, [listId, elementId])
 				} catch (e) {
-					if (e instanceof NotFoundError) {
+					if (e instanceof restError.NotFoundError) {
 						// we return null if the GroupInfo does not exist
 						return null
 					} else {
@@ -179,7 +176,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 			autoSelectBehavior: () => ListAutoSelectBehavior.OLDER,
 		})
 
-		listModel.setFilter((item: GroupInfo) => this.groupFilter() && this.queryFilter(item))
+		listModel.setFilter((item: sysTypeRefs.GroupInfo) => this.groupFilter() && this.queryFilter(item))
 
 		this.listStateSubscription?.end(true)
 		this.listStateSubscription = listModel.stateStream.map((state) => {
@@ -190,7 +187,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 		return listModel
 	}
 
-	private readonly onSelectionChanged = memoized((item: GroupInfo | null) => {
+	private readonly onSelectionChanged = memoized((item: sysTypeRefs.GroupInfo | null) => {
 		if (item) {
 			const newSelectionModel = new GroupDetailsModel(item, locator.entityClient, m.redraw)
 			const detailsViewer = item == null ? null : new GroupDetailsView(newSelectionModel)
@@ -198,7 +195,7 @@ export class GroupListView implements UpdatableSettingsViewer {
 		}
 	})
 
-	private queryFilter(gi: GroupInfo) {
+	private queryFilter(gi: sysTypeRefs.GroupInfo) {
 		const lowercaseSearch = this.searchQuery.toLowerCase()
 		return gi.name.toLowerCase().includes(lowercaseSearch) || (!!gi.mailAddress && gi.mailAddress?.toLowerCase().includes(lowercaseSearch))
 	}
@@ -213,10 +210,10 @@ export class GroupListView implements UpdatableSettingsViewer {
 	}
 }
 
-export class GroupRow implements VirtualRow<GroupInfo> {
+export class GroupRow implements VirtualRow<sysTypeRefs.GroupInfo> {
 	top: number = 0
 	domElement: HTMLElement | null = null // set from List
-	entity: GroupInfo | null = null
+	entity: sysTypeRefs.GroupInfo | null = null
 	private nameDom!: HTMLElement
 	private addressDom!: HTMLElement
 	private deletedIconDom!: HTMLElement
@@ -226,7 +223,7 @@ export class GroupRow implements VirtualRow<GroupInfo> {
 
 	constructor() {}
 
-	update(groupInfo: GroupInfo, selected: boolean): void {
+	update(groupInfo: sysTypeRefs.GroupInfo, selected: boolean): void {
 		this.entity = groupInfo
 
 		this.selectionUpdater(selected, false)
@@ -252,6 +249,7 @@ export class GroupRow implements VirtualRow<GroupInfo> {
 		return m(
 			SelectableRowContainer,
 			{
+				class: "pt-12 pb-12 pl-12 pr-12",
 				onSelectedChangeRef: (updater) => (this.selectionUpdater = updater),
 			},
 			m(".flex.col.flex-grow", [
@@ -266,7 +264,7 @@ export class GroupRow implements VirtualRow<GroupInfo> {
 					}),
 					m(".icons.flex", [
 						m(Icon, {
-							icon: Icons.Trash,
+							icon: Icons.TrashFilled,
 							oncreate: (vnode) => (this.deletedIconDom = vnode.dom as HTMLElement),
 							class: "svg-list-accent-fg",
 							style: {
@@ -274,7 +272,7 @@ export class GroupRow implements VirtualRow<GroupInfo> {
 							},
 						}),
 						m(Icon, {
-							icon: BootIcons.Settings,
+							icon: Icons.GearWheelFilled,
 							oncreate: (vnode) => (this.localAdminIconDom = vnode.dom as HTMLElement),
 							class: "svg-list-accent-fg",
 							style: {
@@ -282,7 +280,7 @@ export class GroupRow implements VirtualRow<GroupInfo> {
 							},
 						}),
 						m(Icon, {
-							icon: BootIcons.Mail,
+							icon: Icons.MailFilled,
 							oncreate: (vnode) => (this.mailIconDom = vnode.dom as HTMLElement),
 							class: "svg-list-accent-fg",
 							style: {

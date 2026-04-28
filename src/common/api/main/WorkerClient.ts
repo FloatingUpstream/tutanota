@@ -1,13 +1,13 @@
 import type { Commands } from "../common/threading/MessageDispatcher.js"
 import { MessageDispatcher, Request } from "../common/threading/MessageDispatcher.js"
 import { Transport, WebWorkerTransport } from "../common/threading/Transport.js"
-import { assertMainOrNode } from "../common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { client } from "../../misc/ClientDetector"
-import type { DeferredObject } from "@tutao/tutanota-utils"
-import { defer, downcast } from "@tutao/tutanota-utils"
+import type { DeferredObject } from "@tutao/utils"
+import { defer, downcast } from "@tutao/utils"
 import { handleUncaughtError } from "../../misc/ErrorHandler"
 import { DelayedImpls, exposeLocalDelayed, exposeRemote } from "../common/WorkerProxy"
-import type { RestClient } from "../worker/rest/RestClient"
+import type { RestClient } from "@tutao/rest-client"
 import { EntropyDataChunk } from "../worker/facades/EntropyFacade.js"
 import { objToError } from "../common/utils/ErrorUtils.js"
 import { CommonLocator } from "./CommonLocator.js"
@@ -49,12 +49,11 @@ export class WorkerClient {
 			// Service worker has similar logic but it has luxury of knowing that it's served as sw.js.
 			const workerUrl = prefixWithoutFile + "/worker-bootstrap.js"
 			const worker = new Worker(workerUrl, { type: "module" })
-			this._dispatcher = new MessageDispatcher(new WebWorkerTransport(worker), this.queueCommands(locator), "main-worker")
-			await this._dispatcher.postRequest(new Request("setup", [window.env, this.getInitialEntropy(), client.browserData()]))
-
 			worker.onerror = (e: any) => {
 				throw new Error(`could not setup worker: ${e.name} ${e.stack} ${e.message} ${e}`)
 			}
+			this._dispatcher = new MessageDispatcher(new WebWorkerTransport(worker), this.queueCommands(locator), "main-worker")
+			await this._dispatcher.postRequest(new Request("setup", [window.env, this.getInitialEntropy(), client.browserData()]))
 		} else {
 			// node: we do not use workers but connect the client and the worker queues directly with each other
 			// attention: do not load directly with require() here because in the browser SystemJS would load the WorkerImpl in the client although this code is not executed

@@ -1,9 +1,9 @@
 import { LoggedInEvent, PostLoginAction } from "../../../common/api/main/LoginController"
 import { SpamClassifier } from "../../workerUtils/spamClassification/SpamClassifier"
-import { FeatureType } from "../../../common/api/common/TutanotaConstants"
+import { FeatureType } from "@tutao/app-env"
 import { CustomerFacade } from "../../../common/api/worker/facades/lazy/CustomerFacade"
 import { filterMailMemberships } from "../../../common/api/common/utils/IndexUtils"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { isInternalUser } from "../../../common/api/common/utils/UserUtils"
 import { SyncDonePriority, SyncTracker } from "../../../common/api/main/SyncTracker"
 
@@ -19,9 +19,8 @@ export class SpamClassificationPostLoginAction implements PostLoginAction {
 
 	async onPartialLoginSuccess(_: LoggedInEvent): Promise<void> {
 		await this.customerFacade.loadCustomizations()
-		const isSpamClassificationEnabled = await this.customerFacade.isEnabled(FeatureType.SpamClientClassification)
 		const user = assertNotNull(await this.customerFacade.getUser())
-		if (isSpamClassificationEnabled && isInternalUser(user) && this.spamClassifier) {
+		if (isInternalUser(user) && this.spamClassifier) {
 			const ownerGroups = filterMailMemberships(user)
 			for (const ownerGroup of ownerGroups) {
 				this.spamClassifier.initializeFromStorage(ownerGroup.group).catch((e) => {
@@ -33,9 +32,8 @@ export class SpamClassificationPostLoginAction implements PostLoginAction {
 
 	async onFullLoginSuccess(_: LoggedInEvent): Promise<void> {
 		await this.customerFacade.loadCustomizations()
-		const isSpamClassificationEnabled = await this.customerFacade.isEnabled(FeatureType.SpamClientClassification)
 		const user = assertNotNull(await this.customerFacade.getUser())
-		if (isSpamClassificationEnabled && isInternalUser(user) && this.spamClassifier) {
+		if (isInternalUser(user) && this.spamClassifier) {
 			const ownerGroups = filterMailMemberships(user)
 			for (const ownerGroup of ownerGroups) {
 				this.syncTracker.addSyncDoneListener({

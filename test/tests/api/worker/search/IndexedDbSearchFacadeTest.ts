@@ -1,28 +1,32 @@
 import o from "@tutao/otest"
-import { ContactTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { UserTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
-import type { TypeInfo } from "../../../../../src/common/api/common/utils/IndexUtils.js"
-import { typeRefToTypeInfo } from "../../../../../src/common/api/common/utils/IndexUtils.js"
-import { ElementDataDbRow, SearchIndexEntry, SearchIndexMetaDataRow, SearchRestriction } from "../../../../../src/common/api/worker/search/SearchTypes.js"
 import {
+	ClientModelInfo,
 	compareOldestFirst,
 	elementIdPart,
 	firstBiggerThanSecond,
 	generatedIdToTimestamp,
 	listIdPart,
 	timestampToGeneratedId,
-} from "../../../../../src/common/api/common/utils/EntityUtils.js"
-import type { Base64 } from "@tutao/tutanota-utils"
-import { groupBy, numberRange, splitInChunks } from "@tutao/tutanota-utils"
+	tutanotaTypeRefs,
+} from "@tutao/typerefs"
+import type { TypeInfo } from "../../../../../src/common/api/common/utils/IndexUtils.js"
+import { typeRefToTypeInfo } from "../../../../../src/common/api/common/utils/IndexUtils.js"
+import {
+	ElementDataDbRow,
+	SearchIndexEntry,
+	SearchIndexMetaDataRow,
+	SearchRestriction,
+	SearchResult,
+} from "../../../../../src/common/api/worker/search/SearchTypes.js"
+import { Base64, groupBy, numberRange, splitInChunks } from "@tutao/utils"
 import { appendBinaryBlocks } from "../../../../../src/common/api/worker/search/SearchIndexEncoding.js"
 import { createSearchIndexDbStub, DbStub, DbStubTransaction } from "./DbStub.js"
 import type { BrowserData } from "../../../../../src/common/misc/ClientConstants.js"
 import { browserDataStub, createTestEntity } from "../../../TestUtils.js"
-import { aes256RandomKey, fixedIv } from "@tutao/tutanota-crypto"
+import { aes256RandomKey, FIXED_IV } from "@tutao/crypto"
 import { ElementDataOS, SearchIndexMetaDataOS, SearchIndexOS } from "../../../../../src/common/api/worker/search/IndexTables.js"
 import { object, when } from "testdouble"
 import { EntityClient } from "../../../../../src/common/api/common/EntityClient.js"
-import { ClientModelInfo } from "../../../../../src/common/api/common/EntityFunctions"
 import { IndexedDbSearchFacade } from "../../../../../src/mail-app/workerUtils/index/IndexedDbSearchFacade"
 import { DbFacade } from "../../../../../src/common/api/worker/search/DbFacade"
 import { EncryptedDbWrapper } from "../../../../../src/common/api/worker/search/EncryptedDbWrapper"
@@ -32,6 +36,7 @@ import {
 	encryptMetaData,
 	encryptSearchIndexEntry,
 } from "../../../../../src/common/api/worker/search/IndexEncryptionUtils"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 type SearchIndexEntryWithType = SearchIndexEntry & {
 	typeInfo: TypeInfo
@@ -41,13 +46,13 @@ type KeyToIndexEntriesWithType = {
 	indexEntries: SearchIndexEntryWithType[]
 }
 let dbKey
-const contactTypeInfo = typeRefToTypeInfo(ContactTypeRef)
-const mailTypeInfo = typeRefToTypeInfo(MailTypeRef)
+const contactTypeInfo = typeRefToTypeInfo(tutanotaTypeRefs.ContactTypeRef)
+const mailTypeInfo = typeRefToTypeInfo(tutanotaTypeRefs.MailTypeRef)
 const browserData: BrowserData = browserDataStub
 const entityClient: EntityClient = object()
 o.spec("IndexedDbSearchFacade", () => {
-	let mail = createTestEntity(MailTypeRef)
-	let user = createTestEntity(UserTypeRef)
+	let mail = createTestEntity(tutanotaTypeRefs.MailTypeRef)
+	let user = createTestEntity(sysTypeRefs.UserTypeRef)
 	let id1 = "L0YED5d----1"
 	let id2 = "L0YED5d----2"
 	let id3 = "L0YED5d----3"
@@ -57,7 +62,7 @@ o.spec("IndexedDbSearchFacade", () => {
 			createTransaction: () => Promise.resolve(transaction),
 		} as Partial<DbFacade> as DbFacade
 		const db = new EncryptedDbWrapper(dbFacade)
-		db.init({ key: dbKey, iv: fixedIv })
+		db.init({ key: dbKey, iv: FIXED_IV })
 		return new IndexedDbSearchFacade(
 			{
 				getLoggedInUser: () => user,
@@ -96,14 +101,14 @@ o.spec("IndexedDbSearchFacade", () => {
 						oldestElementTimestamp: generatedIdToTimestamp(chunk[0].id),
 					})
 					const encSearchIndexRow = appendBinaryBlocks(
-						chunk.map((entry) => encryptSearchIndexEntry(dbKey, entry, encryptIndexKeyUint8Array(dbKey, entry.id, fixedIv))),
+						chunk.map((entry) => encryptSearchIndexEntry(dbKey, entry, encryptIndexKeyUint8Array(dbKey, entry.id, FIXED_IV))),
 					)
 					transaction.put(SearchIndexOS, counter, encSearchIndexRow)
 				}
 			}
 			transaction.put(SearchIndexMetaDataOS, null, encryptMetaData(dbKey, metaDataRow))
 			for (const id of fullIds) {
-				let encId = encryptIndexKeyBase64(dbKey, elementIdPart(id), fixedIv)
+				let encId = encryptIndexKeyBase64(dbKey, elementIdPart(id), FIXED_IV)
 				const elementDataEntry: ElementDataDbRow = [listIdPart(id), new Uint8Array(0), ""] // rows not needed for search
 
 				transaction.put(ElementDataOS, encId, elementDataEntry)
@@ -113,7 +118,7 @@ o.spec("IndexedDbSearchFacade", () => {
 
 	let createKeyToIndexEntries = (word: string, entries: SearchIndexEntryWithType[]): KeyToIndexEntriesWithType => {
 		return {
-			indexKey: encryptIndexKeyBase64(dbKey, word, fixedIv),
+			indexKey: encryptIndexKeyBase64(dbKey, word, FIXED_IV),
 			indexEntries: entries,
 		}
 	}
@@ -138,7 +143,7 @@ o.spec("IndexedDbSearchFacade", () => {
 
 	let createMailRestriction = (attributeIds?: number[] | null, listId?: Id | null, start?: number | null, end?: number | null): SearchRestriction => {
 		return {
-			type: MailTypeRef,
+			type: tutanotaTypeRefs.MailTypeRef,
 			start: start ?? null,
 			end: end ?? null,
 			field: null,
@@ -245,16 +250,16 @@ o.spec("IndexedDbSearchFacade", () => {
 		)
 	})
 	o.test("find folderId new MailSets (static mail listIds)", () => {
-		const mail1 = createTestEntity(MailTypeRef, {
+		const mail1 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 			_id: ["mailListId", id1],
 			sets: [["setListId", "folderId1"]],
 		})
-		when(entityClient.load(MailTypeRef, mail1._id)).thenReturn(Promise.resolve(mail1))
-		const mail2 = createTestEntity(MailTypeRef, {
+		when(entityClient.load(tutanotaTypeRefs.MailTypeRef, mail1._id)).thenReturn(Promise.resolve(mail1))
+		const mail2 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 			_id: ["mailListId", id2],
 			sets: [["setListId", "folderId2"]],
 		})
-		when(entityClient.load(MailTypeRef, mail2._id)).thenReturn(Promise.resolve(mail2))
+		when(entityClient.load(tutanotaTypeRefs.MailTypeRef, mail2._id)).thenReturn(Promise.resolve(mail2))
 
 		return testSearch(
 			[createKeyToIndexEntries("test", [createMailEntry(id1, 0, [0]), createMailEntry(id2, 0, [0])])],
@@ -386,5 +391,328 @@ o.spec("IndexedDbSearchFacade", () => {
 			createMailRestriction(),
 			[["listId1", id1]],
 		)
+	})
+	function createMailSearchResult({
+		start,
+		end,
+		query,
+		tokens,
+		lastReadSearchIndexRow,
+		currentIndexTimestamp,
+		results,
+		moreResults,
+	}: Pick<SearchRestriction, "start" | "end"> &
+		Pick<SearchResult, "query" | "tokens" | "lastReadSearchIndexRow" | "currentIndexTimestamp" | "results" | "moreResults">): SearchResult {
+		return {
+			query,
+			tokens,
+			restriction: {
+				type: tutanotaTypeRefs.MailTypeRef,
+				start,
+				end,
+				field: null,
+				attributeIds: null,
+				folderIds: [],
+				eventSeries: null,
+			},
+			results,
+			currentIndexTimestamp,
+			lastReadSearchIndexRow,
+			matchWordOrder: false,
+			moreResults,
+			moreResultsEntries: [],
+		}
+	}
+
+	o.test("extending result within mail index range", async () => {
+		let id1 = timestampToGeneratedId(new Date(2017, 5, 8).getTime())
+		let id2 = timestampToGeneratedId(new Date(2017, 5, 10).getTime())
+		let id3 = timestampToGeneratedId(new Date(2017, 5, 12).getTime())
+		let id4 = timestampToGeneratedId(new Date(2017, 5, 14).getTime())
+
+		createDbContent(
+			transaction,
+			[
+				createKeyToIndexEntries("test", [
+					createMailEntry(id1, 0, [0]),
+					createMailEntry(id2, 0, [0]),
+					createMailEntry(id3, 0, [0]),
+					createMailEntry(id4, 0, [0]),
+				]),
+			],
+			[
+				["listId1", id1],
+				["listId2", id2],
+				["listId3", id3],
+				["listId4", id4],
+			],
+		)
+
+		const s = createSearchFacade(transaction, new Date(2017, 5, 6).getTime())
+
+		const result = createMailSearchResult({
+			start: null,
+			end: new Date(2017, 5, 12).getTime(),
+			query: "test",
+			tokens: [{ token: "test", exact: false }],
+			lastReadSearchIndexRow: [["test", 0]],
+			results: [
+				["listId4", id4],
+				["listId3", id3],
+			],
+			moreResults: [],
+			currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+		})
+
+		const extensionEnd = new Date(2017, 5, 8).getTime()
+		const extendedResult = await s.extendSearchResult(result, extensionEnd)
+
+		o.check(extendedResult).deepEquals(
+			createMailSearchResult({
+				start: null,
+				end: extensionEnd,
+				query: "test",
+				tokens: [{ token: "test", exact: false }],
+				lastReadSearchIndexRow: [["test", 0]],
+				results: [
+					["listId4", id4],
+					["listId3", id3],
+					["listId2", id2],
+					["listId1", id1],
+				],
+				moreResults: [],
+				currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+			}),
+		)
+	})
+
+	o.test("extending result after extending mail index", async () => {
+		let id1 = timestampToGeneratedId(new Date(2017, 5, 8).getTime())
+		let id2 = timestampToGeneratedId(new Date(2017, 5, 10).getTime())
+		let id3 = timestampToGeneratedId(new Date(2017, 5, 12).getTime())
+		let id4 = timestampToGeneratedId(new Date(2017, 5, 14).getTime())
+
+		createDbContent(
+			transaction,
+			[
+				createKeyToIndexEntries("test", [
+					createMailEntry(id1, 0, [0]),
+					createMailEntry(id2, 0, [0]),
+					createMailEntry(id3, 0, [0]),
+					createMailEntry(id4, 0, [0]),
+				]),
+			],
+			[
+				["listId1", id1],
+				["listId2", id2],
+				["listId3", id3],
+				["listId4", id4],
+			],
+		)
+
+		const s = createSearchFacade(transaction, new Date(2017, 5, 6).getTime())
+
+		const result = createMailSearchResult({
+			start: new Date(2017, 5, 16).getTime(),
+			end: new Date(2017, 5, 8).getTime(),
+			query: "test",
+			tokens: [{ token: "test", exact: false }],
+			lastReadSearchIndexRow: [["test", 0]],
+			results: [
+				["listId4", id4],
+				["listId3", id3],
+			],
+			moreResults: [],
+			currentIndexTimestamp: new Date(2017, 5, 12).getTime(),
+		})
+
+		const extensionEnd = new Date(2017, 5, 8).getTime()
+		const extendedResult = await s.extendSearchResult(result, extensionEnd)
+
+		o.check(extendedResult).deepEquals(
+			createMailSearchResult({
+				start: new Date(2017, 5, 16).getTime(),
+				end: extensionEnd,
+				query: "test",
+				tokens: [{ token: "test", exact: false }],
+				lastReadSearchIndexRow: [["test", 0]],
+				results: [
+					["listId4", id4],
+					["listId3", id3],
+					["listId2", id2],
+					["listId1", id1],
+				],
+				moreResults: [],
+				currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+			}),
+		)
+	})
+
+	o.test("extending an empty result", async () => {
+		let id1 = timestampToGeneratedId(new Date(2017, 5, 8).getTime())
+		let id2 = timestampToGeneratedId(new Date(2017, 5, 10).getTime())
+		let id3 = timestampToGeneratedId(new Date(2017, 5, 12).getTime())
+		let id4 = timestampToGeneratedId(new Date(2017, 5, 14).getTime())
+
+		createDbContent(
+			transaction,
+			[
+				createKeyToIndexEntries("test", [
+					createMailEntry(id1, 0, [0]),
+					createMailEntry(id2, 0, [0]),
+					createMailEntry(id3, 0, [0]),
+					createMailEntry(id4, 0, [0]),
+				]),
+			],
+			[
+				["listId1", id1],
+				["listId2", id2],
+				["listId3", id3],
+				["listId4", id4],
+			],
+		)
+
+		const s = createSearchFacade(transaction, new Date(2017, 5, 6).getTime())
+
+		const result = createMailSearchResult({
+			start: null,
+			end: new Date(2017, 5, 16).getTime(),
+			query: "test",
+			tokens: [{ token: "test", exact: false }],
+			lastReadSearchIndexRow: [["test", 0]],
+			results: [],
+			moreResults: [],
+			currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+		})
+
+		const extensionEnd = new Date(2017, 5, 6).getTime()
+		const extendedResult = await s.extendSearchResult(result, extensionEnd)
+
+		o.check(extendedResult).deepEquals(
+			createMailSearchResult({
+				start: null,
+				end: extensionEnd,
+				query: "test",
+				tokens: [{ token: "test", exact: false }],
+				lastReadSearchIndexRow: [["test", 0]],
+				results: [
+					["listId4", id4],
+					["listId3", id3],
+					["listId2", id2],
+					["listId1", id1],
+				],
+				moreResults: [],
+				currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+			}),
+		)
+	})
+
+	o.test("extended result is empty", async () => {
+		let id1 = timestampToGeneratedId(new Date(2017, 5, 8).getTime())
+		let id2 = timestampToGeneratedId(new Date(2017, 5, 10).getTime())
+		let id3 = timestampToGeneratedId(new Date(2017, 5, 12).getTime())
+		let id4 = timestampToGeneratedId(new Date(2017, 5, 14).getTime())
+
+		createDbContent(
+			transaction,
+			[
+				createKeyToIndexEntries("test", [
+					createMailEntry(id1, 0, [0]),
+					createMailEntry(id2, 0, [0]),
+					createMailEntry(id3, 0, [0]),
+					createMailEntry(id4, 0, [0]),
+				]),
+			],
+			[
+				["listId1", id1],
+				["listId2", id2],
+				["listId3", id3],
+				["listId4", id4],
+			],
+		)
+
+		const s = createSearchFacade(transaction, new Date(2017, 5, 4).getTime())
+
+		const result = createMailSearchResult({
+			start: new Date(2017, 5, 12).getTime(),
+			end: new Date(2017, 5, 8).getTime(),
+			query: "test",
+			tokens: [{ token: "test", exact: false }],
+			lastReadSearchIndexRow: [["test", 0]],
+			results: [
+				["listId3", id3],
+				["listId2", id2],
+				["listId1", id1],
+			],
+			moreResults: [],
+			currentIndexTimestamp: new Date(2017, 5, 4).getTime(),
+		})
+
+		const extensionEnd = new Date(2017, 5, 6).getTime()
+		const extendedResult = await s.extendSearchResult(result, extensionEnd)
+
+		o.check(extendedResult).deepEquals(
+			createMailSearchResult({
+				start: new Date(2017, 5, 12).getTime(),
+				end: new Date(2017, 5, 6).getTime(),
+				query: "test",
+				tokens: [{ token: "test", exact: false }],
+				lastReadSearchIndexRow: [["test", 0]],
+				results: [
+					["listId3", id3],
+					["listId2", id2],
+					["listId1", id1],
+				],
+				moreResults: [],
+				currentIndexTimestamp: new Date(2017, 5, 4).getTime(),
+			}),
+		)
+	})
+
+	o.test("extension end is the same as the result end", async () => {
+		let id1 = timestampToGeneratedId(new Date(2017, 5, 8).getTime())
+		let id2 = timestampToGeneratedId(new Date(2017, 5, 10).getTime())
+		let id3 = timestampToGeneratedId(new Date(2017, 5, 12).getTime())
+		let id4 = timestampToGeneratedId(new Date(2017, 5, 14).getTime())
+
+		createDbContent(
+			transaction,
+			[
+				createKeyToIndexEntries("test", [
+					createMailEntry(id1, 0, [0]),
+					createMailEntry(id2, 0, [0]),
+					createMailEntry(id3, 0, [0]),
+					createMailEntry(id4, 0, [0]),
+				]),
+			],
+			[
+				["listId1", id1],
+				["listId2", id2],
+				["listId3", id3],
+				["listId4", id4],
+			],
+		)
+
+		const s = createSearchFacade(transaction, new Date(2017, 5, 6).getTime())
+
+		const result = createMailSearchResult({
+			start: null,
+			end: new Date(2017, 5, 10).getTime(),
+			query: "test",
+			tokens: [{ token: "test", exact: false }],
+			lastReadSearchIndexRow: [["test", 0]],
+			results: [
+				["listId4", id4],
+				["listId3", id3],
+				["listId2", id2],
+			],
+			moreResults: [],
+			currentIndexTimestamp: new Date(2017, 5, 6).getTime(),
+		})
+
+		const extensionEnd = new Date(2017, 5, 10).getTime()
+		const extendedResult = await s.extendSearchResult(result, extensionEnd)
+
+		o.check(extendedResult).deepEquals(result)
 	})
 })

@@ -1,7 +1,7 @@
-import m, { ChildArray, Children, Component, Vnode } from "mithril"
-import { Mail } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import m, { Children, Component, Vnode } from "mithril"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { IconButton } from "../../../common/gui/base/IconButton.js"
-import { isEmpty } from "@tutao/tutanota-utils"
+import { isEmpty } from "@tutao/utils"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { createDropdown, DropdownButtonAttrs, PosRect } from "../../../common/gui/base/Dropdown.js"
 import type { MailViewerMoreActions } from "./MailViewerUtils.js"
@@ -12,7 +12,7 @@ import { ShowMoveMailsDropdownOpts } from "./MailGuiUtils"
 	note that mailViewerViewModel has a mailModel, so you do not need to pass both if you pass a mailViewerViewModel
  */
 export interface MailViewerToolbarAttrs {
-	selectedMails: readonly Mail[]
+	selectedMails: readonly tutanotaTypeRefs.Mail[]
 	selectNone?: () => void
 	trashMailsAction: (() => void) | null
 	deleteMailAction: (() => void) | null
@@ -28,6 +28,7 @@ export interface MailViewerToolbarAttrs {
 	mailViewerMoreActions: MailViewerMoreActions | null
 	reportSpamAction: (() => void) | null
 	unscheduleMailAction: (() => void) | null
+	reportNotSpamAction: (() => void) | null
 }
 
 // Note: this is only used for non-mobile views. Please also update MobileMailMultiselectionActionBar or MobileMailActionBar
@@ -50,6 +51,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 				this.renderLabelButton(attrs),
 				this.renderReadButton(attrs),
 				this.renderReportSpamButton(attrs),
+				this.renderReportNotSpamButton(attrs),
 				this.renderExtraButtons(attrs.exportAction, attrs.mailViewerMoreActions),
 			]
 		}
@@ -59,12 +61,17 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 	 * Actions that can only be taken on a single mail (reply, forward, edit, assign)
 	 */
 	private renderSingleMailActions(attrs: MailViewerToolbarAttrs): Children {
-		const { editDraftAction, replyAction, replyAllAction, forwardAction } = attrs
+		const { editDraftAction, replyAction, replyAllAction, forwardAction, reportNotSpamAction } = attrs
 		if (editDraftAction == null && replyAction == null && replyAllAction == null && forwardAction == null) {
 			return null
 		}
 
-		return [this.renderEditButton(editDraftAction), this.renderReplyButton(replyAction, replyAllAction), this.renderForwardButton(forwardAction)]
+		const isShowReportNotSpamAction = reportNotSpamAction != null
+		if (!isShowReportNotSpamAction) {
+			return [this.renderEditButton(editDraftAction), this.renderReplyButton(replyAction, replyAllAction), this.renderForwardButton(forwardAction)]
+		} else {
+			return []
+		}
 	}
 
 	private renderTrashButton({ trashMailsAction }: MailViewerToolbarAttrs): Children {
@@ -73,7 +80,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			m(IconButton, {
 				title: "trash_action",
 				click: trashMailsAction,
-				icon: Icons.Trash,
+				icon: Icons.TrashFilled,
 			})
 		)
 	}
@@ -84,7 +91,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			m(IconButton, {
 				title: "delete_action",
 				click: deleteMailAction,
-				icon: Icons.DeleteForever,
+				icon: Icons.TrashCrossFilled,
 			})
 		)
 	}
@@ -93,9 +100,20 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 		return (
 			reportSpamAction &&
 			m(IconButton, {
-				title: "spam_move_action",
+				title: "reportSpam_action",
 				click: reportSpamAction,
-				icon: Icons.Spam,
+				icon: Icons.BugFilled,
+			})
+		)
+	}
+
+	private renderReportNotSpamButton({ reportNotSpamAction }: MailViewerToolbarAttrs): Children {
+		return (
+			reportNotSpamAction &&
+			m(IconButton, {
+				title: "reportNotSpam_action",
+				click: reportNotSpamAction,
+				icon: Icons.BugCrossedFilled,
 			})
 		)
 	}
@@ -105,7 +123,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			moveMailsAction &&
 			m(IconButton, {
 				title: "move_action",
-				icon: Icons.Folder,
+				icon: Icons.FolderFilled,
 				click: (e, dom) => moveMailsAction(dom.getBoundingClientRect()),
 			})
 		)
@@ -116,7 +134,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			applyLabelsAction &&
 			m(IconButton, {
 				title: "assignLabel_action",
-				icon: Icons.Label,
+				icon: Icons.LabelFilled,
 				click: (_, dom) => {
 					applyLabelsAction(dom)
 				},
@@ -132,12 +150,12 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 		const markReadButton = m(IconButton, {
 			title: "markRead_action",
 			click: () => setUnreadStateAction(false),
-			icon: Icons.Eye,
+			icon: Icons.EyeFilled,
 		})
 		const markUnreadButton = m(IconButton, {
 			title: "markUnread_action",
 			click: () => setUnreadStateAction(true),
-			icon: Icons.NoEye,
+			icon: Icons.EyeCrossedFilled,
 		})
 
 		// isUnread means we are viewing one mail; otherwise, it is coming from a MultiViewer
@@ -163,7 +181,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			m(IconButton, {
 				title: "reply_action",
 				click: replyAction,
-				icon: Icons.Reply,
+				icon: Icons.ArrowBackFilled,
 			}),
 		)
 
@@ -172,7 +190,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 				m(IconButton, {
 					title: "replyAll_action",
 					click: replyAllAction,
-					icon: Icons.ReplyAll,
+					icon: Icons.DoubleArrowBackFilled,
 				}),
 			)
 		}
@@ -185,7 +203,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			m(IconButton, {
 				title: "forward_action",
 				click: forwardAction,
-				icon: Icons.Forward,
+				icon: Icons.ArrowForwardFilled,
 			})
 		)
 	}
@@ -212,7 +230,7 @@ export class MailViewerActions implements Component<MailViewerToolbarAttrs> {
 			? m(IconButton, {
 					title: "edit_action",
 					click: editDraftAction,
-					icon: Icons.Edit,
+					icon: Icons.PenFilled,
 				})
 			: null
 	}

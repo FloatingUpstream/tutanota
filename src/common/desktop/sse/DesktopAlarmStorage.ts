@@ -1,19 +1,23 @@
 import type { DesktopConfig } from "../config/DesktopConfig"
 import { DesktopNativeCryptoFacade } from "../DesktopNativeCryptoFacade"
-import { elementIdPart } from "../../api/common/utils/EntityUtils"
+import {
+	AttributeModel,
+	ClientModelUntypedInstance,
+	ClientTypeModelResolver,
+	elementIdPart,
+	ServerModelUntypedInstance,
+	UntypedInstance,
+} from "@tutao/typerefs"
 import { DesktopConfigKey } from "../config/ConfigKeys"
 import type { DesktopKeyStoreFacade } from "../DesktopKeyStoreFacade.js"
-import { assertNotNull, Base64, base64ToUint8Array, findAllAndRemove, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
+import { assertNotNull, Base64, base64ToUint8Array, findAllAndRemove, uint8ArrayToBase64 } from "@tutao/utils"
 import { log } from "../DesktopLog"
-import { AesKey, decryptKey, uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
-import { ClientModelUntypedInstance, ServerModelUntypedInstance, UntypedInstance } from "../../api/common/EntityTypes"
-import { AlarmNotification, AlarmNotificationTypeRef, NotificationSessionKey } from "../../api/entities/sys/TypeRefs"
-import { InstancePipeline } from "../../api/worker/crypto/InstancePipeline"
-import { hasError } from "../../api/common/utils/ErrorUtils"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
+import { AesKey, base64ToKey, decryptKey, keyToBase64, uint8ArrayToKey } from "@tutao/crypto"
+import { InstancePipeline } from "@tutao/instance-pipeline"
+import { hasError } from "@tutao/typerefs"
+import { CryptoError } from "@tutao/crypto/error"
 import { EncryptedAlarmNotification } from "../../native/common/EncryptedAlarmNotification"
-import { AttributeModel } from "../../api/common/AttributeModel"
-import { ClientTypeModelResolver, TypeModelResolver } from "../../api/common/EntityFunctions"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 /**
  * manages session keys used for decrypting alarm notifications, encrypting & persisting them to disk
@@ -43,8 +47,8 @@ export class DesktopAlarmStorage {
 
 		if (!keys[pushIdentifierId]) {
 			this.unencryptedSessionKeys[pushIdentifierId] = uint8ArrayToBase64(pushIdentifierSessionKey)
-			return this.keyStoreFacade.getDeviceKey().then((pw) => {
-				keys[pushIdentifierId] = uint8ArrayToBase64(this.cryptoFacade.aes256EncryptKey(pw, pushIdentifierSessionKey))
+			return this.keyStoreFacade.getDeviceKey().then((deviceKey) => {
+				keys[pushIdentifierId] = uint8ArrayToBase64(this.cryptoFacade.aes256EncryptKey(deviceKey, uint8ArrayToKey(pushIdentifierSessionKey)))
 				return this.conf.setVar(DesktopConfigKey.pushEncSessionKeys, keys)
 			})
 		}
@@ -75,7 +79,7 @@ export class DesktopAlarmStorage {
 		const pushIdentifierId = elementIdPart(pushIdentifier)
 
 		if (this.unencryptedSessionKeys[pushIdentifierId]) {
-			return uint8ArrayToBitArray(base64ToUint8Array(this.unencryptedSessionKeys[pushIdentifierId]))
+			return base64ToKey(this.unencryptedSessionKeys[pushIdentifierId])
 		} else {
 			const keys: Record<string, Base64> = (await this.conf.getVar(DesktopConfigKey.pushEncSessionKeys)) || {}
 			const encryptedSessionKeyFromConf = keys[pushIdentifierId]
@@ -86,10 +90,10 @@ export class DesktopAlarmStorage {
 			}
 
 			try {
-				const pw = await this.keyStoreFacade.getDeviceKey()
-				const decryptedKey = this.cryptoFacade.unauthenticatedAes256DecryptKey(pw, base64ToUint8Array(encryptedSessionKeyFromConf))
-				this.unencryptedSessionKeys[pushIdentifierId] = uint8ArrayToBase64(decryptedKey)
-				return uint8ArrayToBitArray(decryptedKey)
+				const deviceKey = await this.keyStoreFacade.getDeviceKey()
+				const decryptedKey = this.cryptoFacade.decryptKeyUnauthenticatedWithDeviceKeyChain(deviceKey, base64ToUint8Array(encryptedSessionKeyFromConf))
+				this.unencryptedSessionKeys[pushIdentifierId] = keyToBase64(decryptedKey)
+				return decryptedKey
 			} catch (e) {
 				console.warn("could not decrypt pushIdentifierSessionKey")
 				return null
@@ -97,9 +101,9 @@ export class DesktopAlarmStorage {
 		}
 	}
 
-	public async getNotificationSessionKey(notificationSessionKeys: Array<NotificationSessionKey>): Promise<{
+	public async getNotificationSessionKey(notificationSessionKeys: Array<sysTypeRefs.NotificationSessionKey>): Promise<{
 		sessionKey: AesKey
-		notificationSessionKey: NotificationSessionKey
+		notificationSessionKey: sysTypeRefs.NotificationSessionKey
 	} | null> {
 		for (const notificationSessionKey of notificationSessionKeys) {
 			const pushIdentifierSessionKey = await this.getPushIdentifierSessionKey(notificationSessionKey.pushIdentifier)
@@ -113,7 +117,7 @@ export class DesktopAlarmStorage {
 		return null
 	}
 
-	async storeAlarm(alarm: AlarmNotification): Promise<void> {
+	async storeAlarm(alarm: sysTypeRefs.AlarmNotification): Promise<void> {
 		const allAlarms = await this.getScheduledAlarms()
 		findAllAndRemove(allAlarms, (an) => an.getAlarmId() === alarm.alarmInfo.alarmIdentifier)
 		const sessionKeyWrapper = await this.getNotificationSessionKey(alarm.notificationSessionKeys)
@@ -165,18 +169,18 @@ export class DesktopAlarmStorage {
 		return this.conf.setVar(DesktopConfigKey.scheduledAlarms, alarms)
 	}
 
-	async encryptAlarmNotification(an: AlarmNotification, newDeviceSessionKey: AesKey | null): Promise<UntypedInstance> {
+	async encryptAlarmNotification(an: sysTypeRefs.AlarmNotification, newDeviceSessionKey: AesKey | null): Promise<UntypedInstance> {
 		let sk = newDeviceSessionKey
 		if (!newDeviceSessionKey) {
 			let notificationSessionKeyWrapper = await this.getNotificationSessionKey(an.notificationSessionKeys)
 			sk = assertNotNull(notificationSessionKeyWrapper).sessionKey
 		}
 
-		const untypedAlarmNotification = await this.alarmStorageInstancePipeline.mapAndEncrypt(AlarmNotificationTypeRef, an, sk)
+		const untypedAlarmNotification = await this.alarmStorageInstancePipeline.mapAndEncrypt(sysTypeRefs.AlarmNotificationTypeRef, an, sk)
 		return AttributeModel.removeNetworkDebuggingInfoIfNeeded(untypedAlarmNotification)
 	}
 
-	public async decryptAlarmNotification(an: ClientModelUntypedInstance): Promise<AlarmNotification> {
+	public async decryptAlarmNotification(an: ClientModelUntypedInstance): Promise<sysTypeRefs.AlarmNotification> {
 		const encryptedAlarmNotification = await EncryptedAlarmNotification.from(an as unknown as ServerModelUntypedInstance, this.typeModelResolver)
 		for (const currentNotificationSessionKey of encryptedAlarmNotification.getNotificationSessionKeys()) {
 			const pushIdentifierSessionKey = await this.getPushIdentifierSessionKey(currentNotificationSessionKey.pushIdentifier)
@@ -189,8 +193,8 @@ export class DesktopAlarmStorage {
 			}
 
 			const sessionKey = decryptKey(pushIdentifierSessionKey, currentNotificationSessionKey.pushIdentifierSessionEncSessionKey)
-			const decryptedAlarmNotification: AlarmNotification = await this.alarmStorageInstancePipeline.decryptAndMap(
-				AlarmNotificationTypeRef,
+			const decryptedAlarmNotification: sysTypeRefs.AlarmNotification = await this.alarmStorageInstancePipeline.decryptAndMap(
+				sysTypeRefs.AlarmNotificationTypeRef,
 				an as unknown as ServerModelUntypedInstance,
 				sessionKey,
 			)

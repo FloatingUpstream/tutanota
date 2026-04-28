@@ -1,17 +1,9 @@
 import o from "@tutao/otest"
-import {
-	CalendarEvent,
-	CalendarEventAttendeeTypeRef,
-	CalendarEventTypeRef,
-	ContactTypeRef,
-	createCalendarEventAttendee,
-	UserSettingsGroupRootTypeRef,
-} from "../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { matchers, object, replace, verify, when } from "testdouble"
 import { RecipientsModel } from "../../../../src/common/api/main/RecipientsModel.js"
 import { Recipient, RecipientType } from "../../../../src/common/api/common/recipients/Recipient.js"
-import { AccountType, CalendarAttendeeStatus, PresentableKeyVerificationState, ShareCapability } from "../../../../src/common/api/common/TutanotaConstants.js"
-import { UserTypeRef } from "../../../../src/common/api/entities/sys/TypeRefs.js"
+import { CalendarAttendeeStatus, PresentableKeyVerificationState, ShareCapability } from "../../../../src/app-env"
 import { UserController } from "../../../../src/common/api/main/UserController.js"
 import { CalendarOperation, EventType } from "../../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventModel.js"
 import {
@@ -31,12 +23,17 @@ import {
 	thirdAddress,
 	thirdRecipient,
 } from "../CalendarTestUtils.js"
-import { assertNotNull, downcast, neverNull } from "@tutao/tutanota-utils"
+import { assertNotNull, downcast, neverNull } from "@tutao/utils"
 import { RecipientField } from "../../../../src/common/mailFunctionality/SharedMailUtils.js"
-import { ProgrammingError } from "../../../../src/common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { createTestEntity } from "../../TestUtils.js"
 import { SendMailModel } from "../../../../src/common/mailFunctionality/SendMailModel.js"
 import { CalendarEventWhoModel } from "../../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventWhoModel.js"
+import { AccountType } from "../../../../src/app-env"
+
+type CalendarEvent = tutanotaTypeRefs.CalendarEvent
+const CalendarEventAttendeeTypeRef = tutanotaTypeRefs.CalendarEventAttendeeTypeRef
+const CalendarEventTypeRef = tutanotaTypeRefs.CalendarEventTypeRef
 
 o.spec("CalendarEventWhoModel", function () {
 	const passwordStrengthModel = () => 1
@@ -273,7 +270,7 @@ o.spec("CalendarEventWhoModel", function () {
 				organizer: ownAddresses[0],
 			})
 
-			model.addAttendee(ownerAlias.address, null)
+			model.addAttendee(ownerAlias)
 			await model.recipientsSettled
 			o(model.guests).deepEquals([
 				{
@@ -292,11 +289,11 @@ o.spec("CalendarEventWhoModel", function () {
 			o(result.cancelModel).equals(null)
 			o(result.responseModel).equals(null)
 			o(result.attendees).deepEquals([
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: ownerAlias,
 					status: CalendarAttendeeStatus.ACCEPTED,
 				}),
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: otherAddress,
 					status: CalendarAttendeeStatus.ADDED,
 				}),
@@ -318,7 +315,7 @@ o.spec("CalendarEventWhoModel", function () {
 				attendees: [],
 				organizer: null,
 			})
-			model.addAttendee(otherAddress.address, otherRecipient.contact)
+			model.addAttendee(otherAddress)
 			await model.recipientsSettled
 			o(model.organizer).deepEquals({
 				address: ownAddresses[0].address,
@@ -337,7 +334,7 @@ o.spec("CalendarEventWhoModel", function () {
 				attendees: [],
 				organizer: null,
 			})
-			model.addAttendee(otherAddress.address, otherRecipient.contact)
+			model.addAttendee(otherAddress)
 			o(model.organizer).notEquals(null)
 			model.removeAttendee(otherAddress.address)
 			const result = model.result
@@ -360,37 +357,46 @@ o.spec("CalendarEventWhoModel", function () {
 		o("getting the result on an old model is idempotent", function () {
 			const model = getOldModel({
 				attendees: [
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: ownAddresses[0], status: CalendarAttendeeStatus.ACCEPTED }),
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress, status: CalendarAttendeeStatus.ACCEPTED }),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: ownAddresses[0],
+						status: CalendarAttendeeStatus.ACCEPTED,
+					}),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: otherAddress,
+						status: CalendarAttendeeStatus.ACCEPTED,
+					}),
 				],
 				organizer: ownerAddress,
 			})
 			model.removeAttendee(otherAddress.address)
-			model.addAttendee(otherAddress2.address, otherRecipient2.contact)
+			model.addAttendee(otherAddress2)
 			o(model.result).deepEquals(model.result)
 		})
 		o("removing an attendee while there are other attendees removes only that attendee", async function () {
 			const model = getOldModel({
 				attendees: [
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: ownAddresses[0], status: CalendarAttendeeStatus.ACCEPTED }),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: ownAddresses[0],
+						status: CalendarAttendeeStatus.ACCEPTED,
+					}),
 					createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress }),
 				],
 				organizer: ownerAddress,
 			})
-			model.addAttendee(otherAddress.address, otherRecipient.contact)
-			model.addAttendee(otherAddress2.address, otherRecipient2.contact)
+			model.addAttendee(otherAddress)
+			model.addAttendee(otherAddress2)
 			await model.recipientsSettled
 			const resultBeforeRemove = model.result
 			o(resultBeforeRemove.attendees).deepEquals([
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: ownerAddress,
 					status: CalendarAttendeeStatus.ACCEPTED,
 				}),
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: otherAddress,
 					status: CalendarAttendeeStatus.ADDED,
 				}),
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: otherAddress2,
 					status: CalendarAttendeeStatus.ADDED,
 				}),
@@ -399,11 +405,11 @@ o.spec("CalendarEventWhoModel", function () {
 			model.removeAttendee(otherAddress.address)
 			const result = model.result
 			o(result.attendees).deepEquals([
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: ownerAddress,
 					status: CalendarAttendeeStatus.ACCEPTED,
 				}),
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: otherAddress2,
 					status: CalendarAttendeeStatus.ADDED,
 				}),
@@ -414,7 +420,10 @@ o.spec("CalendarEventWhoModel", function () {
 			const model = getNewModel({
 				attendees: [
 					createTestEntity(CalendarEventAttendeeTypeRef, { address: ownAddresses[0] }),
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress, status: CalendarAttendeeStatus.NEEDS_ACTION }),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: otherAddress,
+						status: CalendarAttendeeStatus.NEEDS_ACTION,
+					}),
 				],
 				organizer: ownerAddress,
 				invitedConfidentially: true,
@@ -430,7 +439,10 @@ o.spec("CalendarEventWhoModel", function () {
 					verificationState: PresentableKeyVerificationState.NONE,
 				},
 			])
-			o(model.getPresharedPassword(otherAddress.address)).deepEquals({ password: "", strength: 0 })("password is not set")
+			o(model.getPresharedPassword(otherAddress.address)).deepEquals({
+				password: "",
+				strength: 0,
+			})("password is not set")
 			await model.recipientsSettled
 			o(model.guests).deepEquals([
 				{
@@ -445,11 +457,11 @@ o.spec("CalendarEventWhoModel", function () {
 			o(model.getPresharedPassword(otherAddress.address)).deepEquals({ password: "otherPassword", strength: 1 })
 			const { attendees } = model.result
 			o(attendees).deepEquals([
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: ownerAddress,
 					status: CalendarAttendeeStatus.ADDED,
 				}),
-				createCalendarEventAttendee({
+				tutanotaTypeRefs.createCalendarEventAttendee({
 					address: otherAddress,
 					status: CalendarAttendeeStatus.NEEDS_ACTION,
 				}),
@@ -457,7 +469,7 @@ o.spec("CalendarEventWhoModel", function () {
 		})
 		o("adding only oneself as an organizer but no attendees results in a result without organizer or attendees", function () {
 			const model = getNewModel({})
-			model.addAttendee(ownAddresses[0].address)
+			model.addAttendee(createTestEntity(tutanotaTypeRefs.EncryptedMailAddressTypeRef, { address: ownAddresses[0].address }))
 			o(model.guests.length).equals(0)
 			o(model.organizer?.address).equals(ownAddresses[0].address)
 			o(model.result.organizer).equals(null)
@@ -466,9 +478,18 @@ o.spec("CalendarEventWhoModel", function () {
 		o("organizer is replaced with ourselves when an own event with someone else as organizer is opened", function () {
 			const model = getNewModel({
 				attendees: [
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: ownAddresses[0], status: CalendarAttendeeStatus.ACCEPTED }),
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress, status: CalendarAttendeeStatus.ACCEPTED }),
-					createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress2, status: CalendarAttendeeStatus.NEEDS_ACTION }),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: ownAddresses[0],
+						status: CalendarAttendeeStatus.ACCEPTED,
+					}),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: otherAddress,
+						status: CalendarAttendeeStatus.ACCEPTED,
+					}),
+					createTestEntity(CalendarEventAttendeeTypeRef, {
+						address: otherAddress2,
+						status: CalendarAttendeeStatus.NEEDS_ACTION,
+					}),
 				],
 				organizer: otherAddress,
 			})
@@ -517,7 +538,7 @@ o.spec("CalendarEventWhoModel", function () {
 			)
 			model.shouldSendUpdates = true
 			model.removeAttendee(otherAddress2.address)
-			model.addAttendee(otherAddress.address, createTestEntity(ContactTypeRef, { nickname: otherAddress.name }))
+			model.addAttendee(otherAddress)
 			const result = model.result
 			// this is not an invite to us, so we do not respond
 			o(result.responseModel).equals(null)
@@ -563,7 +584,7 @@ o.spec("CalendarEventWhoModel", function () {
 				passwordStrengthModel,
 				() => sendModels.pop()!,
 			)
-			model.addAttendee(otherAddress.address, createTestEntity(ContactTypeRef, { nickname: otherAddress.name }))
+			model.addAttendee(otherAddress)
 			const result = model.result
 			o(result.responseModel).equals(null)
 			o(sendModels.length).equals(0)
@@ -578,7 +599,7 @@ o.spec("CalendarEventWhoModel", function () {
 		o.spec("getAvailableCalendars", function () {
 			o.beforeEach(() => {
 				const userSettingsGroupRoot = createTestEntity(
-					UserSettingsGroupRootTypeRef,
+					tutanotaTypeRefs.UserSettingsGroupRootTypeRef,
 					downcast({
 						groupSettings: [
 							{
@@ -589,7 +610,7 @@ o.spec("CalendarEventWhoModel", function () {
 					}),
 				)
 				replace(userController, "userSettingsGroupRoot", Object.assign({}, userController.userSettingsGroupRoot, userSettingsGroupRoot))
-				replace(userController, "user", createTestEntity(UserTypeRef, { _id: "ownerId" }))
+				replace(userController, "user", createTestEntity(sysTypeRefs.UserTypeRef, { _id: "ownerId" }))
 				addCapability(userController.user, "ownExternalCalendar", ShareCapability.Read) // External calendars are actually normal user owned calendars handled as Read Only
 			})
 			o("it returns the owned calendars and shared calendars we have write access to when there are no attendees", function () {
@@ -614,7 +635,7 @@ o.spec("CalendarEventWhoModel", function () {
 				// add it as a writable calendar so that we see that it's filtered out
 				addCapability(userController.user, "sharedCalendar", ShareCapability.Write)
 				const model = getOldModel({})
-				model.addAttendee(otherAddress.address)
+				model.addAttendee(otherAddress)
 				o(model.getAvailableCalendars()).deepEquals([calendars.get("ownCalendar")!, calendars.get("ownSharedCalendar")!])
 			})
 
@@ -622,7 +643,12 @@ o.spec("CalendarEventWhoModel", function () {
 				// add it as a writable calendar so that we see that it's filtered out
 				addCapability(userController.user, "sharedCalendar", ShareCapability.Write)
 				const model = getOldModel({
-					attendees: [createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress, status: CalendarAttendeeStatus.NEEDS_ACTION })],
+					attendees: [
+						createTestEntity(CalendarEventAttendeeTypeRef, {
+							address: otherAddress,
+							status: CalendarAttendeeStatus.NEEDS_ACTION,
+						}),
+					],
 				})
 				o(model.getAvailableCalendars()).deepEquals([calendars.get("ownCalendar")!, calendars.get("ownSharedCalendar")!])
 			})
@@ -639,7 +665,12 @@ o.spec("CalendarEventWhoModel", function () {
 				addCapability(userController.user, "sharedCalendar", ShareCapability.Write)
 				const model = getOldSharedModel(
 					{
-						attendees: [createTestEntity(CalendarEventAttendeeTypeRef, { address: otherAddress, status: CalendarAttendeeStatus.NEEDS_ACTION })],
+						attendees: [
+							createTestEntity(CalendarEventAttendeeTypeRef, {
+								address: otherAddress,
+								status: CalendarAttendeeStatus.NEEDS_ACTION,
+							}),
+						],
 					},
 					EventType.LOCKED,
 				)
@@ -655,7 +686,7 @@ o.spec("CalendarEventWhoModel", function () {
 
 		o("changing the calendar to a shared one while the event has attendees is an error", function () {
 			const model = getNewModel({})
-			model.addAttendee(otherAddress.address)
+			model.addAttendee(otherAddress)
 			o(model.guests.length).equals(1)
 			o(() => (model.selectedCalendar = calendars.get("sharedCalendar")!)).throws(ProgrammingError)
 			o(model.selectedCalendar).deepEquals(calendars.get("ownCalendar")!)

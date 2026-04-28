@@ -1,12 +1,15 @@
-import { ListElementEntity, SomeEntity } from "../../common/EntityTypes"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
-import { TypeRef } from "@tutao/tutanota-utils"
+import { entityUpdateUtils, ListElementEntity, SomeEntity } from "@tutao/typerefs"
+import { ProgrammingError } from "@tutao/app-env"
+import { TypeRef } from "@tutao/utils"
 import { EntityRestCache } from "./DefaultEntityRestCache.js"
 import { EntityRestClientLoadOptions } from "./EntityRestClient.js"
-import { EntityUpdateData } from "../../common/utils/EntityUpdateUtils"
 
 export class AdminClientDummyEntityRestCache implements EntityRestCache {
-	async entityEventsReceived(events: readonly EntityUpdateData[], batchId: Id, groupId: Id): Promise<readonly EntityUpdateData[]> {
+	async entityEventsReceived(
+		events: readonly entityUpdateUtils.EntityUpdateData[],
+		batchId: Id,
+		groupId: Id,
+	): Promise<readonly entityUpdateUtils.EntityUpdateData[]> {
 		return events
 	}
 

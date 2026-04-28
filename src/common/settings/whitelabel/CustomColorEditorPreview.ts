@@ -1,16 +1,16 @@
 import m, { Children, Component } from "mithril"
-import { component_size, layout_size, px, size } from "../../gui/size"
+import { component_size, layout_size, px } from "../../gui/size"
 import { Button, ButtonType } from "../../gui/base/Button.js"
-import { createMail, createMailAddress, Mail } from "../../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { MailRow } from "../../../mail-app/mail/view/MailRow"
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
 import { IconButton } from "../../gui/base/IconButton.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
 import { ToggleButton } from "../../gui/base/buttons/ToggleButton.js"
-import { isApp, isDesktop } from "../../api/common/Env.js"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { lang } from "../../misc/LanguageViewModel.js"
-import { ProcessingState } from "../../api/common/TutanotaConstants"
+import { ProcessingState } from "@tutao/app-env"
+import { isApp, isDesktop } from "@tutao/app-env"
 
 export const BUTTON_WIDTH = 270
 
@@ -60,12 +60,12 @@ export class CustomColorEditorPreview implements Component {
 				m(".pt-16", [
 					m(IconButton, {
 						title: lang.makeTranslation("icon_button", "Icon button"),
-						icon: Icons.Folder,
+						icon: Icons.FolderFilled,
 						click: noOp,
 					}),
 					m(ToggleButton, {
 						title: lang.makeTranslation("toggle_button", "Toggle button"),
-						icon: this.toggleSelected ? Icons.Lock : Icons.Unlock,
+						icon: this.toggleSelected ? Icons.GenericLockFilled : Icons.LockOpenFilled,
 						toggled: this.toggleSelected,
 						onToggled: () => (this.toggleSelected = !this.toggleSelected),
 					}),
@@ -83,7 +83,6 @@ export class CustomColorEditorPreview implements Component {
 			mailDetails: null,
 			authStatus: null,
 			encryptionAuthStatus: null,
-			keyVerificationState: null,
 			method: "0",
 			bucketKey: null,
 			conversationEntry: ["listId", "conversationId"],
@@ -98,9 +97,10 @@ export class CustomColorEditorPreview implements Component {
 			processingState: ProcessingState.INBOX_RULE_NOT_PROCESSED,
 			clientSpamClassifierResult: null,
 			processNeeded: true,
-		} satisfies Partial<Mail>
-		const mail = createMail({
-			sender: createMailAddress({
+			serverClassificationData: "0,1",
+		} satisfies Partial<tutanotaTypeRefs.Mail>
+		const mail = tutanotaTypeRefs.createMail({
+			sender: tutanotaTypeRefs.createMailAddress({
 				address: "m.mustermann@example.com",
 				name: "Max Mustermann",
 				contact: null,
@@ -112,8 +112,8 @@ export class CustomColorEditorPreview implements Component {
 			sendAt: null,
 			...mailTemplate,
 		})
-		const mail2 = createMail({
-			sender: createMailAddress({
+		const mail2 = tutanotaTypeRefs.createMail({
+			sender: tutanotaTypeRefs.createMailAddress({
 				address: "m.mustermann@example.com",
 				name: "Max Mustermann",
 				contact: null,

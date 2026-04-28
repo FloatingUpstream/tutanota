@@ -4,14 +4,14 @@ import Mithril, { Children, ClassComponent, Component, RouteDefs, RouteResolver,
 import { lang, languageCodeToTag, languages } from "../common/misc/LanguageViewModel.js"
 import { root } from "../RootView.js"
 import { disableErrorHandlingDuringLogout, handleUncaughtError } from "../common/misc/ErrorHandler.js"
-import { assertMainOrNodeBoot, bootFinished, isApp, isDesktop, isOfflineStorageAvailable } from "../common/api/common/Env.js"
-import { assertNotNull, neverNull } from "@tutao/tutanota-utils"
+import { assertMainOrNodeBoot, bootFinished } from "@tutao/app-env"
+import { assertNotNull, neverNull } from "@tutao/utils"
 import { windowFacade } from "../common/misc/WindowFacade.js"
 import { styles } from "../common/gui/styles.js"
 import { deviceConfig } from "../common/misc/DeviceConfig.js"
 import { Logger, replaceNativeLogger } from "../common/api/common/Logger.js"
 import { applicationPaths } from "./calendar-applicationPaths.js"
-import { ProgrammingError } from "../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import type { LoginView, LoginViewAttrs } from "../common/login/LoginView.js"
 import type { LoginViewModel } from "../common/login/LoginViewModel.js"
 import { TerminationView, TerminationViewAttrs } from "../common/termination/TerminationView.js"
@@ -30,6 +30,7 @@ import { CalendarSettingsView } from "./calendar/settings/CalendarSettingsView.j
 import { CalendarSearchViewModel } from "./calendar/search/view/CalendarSearchViewModel.js"
 import { AppType } from "../common/misc/ClientConstants.js"
 import { ContactModel } from "../common/contactsFunctionality/ContactModel.js"
+import { isApp, isBrowser, isDesktop, Mode } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 bootFinished()
@@ -114,7 +115,7 @@ import("../mail-app/translations/en.js")
 			}
 		})
 
-		if (isOfflineStorageAvailable()) {
+		if (!isBrowser() && !(env.mode === Mode.Admin)) {
 			const { CachePostLoginAction } = await import("../common/offline/CachePostLoginAction.js")
 			calendarLocator.logins.addPostLoginAction(
 				async () =>

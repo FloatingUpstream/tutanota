@@ -1,28 +1,26 @@
-import { createDefaultAlarmInfo, createGroupSettings } from "../../api/entities/tutanota/TypeRefs.js"
+import { isSameId, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import m, { Children } from "mithril"
 import { lang } from "../../misc/LanguageViewModel.js"
 import { TextField } from "../../gui/base/TextField.js"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { downcast, noOp, ofClass } from "@tutao/tutanota-utils"
+import { downcast, noOp, ofClass } from "@tutao/utils"
 import { Dialog } from "../../gui/base/Dialog.js"
-import { ReceivedGroupInvitation } from "../../api/entities/sys/TypeRefs.js"
-import { isSameId } from "../../api/common/utils/EntityUtils.js"
 import { sendAcceptNotificationEmail, sendRejectNotificationEmail } from "../GroupSharingUtils.js"
 import { getCapabilityText, getDefaultGroupName, getInvitationGroupType, isTemplateGroup } from "../GroupUtils.js"
 import { showPlanUpgradeRequiredDialog } from "../../misc/SubscriptionDialogs.js"
 import type { GroupSharingTexts } from "../GroupGuiUtils.js"
 import { getTextsForGroupType } from "../GroupGuiUtils.js"
-import { GroupType } from "../../api/common/TutanotaConstants.js"
+import { GroupType, UpgradePromptType } from "@tutao/app-env"
 import { locator } from "../../api/main/CommonLocator.js"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { AlarmInterval } from "../../calendar/date/CalendarUtils.js"
 import { getMailAddressDisplayText } from "../../mailFunctionality/SharedMailUtils.js"
 import { serializeAlarmInterval } from "../../api/common/utils/CommonCalendarUtils.js"
 import { ColorPickerView } from "../../gui/base/colorPicker/ColorPickerView"
-import { LockedError } from "../../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 
-export function showGroupInvitationDialog(invitation: ReceivedGroupInvitation) {
+export function showGroupInvitationDialog(invitation: sysTypeRefs.ReceivedGroupInvitation) {
 	const groupType = getInvitationGroupType(invitation)
 	const texts = getTextsForGroupType(groupType)
 	const userSettingsGroupRoot = locator.logins.getUserController().userSettingsGroupRoot
@@ -53,18 +51,20 @@ export function showGroupInvitationDialog(invitation: ReceivedGroupInvitation) {
 						existingGroupSettings.color = newColor
 						existingGroupSettings.name = newName
 					} else {
-						const groupSettings = createGroupSettings({
+						const groupSettings = tutanotaTypeRefs.createGroupSettings({
 							group: invitation.sharedGroup,
 							color: newColor,
 							// If the receiving user does not set a custom name, the name from groupInfo will be used
 							name: newName !== groupName ? newName : null,
-							defaultAlarmsList: alarmsStream().map((alarm) => createDefaultAlarmInfo({ trigger: serializeAlarmInterval(alarm) })),
+							defaultAlarmsList: alarmsStream().map((alarm) =>
+								tutanotaTypeRefs.createDefaultAlarmInfo({ trigger: serializeAlarmInterval(alarm) }),
+							),
 							sourceUrl: null,
 						})
 						userSettingsGroupRoot.groupSettings.push(groupSettings)
 					}
 
-					locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(LockedError, noOp))
+					locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(restError.LockedError, noOp))
 				})
 			}
 		})
@@ -124,9 +124,9 @@ export function showGroupInvitationDialog(invitation: ReceivedGroupInvitation) {
  * 2. Template: only accounts with the templates feature can accept invitations
  * @param invitation
  */
-async function checkCanAcceptGroupInvitation(invitation: ReceivedGroupInvitation): Promise<boolean> {
+async function checkCanAcceptGroupInvitation(invitation: sysTypeRefs.ReceivedGroupInvitation): Promise<boolean> {
 	const SubscriptionDialogUtils = await import("../../misc/SubscriptionDialogs.js")
-	const allowed = await SubscriptionDialogUtils.checkPaidSubscription()
+	const allowed = await SubscriptionDialogUtils.checkPaidSubscription(UpgradePromptType.ACCEPT_GROUP_INVITATION)
 	if (!allowed) {
 		return false
 	}
@@ -134,14 +134,14 @@ async function checkCanAcceptGroupInvitation(invitation: ReceivedGroupInvitation
 	if (isTemplateGroup(getInvitationGroupType(invitation)) && !planConfig.templates) {
 		const { getAvailablePlansWithTemplates } = await import("../../subscription/utils/SubscriptionUtils.js")
 		const plans = await getAvailablePlansWithTemplates()
-		return showPlanUpgradeRequiredDialog(plans)
+		return showPlanUpgradeRequiredDialog(UpgradePromptType.ACCEPT_GROUP_INVITATION, plans)
 	} else {
 		return true
 	}
 }
 
 function renderCalendarGroupInvitationFields(
-	invitation: ReceivedGroupInvitation,
+	invitation: sysTypeRefs.ReceivedGroupInvitation,
 	selectedColourValue: Stream<string>,
 	alarmsStream: Stream<AlarmInterval[]>,
 ): Children {
@@ -155,13 +155,13 @@ function renderCalendarGroupInvitationFields(
 	]
 }
 
-function acceptInvite(invitation: ReceivedGroupInvitation, texts: GroupSharingTexts): Promise<void> {
+function acceptInvite(invitation: sysTypeRefs.ReceivedGroupInvitation, texts: GroupSharingTexts): Promise<void> {
 	return locator.shareFacade.acceptGroupInvitation(invitation).then(() => {
 		sendAcceptNotificationEmail(invitation, texts)
 	})
 }
 
-function declineInvite(invitation: ReceivedGroupInvitation, texts: GroupSharingTexts): Promise<void> {
+function declineInvite(invitation: sysTypeRefs.ReceivedGroupInvitation, texts: GroupSharingTexts): Promise<void> {
 	return locator.shareFacade.rejectOrCancelGroupInvitation(invitation._id).then(() => {
 		sendRejectNotificationEmail(invitation, texts)
 	})

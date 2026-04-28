@@ -1,19 +1,18 @@
 import { NewsListItem } from "../NewsListItem.js"
 import m, { Children } from "mithril"
-import { NewsId } from "../../../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { lang } from "../../LanguageViewModel.js"
 import { Button, ButtonType } from "../../../gui/base/Button.js"
 import { NewsModel } from "../NewsModel.js"
 import { Dialog, DialogType } from "../../../gui/base/Dialog.js"
-import { AccessBlockedError, NotAuthenticatedError } from "../../../api/common/error/RestError.js"
-import { daysToMillis, LazyLoaded, noOp, ofClass } from "@tutao/tutanota-utils"
+import * as restError from "@tutao/rest-client/error"
+import { LazyLoaded, noOp, ofClass } from "@tutao/utils"
 import { copyToClipboard } from "../../ClipboardUtils.js"
 import { UserController } from "../../../api/main/UserController.js"
 import { progressIcon } from "../../../gui/base/Icon.js"
-import { UserManagementFacade } from "../../../api/worker/facades/lazy/UserManagementFacade.js"
-import { isApp } from "../../../api/common/Env.js"
 import { showRequestPasswordDialog } from "../../passwords/PasswordRequestDialog.js"
 import { RecoverCodeFacade } from "../../../api/worker/facades/lazy/RecoverCodeFacade.js"
+import { daysToMillis, isApp } from "@tutao/app-env"
 
 /**
  * News item that informs admin users about their recovery code.
@@ -32,12 +31,12 @@ export class RecoveryCodeNews implements NewsListItem {
 		private readonly recoverCodeFacade: RecoverCodeFacade,
 	) {}
 
-	isShown(newsId: NewsId): Promise<boolean> {
+	isShown(newsId: tutanotaTypeRefs.NewsId): Promise<boolean> {
 		const customerCreationTime = this.userController.userGroupInfo.created.getTime()
 		return Promise.resolve(this.userController.isGlobalAdmin() && Date.now() - customerCreationTime > daysToMillis(14))
 	}
 
-	render(newsId: NewsId): Children {
+	render(newsId: tutanotaTypeRefs.NewsId): Children {
 		const recoveryCode = this.recoveryCode
 		// toggle the load if it's not started yet
 		this.recoverCodeField.getAsync()
@@ -74,7 +73,7 @@ export class RecoveryCodeNews implements NewsListItem {
 		])
 	}
 
-	private renderDoneButton(newsId: NewsId) {
+	private renderDoneButton(newsId: tutanotaTypeRefs.NewsId) {
 		return m(Button, {
 			label: "done_action",
 			type: ButtonType.Secondary,
@@ -126,7 +125,7 @@ export class RecoveryCodeNews implements NewsListItem {
 		})
 	}
 
-	private confirmButton(newsId: NewsId): Children {
+	private confirmButton(newsId: tutanotaTypeRefs.NewsId): Children {
 		return m(Button, {
 			label: "paymentDataValidation_action",
 			click: async () => {
@@ -148,8 +147,8 @@ export class RecoveryCodeNews implements NewsListItem {
 						this.recoveryCode = recoverCode
 						return ""
 					})
-					.catch(ofClass(NotAuthenticatedError, () => lang.get("invalidPassword_msg")))
-					.catch(ofClass(AccessBlockedError, () => lang.get("tooManyAttempts_msg")))
+					.catch(ofClass(restError.NotAuthenticatedError, () => lang.get("invalidPassword_msg")))
+					.catch(ofClass(restError.TooManyRequestsError, () => lang.get("tooManyAttempts_msg")))
 					.finally(m.redraw)
 			},
 			cancel: {

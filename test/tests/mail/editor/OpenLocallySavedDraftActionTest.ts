@@ -4,7 +4,7 @@ import { matchers, object, verify, when } from "testdouble"
 import { MailboxModel } from "../../../../src/common/mailFunctionality/MailboxModel"
 import { EntityClient } from "../../../../src/common/api/common/EntityClient"
 import { MailViewerViewModel } from "../../../../src/mail-app/mail/view/MailViewerViewModel"
-import { Mail, MailTypeRef } from "../../../../src/common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { CreateMailViewerOptions } from "../../../../src/mail-app/mail/view/MailViewer"
 import type { Dialog } from "../../../../src/common/gui/base/Dialog"
 import { AutosaveFacade, LocalAutosavedDraftData } from "../../../../src/common/api/worker/facades/lazy/AutosaveFacade"
@@ -12,7 +12,7 @@ import { AutosaveFacade, LocalAutosavedDraftData } from "../../../../src/common/
 o.spec("OpenLocallySavedDraftAction", () => {
 	let action: OpenLocallySavedDraftAction
 
-	let mail: Mail
+	let mail: tutanotaTypeRefs.Mail
 	let db: AutosaveFacade
 	let mailboxModel: MailboxModel
 	let entityClient: EntityClient
@@ -97,7 +97,7 @@ o.spec("OpenLocallySavedDraftAction", () => {
 		} satisfies LocalAutosavedDraftData
 
 		when(openDraftFunctions.createEditDraftDialog(mailViewerViewModel, draftData)).thenResolve(null)
-		when(entityClient.load(MailTypeRef, draftData.mailId!)).thenResolve(mail)
+		when(entityClient.load(tutanotaTypeRefs.MailTypeRef, draftData.mailId!)).thenResolve(mail)
 		when(db.getAutosavedDraftData()).thenResolve(draftData)
 		await action._loadAutosavedDraft()
 
@@ -130,7 +130,7 @@ o.spec("OpenLocallySavedDraftAction", () => {
 
 		const dialog: Dialog = object()
 		when(openDraftFunctions.createEditDraftDialog(mailViewerViewModel, draftData)).thenResolve(dialog)
-		when(entityClient.load(MailTypeRef, draftData.mailId!)).thenResolve(mail)
+		when(entityClient.load(tutanotaTypeRefs.MailTypeRef, draftData.mailId!)).thenResolve(mail)
 		when(db.getAutosavedDraftData()).thenResolve(draftData)
 		await action._loadAutosavedDraft()
 

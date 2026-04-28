@@ -14,15 +14,15 @@ import { TempFs } from "../files/TempFs.js"
 import { MailBundle, MailExportMode } from "../../mailFunctionality/SharedMailUtils.js"
 import { ElectronExports } from "../ElectronExportTypes.js"
 import { CancelledError } from "../../api/common/error/CancelledError.js"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { generateExportFileName, mailToEmlFile } from "../../../mail-app/mail/export/emlUtils.js"
 import { MailboxExportPersistence, MailboxExportState } from "./MailboxExportPersistence.js"
 import { DateProvider } from "../../api/common/DateProvider.js"
-import { formatSortableDate } from "@tutao/tutanota-utils"
+import { formatSortableDate } from "@tutao/utils"
 import { FileOpenError } from "../../api/common/error/FileOpenError.js"
 import { ExportError, ExportErrorReason } from "../../api/common/error/ExportError"
 import { DesktopExportLock, LockResult } from "./DesktopExportLock"
-import { elementIdPart } from "../../api/common/utils/EntityUtils"
+import { elementIdPart } from "@tutao/typerefs"
 
 const EXPORT_DIR = "export"
 
@@ -115,6 +115,8 @@ export class DesktopExportFacade implements ExportFacade {
 			mailBagId,
 			mailId,
 			exportedMails: 0,
+			failedCount: 0,
+			failedMailIds: [],
 		})
 	}
 
@@ -154,7 +156,7 @@ export class DesktopExportFacade implements ExportFacade {
 		return state
 	}
 
-	async endMailboxExport(userId: string): Promise<void> {
+	async endMailboxExport(userId: string): Promise<MailboxExportState | null> {
 		const previousExportState = await this.mailboxExportPersistence.getStateForUser(userId)
 		if (previousExportState && previousExportState.type === "running") {
 			await this.mailboxExportPersistence.setStateForUser({
@@ -162,7 +164,11 @@ export class DesktopExportFacade implements ExportFacade {
 				userId,
 				exportDirectoryPath: previousExportState.exportDirectoryPath,
 				mailboxId: previousExportState.mailboxId,
+				failedCount: previousExportState.failedCount,
+				failedMailIds: previousExportState.failedMailIds,
 			})
+
+			return this.mailboxExportPersistence.getStateForUser(userId)
 		} else {
 			throw new ProgrammingError("An Export was not previously running")
 		}
@@ -185,6 +191,7 @@ export class DesktopExportFacade implements ExportFacade {
 				throw e
 			}
 		}
+
 		await this.mailboxExportPersistence.setStateForUser({
 			type: "running",
 			userId,
@@ -193,6 +200,27 @@ export class DesktopExportFacade implements ExportFacade {
 			exportDirectoryPath: exportState.exportDirectoryPath,
 			mailboxId: exportState.mailboxId,
 			exportedMails: exportState.exportedMails + 1,
+			failedCount: exportState.failedCount,
+			failedMailIds: exportState.failedMailIds,
+		})
+	}
+
+	async saveMailboxExportFailure(userId: string, mailBagId: string, mailId: IdTuple): Promise<void> {
+		const exportState = await this.mailboxExportPersistence.getStateForUser(userId)
+		if (exportState == null || exportState.type !== "running") {
+			throw new ProgrammingError("Export is not running")
+		}
+
+		await this.mailboxExportPersistence.setStateForUser({
+			type: "running",
+			userId,
+			mailBagId,
+			mailId: elementIdPart(mailId),
+			exportDirectoryPath: exportState.exportDirectoryPath,
+			mailboxId: exportState.mailboxId,
+			exportedMails: exportState.exportedMails,
+			failedCount: exportState.failedCount + 1,
+			failedMailIds: [...exportState.failedMailIds, mailId],
 		})
 	}
 

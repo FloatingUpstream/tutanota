@@ -17,7 +17,7 @@ import {
 	setEquals,
 	setMap,
 	settledThen,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
 import { ListFetchResult, PageSize } from "../gui/base/ListUtils.js"
@@ -157,6 +157,23 @@ export class ListModel<ItemType, IdType> {
 		if (this.initialLoading == null || this.rawState.loadingStatus !== ListLoadingState.ConnectionLost) {
 			return
 		}
+		await this.doLoad()
+	}
+
+	async reload() {
+		if (this.initialLoading == null) {
+			return this.loadInitial()
+		}
+
+		if (this.rawState.loadingStatus === ListLoadingState.ConnectionLost) {
+			return
+		}
+
+		if (this.rawState.loadingStatus === ListLoadingState.Loading) {
+			await this.loading
+		}
+
+		this.rawStateStream(this.defaultRawStateStream)
 		await this.doLoad()
 	}
 

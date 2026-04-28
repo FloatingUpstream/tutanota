@@ -1,31 +1,31 @@
-import { identity, Nullable } from "@tutao/tutanota-utils"
+import { identity, Nullable } from "@tutao/utils"
 import type { LoginController } from "./LoginController"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { assertMainOrNode } from "../common/Env"
-import { WebsocketCounterData } from "../entities/sys/TypeRefs"
-import { EntityUpdateData } from "../common/utils/EntityUpdateUtils.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { ProgressMonitorId } from "../common/utils/ProgressMonitor"
+import { ProgressTracker } from "./ProgressTracker"
+import { entityUpdateUtils, sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
-export type ExposedEventController = Pick<EventController, "onEntityUpdateReceived" | "onCountersUpdateReceived">
+export type ExposedEventController = Pick<EventController, "onEntityUpdateReceived" | "onCountersUpdateReceived" | "onOperationStatusUpdate">
 
 const TAG = "[EventController]"
 
-export type EntityEventsListener = (
-	updates: ReadonlyArray<EntityUpdateData>,
-	eventOwnerGroupId: Id,
-	eventQueueProgressMonitorId: Nullable<ProgressMonitorId>,
-) => Promise<unknown>
+export type OperationStatusUpdateListener = (update: sysTypeRefs.OperationStatusUpdate) => Promise<unknown>
 
 export class EventController {
-	private countersStream: Stream<WebsocketCounterData> = stream()
-	private entityListeners: Set<EntityEventsListener> = new Set()
+	private countersStream: Stream<sysTypeRefs.WebsocketCounterData> = stream()
+	private entityListeners: Set<entityUpdateUtils.EntityEventsListener> = new Set()
+	private readonly operationListeners: Set<OperationStatusUpdateListener> = new Set()
 
-	constructor(private readonly logins: LoginController) {}
+	constructor(
+		private readonly logins: LoginController,
+		private readonly progressTracker: ProgressTracker,
+	) {}
 
-	addEntityListener(listener: EntityEventsListener) {
+	addEntityListener(listener: entityUpdateUtils.EntityEventsListener) {
 		if (this.entityListeners.has(listener)) {
 			console.warn(TAG, "Adding the same listener twice!")
 		} else {
@@ -33,34 +33,57 @@ export class EventController {
 		}
 	}
 
-	removeEntityListener(listener: EntityEventsListener) {
+	removeEntityListener(listener: entityUpdateUtils.EntityEventsListener) {
 		const wasRemoved = this.entityListeners.delete(listener)
 		if (!wasRemoved) {
 			console.warn(TAG, "Could not remove listener, possible leak?", listener)
 		}
 	}
 
-	getCountersStream(): Stream<WebsocketCounterData> {
+	addOperationStatusUpdateListener(listener: OperationStatusUpdateListener) {
+		this.operationListeners.add(listener)
+	}
+
+	removeOperationStatusUpdateListener(listener: OperationStatusUpdateListener) {
+		this.operationListeners.delete(listener)
+	}
+
+	getCountersStream(): Stream<sysTypeRefs.WebsocketCounterData> {
 		// Create copy so it's never ended
 		return this.countersStream.map(identity)
 	}
 
 	async onEntityUpdateReceived(
-		entityUpdates: readonly EntityUpdateData[],
+		entityUpdates: readonly entityUpdateUtils.EntityUpdateData[],
 		eventOwnerGroupId: Id,
-		eventQueueProgressMonitorId?: ProgressMonitorId,
+		progressMonitorId: Nullable<ProgressMonitorId>,
+		isInitialSyncDone: boolean,
 	): Promise<void> {
 		if (this.logins.isUserLoggedIn()) {
 			// the UserController must be notified first as other event receivers depend on it to be up-to-date
 			await this.logins.getUserController().entityEventsReceived(entityUpdates, eventOwnerGroupId)
 
-			for (const listener of this.entityListeners) {
-				await listener(entityUpdates, eventOwnerGroupId, eventQueueProgressMonitorId ?? null)
+			const listenersByPriorities = Array.from(this.entityListeners).sort(
+				(listenerA, listenerB) => listenerB.priority.valueOf() - listenerA.priority.valueOf(),
+			)
+
+			for (const listener of listenersByPriorities) {
+				await listener.onEntityUpdatesReceived(entityUpdates, eventOwnerGroupId, isInitialSyncDone)
+			}
+
+			if (progressMonitorId !== null && !this.progressTracker.getMonitor(progressMonitorId)?.isDone()) {
+				await this.progressTracker.workDoneForMonitor(progressMonitorId, 1)
 			}
 		}
 	}
 
-	async onCountersUpdateReceived(update: WebsocketCounterData): Promise<void> {
+	async onCountersUpdateReceived(update: sysTypeRefs.WebsocketCounterData): Promise<void> {
 		this.countersStream(update)
+	}
+
+	async onOperationStatusUpdate(update: sysTypeRefs.OperationStatusUpdate): Promise<void> {
+		for (const listener of this.operationListeners) {
+			await listener(update)
+		}
 	}
 }

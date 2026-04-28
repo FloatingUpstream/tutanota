@@ -1,10 +1,9 @@
 import { pureComponent } from "./base/PureComponent.js"
 import m, { Children, Component, Vnode } from "mithril"
-import { NBSP } from "@tutao/tutanota-utils"
+import { NBSP } from "@tutao/utils"
 import { AppHeaderAttrs } from "./Header.js"
 import { BaseMobileHeader } from "./BaseMobileHeader.js"
 import { IconButton } from "./base/IconButton.js"
-import { BootIcons } from "./base/icons/BootIcons.js"
 import { styles } from "./styles.js"
 import { OfflineIndicator } from "./base/OfflineIndicator.js"
 import { ProgressBar } from "./base/ProgressBar.js"
@@ -15,6 +14,7 @@ import { NewsModel } from "../misc/news/NewsModel.js"
 import { ClickHandler } from "./base/GuiUtils.js"
 import { lang, MaybeTranslation } from "../misc/LanguageViewModel.js"
 import { client } from "../misc/ClientDetector"
+import { Icons } from "./base/icons/Icons"
 
 export interface MobileHeaderAttrs extends AppHeaderAttrs {
 	columnType: "first" | "other"
@@ -61,7 +61,11 @@ export class MobileHeader implements Component<MobileHeaderAttrs> {
 
 	private renderLeftAction(attrs: MobileHeaderAttrs) {
 		if (styles.isMobileDesktopLayout() && !client.isCalendarApp()) {
-			return m(".ml-8")
+			if (attrs.useBackButton) {
+				return m(MobileHeaderBackButton, { backAction: attrs.backAction })
+			} else {
+				return m(".ml-8")
+			}
 		} else if (attrs.columnType === "first" && !attrs.useBackButton) {
 			return m(MobileHeaderMenuButton, { newsModel: attrs.newsModel, backAction: attrs.backAction })
 		} else if (styles.isSingleColumnLayout() || attrs.useBackButton) {
@@ -75,7 +79,7 @@ export class MobileHeader implements Component<MobileHeaderAttrs> {
 export const MobileHeaderBackButton = pureComponent(({ backAction }: { backAction: () => unknown }) => {
 	return m(IconButton, {
 		title: "back_action",
-		icon: BootIcons.Back,
+		icon: Icons.ChevronLeft,
 		click: () => {
 			backAction()
 		},
@@ -100,7 +104,7 @@ export const MobileHeaderMenuButton = pureComponent(({ newsModel, backAction }: 
 	return m(".rel", [
 		m(IconButton, {
 			title: "menu_label",
-			icon: BootIcons.MoreVertical,
+			icon: Icons.Burger,
 			click: () => {
 				backAction()
 			},

@@ -3,21 +3,21 @@ package de.tutao.calendar.push
 import android.util.Log
 import androidx.lifecycle.LifecycleCoroutineScope
 import de.tutao.calendar.R
-import de.tutao.calendar.alarms.AlarmNotificationsManager
 import de.tutao.tutashared.SuspensionHandler
+import de.tutao.tutashared.alarms.AlarmNotificationsManager
 import de.tutao.tutashared.await
 import de.tutao.tutashared.base64ToBase64Url
 import de.tutao.tutashared.data.SseInfo
 import de.tutao.tutashared.push.SseStorage
 import de.tutao.tutashared.toBase64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import org.apache.commons.io.IOUtils
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.MalformedURLException
@@ -25,6 +25,8 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.*
 import java.util.concurrent.TimeUnit
+
+const val MISSED_NOTIFICATION_RESOURCE = "missed notification"
 
 class TutanotaNotificationsHandler(
 	private val localNotificationsFacade: LocalNotificationsFacade,
@@ -76,8 +78,17 @@ class TutanotaNotificationsHandler(
 			}
 			userId = sseInfo.userIds.iterator().next()
 			try {
-				Log.d(TAG, "Downloading missed notification with user id $userId")
-				return suspensionHandler.deferRequest { executeMissedNotificationDownload(sseInfo, userId) }
+				// Only make requests if not in a current suspension...
+				if (suspensionHandler.isSuspended(MISSED_NOTIFICATION_RESOURCE)) {
+					Log.d(TAG, "Device is currently in a suspension for missed notification")
+					return null
+				} else {
+					Log.d(TAG, "Downloading missed notification with user id $userId")
+					return suspensionHandler.deferRequest(
+						{ executeMissedNotificationDownload(sseInfo, userId) },
+						MISSED_NOTIFICATION_RESOURCE
+					)
+				}
 			} catch (e: FileNotFoundException) {
 				Log.i(TAG, "MissedNotification is not found, ignoring: " + e.message)
 				return null
@@ -93,15 +104,13 @@ class TutanotaNotificationsHandler(
 					TAG, "ServiceUnavailable when downloading missed notification, waiting " +
 							e.suspensionSeconds + "s"
 				)
-				suspensionHandler.activateSuspensionIfInactive(e.suspensionSeconds, "missed notification")
-				// tries are not decremented and we don't return, we just wait and try again.
+				activateSuspensionAndWait(e.suspensionSeconds, triesLeft)
 			} catch (e: TooManyRequestsException) {
 				Log.d(
 					TAG, "TooManyRequestsException when downloading missed notification, waiting " +
 							e.retryAfterSeconds + "s"
 				)
-				suspensionHandler.activateSuspensionIfInactive(e.retryAfterSeconds, "missed notification")
-				// tries are not decremented and we don't return, we just wait and try again.
+				activateSuspensionAndWait(e.retryAfterSeconds, triesLeft)
 			} catch (e: ServerResponseException) {
 				triesLeft--
 				Log.w(TAG, e)
@@ -122,6 +131,15 @@ class TutanotaNotificationsHandler(
 			}
 		}
 		return null
+	}
+
+	private suspend fun activateSuspensionAndWait(suspensionDuration: Int, triesLeft: Int) {
+		suspensionHandler.activateSuspensionIfInactive(suspensionDuration, MISSED_NOTIFICATION_RESOURCE)
+		//Wait additional 1 second to be sure the other coroutine has ran and unset the suspension.
+		delay(TimeUnit.SECONDS.toMillis(suspensionDuration + 1L))
+		// tries are not decremented and we don't return, we just wait and try again.
+		// waiting happens here because every new try must be stopped to keep this one alive.
+		Log.d(TAG, "Waited on Delay to try again $triesLeft")
 	}
 
 	@Throws(IllegalArgumentException::class, IOException::class, HttpException::class)

@@ -1,5 +1,5 @@
-import type { TypeModel } from "../../common/EntityTypes"
-import { Type } from "../../common/EntityConstants"
+import type { TypeModel } from "@tutao/typerefs"
+import { Type } from "@tutao/typerefs"
 
 export function collapseId(listId: Id | null, elementId: Id): Id | IdTuple {
 	if (listId != null) {

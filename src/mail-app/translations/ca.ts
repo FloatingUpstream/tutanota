@@ -1,5 +1,5 @@
 // DO NOT EDIT: automatically generated
-// Please edit translations via Phrase: https://tuta.com/blog/tutanota-translation-project
+// Please edit translations via POEditor: https://tuta.com/blog/tutanota-translation-project
 export default {
 	"code": "ca",
 	"keys": {
@@ -450,6 +450,7 @@ export default {
 		"dark_blue_label": "Blau fosc",
 		"dark_label": "Fosc",
 		"dark_red_label": "Vermell fosc",
+		"dataExpired_label": "Dades vençudes",
 		"dataExpired_msg": "La seves dades han caducat i estan desincronitzades amb les dades dels servidors Tuta. Si us plau, sortiu i inicieu sessió una altra vegada per actualitzar les dades.",
 		"dataExpiredOfflineDb_msg": "Les vostres dades locals no estan sincronitzades amb les dades dels servidors Tuta. Es tancarà la sessió i les dades emmagatzemades localment es netejaran i es tornaran a descarregar segons sigui necessari.",
 		"dataWillBeStored_msg": "Les dades s'emmagatzemaran al vostre dispositiu.",
@@ -503,7 +504,6 @@ export default {
 		"deleteSharedCalendarConfirm_msg": "El calendari \"{calendar}\" es comparteix amb d'altres usuaris.",
 		"deleteSingleEventRecurrence_action": "Suprimeix només aquest esdeveniment",
 		"deleteTemplate_msg": "Esteu segur que voleu suprimir aquesta plantilla?",
-		"deleteTemplateGroups_msg": "Encara hi ha llistes de plantilles actives que s'hauran de suprimir abans de poder baixar a una versió anterior. Això pot incloure llistes de plantilles compartides o llistes de plantilles dels vostres usuaris.",
 		"deleteThisAndFutureOccurrences_action": "Eliminar aquest i futurs esdeveniments",
 		"deleteThisAndFutureOccurrencesConfirmation_msg": "Esteu segur que voleu suprimir aquest i tots els esdeveniments futurs?",
 		"department_placeholder": "Departament",
@@ -1260,7 +1260,6 @@ export default {
 		"outOfOfficeTimeRange_msg": "Envia només en aquest interval de temps:",
 		"outOfOfficeTimeRangeHelp_msg": "Marqueu per escollir dates.",
 		"outOfOfficeUnencrypted_msg": "Si us plau, tingueu en compte que les respostes automàtiques (respostes automàtiques) s'envien en text sense format.",
-		"outOfSync_label": "Dades vençudes",
 		"overwrite_action": "Sobreescriure",
 		"owner_label": "Propietari",
 		"pageBackward_label": "Pàgina enrere",
@@ -1795,7 +1794,6 @@ export default {
 		"sortBy_label": "Ordena per",
 		"sourceColor_label": "Color de font",
 		"spam_action": "Correu brossa",
-		"spam_move_action": "Mou a correu brossa",
 		"spamReports_label": "Informa de correu brossa",
 		"spamRuleEnterValue_msg": "Si us plau, introduïu un valor.",
 		"spelling_label": "Ortografia",
@@ -2036,7 +2034,7 @@ export default {
 		"updateThisAndFutureEvents_action": "Actualitzar aquest i futurs events",
 		"upgrade_action": "Subscriure",
 		"upgradeConfirm_msg": "Confirmar la comanda!",
-		"upgradeNeeded_msg": "Actualment només podeu intercanviar correus electrònics amb sales@tutao.de perquè no heu completat la reserva d'una subscripció de pagament durant el registre. Pots completar la reserva en un termini de 14 dies després de registrar-te, en cas contrari, el teu compte es desactivarà.",
+		"upgradeNeeded_msg": "Actualment només podeu intercanviar correus electrònics amb invoice@tutao.de perquè no heu completat la reserva d'una subscripció de pagament durant el registre. Pots completar la reserva en un termini de 14 dies després de registrar-te, en cas contrari, el teu compte es desactivarà.",
 		"upgradePlan_msg": "El teu pla s'actualitzarà a {plan}.",
 		"upgradePremium_label": "Prèmium",
 		"upgradeReminderCancel_action": "Més tard",

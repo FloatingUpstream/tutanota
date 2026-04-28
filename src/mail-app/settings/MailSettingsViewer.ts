@@ -1,22 +1,20 @@
 import m, { Children } from "mithril"
-import { assertMainOrNode, isApp, isBrowser } from "../../common/api/common/Env"
-import { lang, type MaybeTranslation } from "../../common/misc/LanguageViewModel"
-import type { MailboxGroupRoot, MailboxProperties, OutOfOfficeNotification, TutanotaProperties } from "../../common/api/entities/tutanota/TypeRefs.js"
 import {
-	MailboxPropertiesTypeRef,
-	MailSetTypeRef,
-	OutOfOfficeNotificationTypeRef,
-	TutanotaPropertiesTypeRef,
-} from "../../common/api/entities/tutanota/TypeRefs.js"
-import {
+	assertMainOrNode,
 	Const,
 	FeatureType,
+	FREE_OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS,
 	InboxRuleType,
-	OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS,
+	isApp,
+	isBrowser,
 	OperationType,
 	ReportMovedMailsType,
-} from "../../common/api/common/TutanotaConstants"
-import { assertNotNull, defer, LazyLoaded, noOp, ofClass, promiseMap } from "@tutao/tutanota-utils"
+	UNDO_SEND_TIMEOUT_SECONDS,
+	UpgradePromptType,
+} from "@tutao/app-env"
+import { lang, type MaybeTranslation } from "../../common/misc/LanguageViewModel"
+import { elementIdPart, entityUpdateUtils, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
+import { defer, LazyLoaded, noOp, ofClass, promiseMap } from "@tutao/utils"
 import { getInboxRuleTypeName } from "../mail/model/InboxRuleHandler"
 import { MailAddressTable } from "../../common/settings/mailaddress/MailAddressTable.js"
 import { Dialog } from "../../common/gui/base/Dialog"
@@ -35,7 +33,7 @@ import * as AddInboxRuleDialog from "./AddInboxRuleDialog"
 import { createInboxRuleTemplate } from "./AddInboxRuleDialog"
 import { ExpanderButton, ExpanderPanel } from "../../common/gui/base/Expander"
 import { IndexingNotSupportedError } from "../../common/api/common/error/IndexingNotSupportedError"
-import { LockedError } from "../../common/api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { showEditOutOfOfficeNotificationDialog } from "./EditOutOfOfficeNotificationDialog"
 import { formatActivateState, loadOutOfOfficeNotification } from "../../common/misc/OutOfOfficeNotificationUtils"
 import { getSignatureType, show as showEditSignatureDialog } from "./EditSignatureDialog"
@@ -47,16 +45,15 @@ import { getReportMovedMailsType } from "../../common/misc/MailboxPropertiesUtil
 import { MailAddressTableModel } from "../../common/settings/mailaddress/MailAddressTableModel.js"
 import { getEnabledMailAddressesForGroupInfo } from "../../common/api/common/utils/GroupUtils.js"
 import { formatDate, formatStorageSize } from "../../common/misc/Formatter.js"
-import { CustomerInfo } from "../../common/api/entities/sys/TypeRefs.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../common/api/common/utils/EntityUpdateUtils.js"
 import { getDefaultSenderFromUser, getMailAddressDisplayText } from "../../common/mailFunctionality/SharedMailUtils.js"
 import { UpdatableSettingsViewer } from "../../common/settings/Interfaces.js"
 import { mailLocator } from "../mailLocator.js"
 import { getFolderName } from "../mail/model/MailUtils.js"
-import { elementIdPart } from "../../common/api/common/utils/EntityUtils.js"
 import { DatePicker, DatePickerAttrs } from "../../calendar-app/calendar/gui/pickers/DatePicker"
 import { OfflineStorageSettingsModel } from "../../common/offline/OfflineStorageSettingsModel"
 import { client } from "../../common/misc/ClientDetector"
+import { ProgressBar, ProgressBarType } from "../../common/gui/base/ProgressBar"
+import { LoginButton } from "../../common/gui/base/buttons/LoginButton"
 
 assertMainOrNode()
 
@@ -64,7 +61,7 @@ const MINIMUM_DISPLAYED_STORAGE_IN_BYTES = 10000
 
 export class MailSettingsViewer implements UpdatableSettingsViewer {
 	_signature: Stream<string>
-	_mailboxProperties: LazyLoaded<MailboxProperties>
+	_mailboxProperties: LazyLoaded<tutanotaTypeRefs.MailboxProperties>
 	_reportMovedMails: ReportMovedMailsType
 	_defaultSender: string
 	_defaultUnconfidential: boolean | null
@@ -74,10 +71,10 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 	_inboxRulesTableLines: Stream<Array<TableLineAttrs>>
 	_inboxRulesExpanded: Stream<boolean>
 	_indexStateWatch: Stream<any> | null
-	_outOfOfficeNotification: LazyLoaded<OutOfOfficeNotification | null>
+	_outOfOfficeNotification: LazyLoaded<tutanotaTypeRefs.OutOfOfficeNotification | null>
 	_outOfOfficeStatus: Stream<string> // stores the status label, based on whether the notification is/ or will really be activated (checking start time/ end time)
 	private _storageFieldValue: Stream<string>
-	private customerInfo: CustomerInfo | null
+	private customerInfo: sysTypeRefs.CustomerInfo | null
 	private mailAddressTableModel: MailAddressTableModel | null = null
 	private mailAddressTableExpanded: boolean
 	private offlineStorageSettings = new OfflineStorageSettingsModel(mailLocator.logins.getUserController(), deviceConfig)
@@ -86,7 +83,6 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		this._defaultSender = getDefaultSenderFromUser(mailLocator.logins.getUserController())
 		this._signature = stream(getSignatureType(mailLocator.logins.getUserController().props).name)
 		this._reportMovedMails = getReportMovedMailsType(null) // loaded later
-
 		this._defaultUnconfidential = mailLocator.logins.getUserController().props.defaultUnconfidential
 		this._sendPlaintext = mailLocator.logins.getUserController().props.sendPlaintextOnly
 		this._noAutomaticContacts = mailLocator.logins.getUserController().props.noAutomaticContacts
@@ -127,13 +123,13 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		this.updateStorageField(this.customerInfo).then(() => m.redraw())
 	}
 
-	private async getMailboxGroupRoot(): Promise<MailboxGroupRoot> {
+	private async getMailboxGroupRoot(): Promise<tutanotaTypeRefs.MailboxGroupRoot> {
 		// For now we assume user mailbox, in the future we should specify which mailbox we are configuring
 		const { mailboxGroupRoot } = await mailLocator.mailboxModel.getUserMailboxDetails()
 		return mailboxGroupRoot
 	}
 
-	private async updateStorageField(customerInfo: CustomerInfo): Promise<void> {
+	private async updateStorageField(customerInfo: sysTypeRefs.CustomerInfo): Promise<void> {
 		const user = mailLocator.logins.getUserController().user
 		let sizeInBytes = Number(await mailLocator.userManagementFacade.readUsedUserStorage(user))
 		// Done to avoid displaying negative storage capacity to the user, storage counter will be modified in the future to fix the negative values bug
@@ -175,7 +171,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		const changeSignatureButtonAttrs: IconButtonAttrs = {
 			title: "userEmailSignature_label",
 			click: () => showEditSignatureDialog(mailLocator.logins.getUserController().props),
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		}
 		const signatureAttrs: TextFieldAttrs = {
@@ -191,7 +187,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 			click: () => {
 				this._outOfOfficeNotification.getAsync().then((notification) => showEditOutOfOfficeNotificationDialog(notification))
 			},
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		}
 
@@ -296,7 +292,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		const addInboxRuleButtonAttrs: IconButtonAttrs = {
 			title: "addInboxRule_action",
 			click: () => mailLocator.mailboxModel.getUserMailboxDetails().then((mailboxDetails) => AddInboxRuleDialog.show(mailboxDetails, templateRule)),
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			size: ButtonSize.Compact,
 		}
 		const inboxRulesTableAttrs: TableAttrs = {
@@ -325,7 +321,10 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 			// Don't group means normal view instead of conversation
 			items: [
 				{ name: lang.get("mailListGroupingDontGroup_label"), value: MailListDisplayMode.MAILS },
-				{ name: lang.get("mailListGroupingGroupByConversation_label"), value: MailListDisplayMode.CONVERSATIONS },
+				{
+					name: lang.get("mailListGroupingGroupByConversation_label"),
+					value: MailListDisplayMode.CONVERSATIONS,
+				},
 			],
 			selectedValue: deviceConfig.getConversationViewShowOnlySelectedMail() ? MailListDisplayMode.MAILS : deviceConfig.getMailListDisplayMode(),
 			disabled: deviceConfig.getConversationViewShowOnlySelectedMail(),
@@ -378,6 +377,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 					mailLocator.logins.isEnabled(FeatureType.InternalCommunication) ? null : m(DropDownSelector, sendPlaintextAttrs),
 					m("#spamreports", m(DropDownSelector, reportMovedMailsAttrs)),
 					m("#outofoffice", m(TextField, outOfOfficeAttrs)),
+					m("#undoSend", m(DropDownSelector, this.makeUndoSendMailsDropdownAttrs())),
 					this.renderLocalDataSection(),
 					this.mailAddressTableModel
 						? m(
@@ -426,7 +426,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		// Even if it is tracked by a date internally, for some users there is a fixed amount of days that they
 		// can have stored, so it makes sense to show them the number of days.
 		const textFieldValue = this.offlineStorageSettings.isFixedDays()
-			? lang.get("storedDataTimeRange_label", { "{numDays}": OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS })
+			? lang.get("storedDataTimeRange_label", { "{numDays}": FREE_OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS })
 			: lang.get("storedDataDate_label", { "{date}": formatDate(this.offlineStorageSettings.getTimeRange()) })
 		return [
 			m(".h4.mt-32#localdata", lang.get("localDataSection_label")),
@@ -441,24 +441,66 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 					m(IconButton, {
 						title: "edit_action",
 						click: () => this.onEditStoredDataTimeRangeClicked(),
-						icon: Icons.Edit,
+						icon: Icons.PenFilled,
 						size: ButtonSize.Compact,
 					}),
 				],
 			}),
+			this.renderRebuildSearchIndex(),
 		]
+	}
+
+	private renderRebuildSearchIndex() {
+		const searchIndexStateInfo = mailLocator.search.indexState()
+		return m(
+			"",
+			searchIndexStateInfo.progress !== 0
+				? [
+						m(
+							".mt-16.full-width.button-content.rel.border-radius-12.nav-bg",
+							m(ProgressBar, {
+								progress: searchIndexStateInfo.progress / 100.0,
+								type: ProgressBarType.Large,
+							}),
+						),
+						m("small.mt-12", lang.getTranslationText("indexingEmails_msg")),
+					]
+				: [
+						m(
+							".mt-16",
+							m(LoginButton, {
+								width: "flex",
+								label: "rebuildSearchIndex_action",
+								onclick: () => this.confirmClearData(),
+							}),
+						),
+						m("small.mt-12", lang.getTranslationText("reIndexLocalData_msg")),
+					],
+		)
+	}
+
+	private async confirmClearData(): Promise<void> {
+		const confirm = await Dialog.confirm(
+			lang.makeTranslation(
+				"reIndexLocalData_msg",
+				`${lang.getTranslationText("reIndexLocalData_msg")}\n\n${lang.getTranslationText("reIndexRunInBackground_msg")}`,
+			),
+		)
+		if (confirm) {
+			await mailLocator.indexerFacade.rebuildMailIndex()
+		}
 	}
 
 	private async onEditStoredDataTimeRangeClicked() {
 		if (mailLocator.logins.getUserController().isFreeAccount()) {
-			showNotAvailableForFreeDialog()
+			showNotAvailableForFreeDialog(UpgradePromptType.EXTEND_OFFLINE_DATA_RANGE)
 		} else {
 			await showEditStoredDataTimeRangeDialog(this.offlineStorageSettings)
 			m.redraw()
 		}
 	}
 
-	_updateTutanotaPropertiesSettings(props: TutanotaProperties) {
+	_updateTutanotaPropertiesSettings(props: tutanotaTypeRefs.TutanotaProperties) {
 		if (props.defaultSender) {
 			this._defaultSender = props.defaultSender
 		}
@@ -480,7 +522,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		})
 	}
 
-	_updateInboxRules(props: TutanotaProperties): void {
+	_updateInboxRules(props: tutanotaTypeRefs.TutanotaProperties): void {
 		mailLocator.mailboxModel.getUserMailboxDetails().then(async (mailboxDetails) => {
 			this._inboxRulesTableLines(
 				await promiseMap(props.inboxRules, async (rule, index) => {
@@ -489,7 +531,7 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 						actionButtonAttrs: createRowActions(
 							{
 								getArray: () => props.inboxRules,
-								updateInstance: () => mailLocator.entityClient.update(props).catch(ofClass(LockedError, noOp)),
+								updateInstance: () => mailLocator.entityClient.update(props).catch(ofClass(restError.LockedError, noOp)),
 							},
 							rule,
 							index,
@@ -527,22 +569,41 @@ export class MailSettingsViewer implements UpdatableSettingsViewer {
 		}
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		for (const update of updates) {
 			const { operation } = update
-			if (isUpdateForTypeRef(TutanotaPropertiesTypeRef, update) && operation === OperationType.UPDATE) {
-				const props = await mailLocator.entityClient.load(TutanotaPropertiesTypeRef, mailLocator.logins.getUserController().props._id)
+			if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.TutanotaPropertiesTypeRef, update) && operation === OperationType.UPDATE) {
+				const props = await mailLocator.entityClient.load(tutanotaTypeRefs.TutanotaPropertiesTypeRef, mailLocator.logins.getUserController().props._id)
 				this._updateTutanotaPropertiesSettings(props)
 				this._updateInboxRules(props)
-			} else if (isUpdateForTypeRef(MailSetTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.MailSetTypeRef, update)) {
 				this._updateInboxRules(mailLocator.logins.getUserController().props)
-			} else if (isUpdateForTypeRef(OutOfOfficeNotificationTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, update)) {
 				this._outOfOfficeNotification.reload().then(() => this._updateOutOfOfficeNotification())
-			} else if (isUpdateForTypeRef(MailboxPropertiesTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.MailboxPropertiesTypeRef, update)) {
 				this._mailboxProperties.reload().then(() => this._updateMailboxPropertiesSettings())
 			}
 		}
 		m.redraw()
+	}
+
+	makeUndoSendMailsDropdownAttrs(): DropDownSelectorAttrs<boolean> {
+		return {
+			label: "undoSend_label",
+			items: [
+				{ name: lang.get("activated_label"), value: true },
+				{ name: lang.get("deactivated_label"), value: false },
+			],
+			selectedValue: deviceConfig.getIsUndoSendEnabled(),
+			selectionChangedHandler: (arg: boolean) => {
+				deviceConfig.setIsUndoSendEnabled(arg)
+			},
+			dropdownWidth: 350,
+			helpLabel: () =>
+				lang.getTranslation("undoSendMail_msg", {
+					"{time}": UNDO_SEND_TIMEOUT_SECONDS,
+				}).text,
+		}
 	}
 
 	makeReportMovedMailsDropdownAttrs(): DropDownSelectorAttrs<ReportMovedMailsType> {

@@ -1,9 +1,7 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { ButtonColor } from "../base/Button.js"
-import { BootIcons } from "../base/icons/BootIcons"
 import { showSupportDialog, showUpgradeDialog } from "./NavFunctions"
-import { isIOSApp } from "../../api/common/Env"
-import { LogoutUrl, SETTINGS_PREFIX } from "../../misc/RouteChange"
+import { LogoutUrl, PARTNER_PREFIX, SETTINGS_PREFIX } from "../../misc/RouteChange"
 import { getSafeAreaInsetLeft } from "../HtmlUtils"
 import { Icons } from "../base/icons/Icons"
 import { AriaLandmarks, landmarkAttrs } from "../AriaUtils"
@@ -18,6 +16,9 @@ import { NewsModel } from "../../misc/news/NewsModel.js"
 import { DesktopSystemFacade } from "../../native/common/generatedipc/DesktopSystemFacade.js"
 import { styles } from "../styles.js"
 import { IconButton } from "../base/IconButton.js"
+import { locator } from "../../api/main/CommonLocator"
+import { FeatureType, UpgradePromptType } from "@tutao/app-env"
+import { isIOSApp, Mode } from "@tutao/app-env"
 
 export interface DrawerMenuAttrs {
 	logins: LoginController
@@ -34,6 +35,7 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 		const isLoggedIn = logins.isUserLoggedIn()
 		const userController = logins.getUserController()
 
+		const customer = logins.getUserController().getCustomer()
 		return m(
 			"drawer-menu.flex.col.items-center.pt-16.pb-16.noprint",
 			{
@@ -48,7 +50,7 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 				isInternalUser && isLoggedIn
 					? m(".news-button", [
 							m(IconButton, {
-								icon: Icons.Bulb,
+								icon: Icons.LightbulbFilled,
 								title: "news_label",
 								click: () => showNewsDialog(newsModel),
 								colors: ButtonColor.DrawerNav,
@@ -66,9 +68,9 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 								: null,
 						])
 					: null,
-				logins.isGlobalAdminUserLoggedIn() && userController.isPaidAccount()
+				logins.isGlobalAdminUserLoggedIn() && userController.isPaidAccount() && !customer?.businessUse
 					? m(IconButton, {
-							icon: Icons.Gift,
+							icon: Icons.GiftFilled,
 							title: "buyGiftCard_label",
 							click: () => {
 								m.route.set("/settings/subscription")
@@ -81,7 +83,7 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 					: null,
 				desktopSystemFacade
 					? m(IconButton, {
-							icon: Icons.NewWindow,
+							icon: Icons.BrowserAddOutline,
 							title: "openNewWindow_action",
 							click: () => {
 								desktopSystemFacade.openNewWindow()
@@ -91,26 +93,26 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 					: null,
 				!isIOSApp() && isLoggedIn && userController.isFreeAccount()
 					? m(IconButton, {
-							icon: BootIcons.Premium,
+							icon: Icons.TrophyFilled,
 							title: "upgradePremium_label",
-							click: () => showUpgradeDialog(),
+							click: () => showUpgradeDialog(UpgradePromptType.DRAWER_MENU_UPGRADE_BUTTON),
 							colors: ButtonColor.DrawerNav,
 						})
 					: null,
 				m(IconButton, {
 					title: "showHelp_action",
-					icon: BootIcons.Help,
+					icon: Icons.QuestionmarkFilled,
 					click: (e, dom) =>
 						createDropdown({
 							width: 300,
 							lazyButtons: () => [
 								{
-									icon: Icons.SpeechBubbleFill,
+									icon: Icons.ChatbubbleFilled,
 									label: "supportMenu_label",
 									click: () => void showSupportDialog(logins),
 								},
 								{
-									icon: Icons.KeyboardFill,
+									icon: Icons.KeyboardFilled,
 									label: "keyboardShortcuts_title",
 									click: () => keyManager.openF1Help(true),
 								},
@@ -118,16 +120,24 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 						})(e, dom),
 					colors: ButtonColor.DrawerNav,
 				}),
+				isPartnerEnabled(locator.logins)
+					? m(IconButton, {
+							icon: Icons.HeartFilled,
+							title: { testId: "partner_label", text: "Partner" },
+							click: () => m.route.set(PARTNER_PREFIX),
+							colors: ButtonColor.DrawerNav,
+						})
+					: null,
 				isInternalUser
 					? m(IconButton, {
-							icon: BootIcons.Settings,
+							icon: Icons.GearWheelFilled,
 							title: "settings_label",
 							click: () => m.route.set(SETTINGS_PREFIX),
 							colors: ButtonColor.DrawerNav,
 						})
 					: null,
 				m(IconButton, {
-					icon: BootIcons.Logout,
+					icon: Icons.Logout,
 					title: "switchAccount_action",
 					click: () => m.route.set(LogoutUrl),
 					colors: ButtonColor.DrawerNav,
@@ -135,4 +145,13 @@ export class DrawerMenu implements Component<DrawerMenuAttrs> {
 			],
 		)
 	}
+}
+
+export function isPartnerEnabled(loginController: LoginController): boolean {
+	return (
+		loginController.isInternalUserLoggedIn() &&
+		env.mode === Mode.Browser &&
+		loginController.isEnabled(FeatureType.SolutionPartner) &&
+		loginController.getUserController().isGlobalAdmin()
+	)
 }

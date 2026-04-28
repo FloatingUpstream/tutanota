@@ -8,13 +8,13 @@ import { attachDropdown } from "../../../common/gui/base/Dropdown.js"
 import { AlarmInterval, AlarmIntervalUnit } from "../../../common/calendar/date/CalendarUtils.js"
 import { Dialog } from "../../../common/gui/base/Dialog.js"
 import { DropDownSelector } from "../../../common/gui/base/DropDownSelector.js"
-import { deepEqual } from "@tutao/tutanota-utils"
+import { deepEqual } from "@tutao/utils"
 import { Select, SelectAttributes, SelectOption } from "../../../common/gui/base/Select.js"
 import { Icon, IconSize } from "../../../common/gui/base/Icon.js"
 import { BaseButton } from "../../../common/gui/base/buttons/BaseButton.js"
 import { ButtonColor, getColors } from "../../../common/gui/base/Button.js"
 import stream from "mithril/stream"
-import { TabIndex } from "../../../common/api/common/TutanotaConstants.js"
+import { TabIndex } from "@tutao/app-env"
 
 export type RemindersEditorAttrs = {
 	addAlarm: (alarm: AlarmInterval) => unknown
@@ -52,7 +52,7 @@ export class RemindersEditor implements Component<RemindersEditorAttrs> {
 			injectionsRight: () =>
 				m(IconButton, {
 					title: "delete_action",
-					icon: Icons.Cancel,
+					icon: Icons.X,
 					click: () => removeAlarm(a),
 				}),
 		}))
@@ -67,7 +67,7 @@ export class RemindersEditor implements Component<RemindersEditorAttrs> {
 					attachDropdown({
 						mainButtonAttrs: {
 							title: "add_action",
-							icon: Icons.Add,
+							icon: Icons.Plus,
 						},
 						childAttrs: () => [
 							...createAlarmIntervalItems(lang.languageTag).map((i) => ({
@@ -141,7 +141,7 @@ export class RemindersEditor implements Component<RemindersEditorAttrs> {
 							class: "flex items-center",
 						},
 						m(Icon, {
-							icon: Icons.Cancel,
+							icon: Icons.X,
 							size: IconSize.PX24,
 							style: {
 								fill: getColors(ButtonColor.Content).button,

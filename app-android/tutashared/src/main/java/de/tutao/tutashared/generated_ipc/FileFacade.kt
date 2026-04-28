@@ -62,7 +62,14 @@ interface FileFacade {
 		targetUrl: String,
 		method: String,
 		headers: Map<String, String>,
+		fileId: String,
 	): UploadTaskResponse
+	/**
+	 * abort a transfer started by FileFacade#upload
+	 */
+	suspend fun abortUpload(
+		fileId: String,
+	): Unit
 	/**
 	 * download an encrypted file to the file system and return the location of the data
 	 */
@@ -72,6 +79,12 @@ interface FileFacade {
 		headers: Map<String, String>,
 		fileId: String,
 	): DownloadTaskResponse
+	/**
+	 * abort a transfer started by FileFacade#download
+	 */
+	suspend fun abortDownload(
+		fileId: String,
+	): Unit
 	/**
 	 * Calculates specified file hash (with SHA-256). Returns first 6 bytes of it as Base64.
 	 */
@@ -113,6 +126,12 @@ interface FileFacade {
 	suspend fun readFromAppDir(
 		path: String,
 	): DataWrapper
+	/**
+	 * Delete file from given path relative to app data folder
+	 */
+	suspend fun deleteFromAppDir(
+		path: String,
+	): Unit
 	/**
 	 * read the file at the given location into a DataFile. Returns null if reading fails for any reason.
 	 */

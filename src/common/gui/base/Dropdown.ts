@@ -6,12 +6,12 @@ import { component_size, px } from "../size"
 import { focusNext, focusPrevious, Shortcut } from "../../misc/KeyManager"
 import type { ButtonAttrs } from "./Button.js"
 import { lang, MaybeTranslation } from "../../misc/LanguageViewModel"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { getSafeAreaInsetBottom, getSafeAreaInsetTop } from "../HtmlUtils"
-import { $Promisable, assertNotNull, delay, downcast, filterNull, lazy, lazyAsync, makeSingleUse, noOp, Thunk } from "@tutao/tutanota-utils"
+import { $Promisable, assertNotNull, delay, downcast, filterNull, lazy, lazyAsync, makeSingleUse, noOp, Thunk } from "@tutao/utils"
 import { pureComponent } from "./PureComponent"
 import type { ClickHandler } from "./GuiUtils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { IconButtonAttrs } from "./IconButton.js"
 import { AllIcons } from "./Icon.js"
 import { RowButton, RowButtonAttrs } from "./buttons/RowButton.js"
@@ -35,6 +35,9 @@ export interface DropdownButtonAttrs {
 	text?: MaybeTranslation
 	icon?: AllIcons
 	click?: ClickHandler
+	drop?: (event: DragEvent) => unknown
+	dragover?: (event: DragEvent) => unknown
+	dragleave?: (event: DragEvent) => unknown
 	selected?: boolean
 }
 
@@ -275,6 +278,9 @@ export class Dropdown implements ModalComponent {
 			icon: child.icon && showingIcons ? child.icon : showingIcons ? "none" : undefined,
 			class: "dropdown-button",
 			onclick: child.click ? child.click : noOp,
+			ondrop: child.drop ? child.drop : noOp,
+			ondragover: child.dragover ? child.dragover : noOp,
+			ondragleave: child.dragleave ? child.dragleave : noOp,
 		} satisfies RowButtonAttrs)
 	}
 
@@ -362,12 +368,27 @@ export class Dropdown implements ModalComponent {
 	chooseMatch: () => boolean = () => {
 		const filterString = this.filterString.toLowerCase()
 
-		let visibleElements: Array<ButtonAttrs> = downcast(this.visibleChildren().filter((b) => !isDropDownInfo(b)))
-		let matchingButton =
-			visibleElements.length === 1 ? visibleElements[0] : visibleElements.find((b) => lang.getTranslationText(b.label).toLowerCase() === filterString)
+		const visibleElements: Array<ButtonAttrs> = downcast(this.visibleChildren().filter((b) => !isDropDownInfo(b)))
+		// we select a matching button according to the following order:
+		// 1. there is only one button
+		// 2. if there's more, use the focused button
+		// 3. if there's no focused button, use the button that matches the filter string perfectly
+		// 4. if there is no perfect match, do nothing.
+		let matchingButtonClickHandler
+		if (visibleElements.length === 1 && visibleElements[0].click != null) {
+			matchingButtonClickHandler = visibleElements[0].click
+		} else if (document.activeElement != null && document.activeElement !== this.domInput) {
+			// the dropdown essentially ensures that we can only focus elements inside the dropdown.
 
-		if (this.domInput && document.activeElement === this.domInput && matchingButton && matchingButton.click) {
-			matchingButton.click(new MouseEvent("click"), this.domInput)
+			// wrapping the click() into a function allows us to ignore the passed mouse event. some browsers
+			// throw an error if we use the click function directly.
+			matchingButtonClickHandler = () => downcast<HTMLElement>(document.activeElement).click()
+		} else {
+			matchingButtonClickHandler = visibleElements.find((b) => lang.getTranslationText(b.label).toLowerCase() === filterString)?.click
+		}
+
+		if (this.domInput != null && matchingButtonClickHandler != null) {
+			matchingButtonClickHandler(new MouseEvent("click"), this.domInput)
 			return false
 		}
 

@@ -4,17 +4,15 @@ import { locator } from "../../../common/api/main/CommonLocator.js"
 import { SidebarSection } from "../../../common/gui/SidebarSection.js"
 import { IconButton, IconButtonAttrs } from "../../../common/gui/base/IconButton.js"
 import { FolderSubtree, FolderSystem } from "../../../common/api/common/mail/FolderSystem.js"
-import { elementIdPart, getElementId } from "../../../common/api/common/utils/EntityUtils.js"
+import { canHaveDescendents, elementIdPart, getElementId, isEditableMailSet, isNestableMailSet, tutanotaTypeRefs } from "@tutao/typerefs"
 import { isSelectedPrefix, NavButtonAttrs, NavButtonColor } from "../../../common/gui/base/NavButton.js"
 import { MAIL_PREFIX } from "../../../common/misc/RouteChange.js"
 import { MailFolderRow } from "./MailFolderRow.js"
-import { last, Thunk } from "@tutao/tutanota-utils"
-import { MailSet } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { last, Thunk } from "@tutao/utils"
 import { attachDropdown, DropdownButtonAttrs } from "../../../common/gui/base/Dropdown.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { ButtonColor } from "../../../common/gui/base/Button.js"
 import { ButtonSize } from "../../../common/gui/base/ButtonSize.js"
-import { isEditableMailSet, canHaveDescendents, isNestableMailSet, MailSetKind } from "../../../common/api/common/TutanotaConstants.js"
 import { px, size } from "../../../common/gui/size.js"
 import { RowButton } from "../../../common/gui/base/buttons/RowButton.js"
 import { MailModel } from "../model/MailModel.js"
@@ -24,7 +22,9 @@ import { DropData, DropType } from "../../../common/gui/base/GuiUtils"
 import { lang } from "../../../common/misc/LanguageViewModel.js"
 import { getSafeAreaInsetBottom, getSafeAreaInsetTop } from "../../../common/gui/HtmlUtils"
 import { theme } from "../../../common/gui/theme.js"
+import { MailSetKind } from "@tutao/app-env"
 
+type MailSet = tutanotaTypeRefs.MailSet
 export interface MailFolderViewAttrs {
 	mailModel: MailModel
 	mailboxDetail: MailboxDetail
@@ -191,7 +191,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 		return m(RowButton, {
 			label: "addFolder_action",
 			key: "addFolder",
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			class: "folder-row mlr-8 border-radius-4",
 			style: {
 				width: `calc(100% - ${px(size.spacing_8 * 2)})`,
@@ -252,7 +252,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 	private deleteButtonAttrs(attrs: MailFolderViewAttrs, folder: MailSet): DropdownButtonAttrs {
 		return {
 			label: "delete_action",
-			icon: Icons.Trash,
+			icon: Icons.TrashFilled,
 			click: () => {
 				attrs.onDeleteCustomMailFolder(folder)
 			},
@@ -262,7 +262,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 	private addButtonAttrs(attrs: MailFolderViewAttrs, folder: MailSet): DropdownButtonAttrs {
 		return {
 			label: "addFolder_action",
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			click: () => {
 				attrs.onShowFolderAddEditDialog(attrs.mailboxDetail.mailGroup._id, null, folder)
 			},
@@ -272,7 +272,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 	private editButtonAttrs(attrs: MailFolderViewAttrs, folders: FolderSystem, folder: MailSet): DropdownButtonAttrs {
 		return {
 			label: "edit_action",
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			click: () => {
 				attrs.onShowFolderAddEditDialog(
 					attrs.mailboxDetail.mailGroup._id,
@@ -289,7 +289,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 			click: () => {
 				return attrs.onShowFolderAddEditDialog(attrs.mailboxDetail.mailGroup._id, null, parentFolder)
 			},
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			size: ButtonSize.Compact,
 		})
 	}
@@ -298,7 +298,7 @@ export class MailFoldersView implements Component<MailFolderViewAttrs> {
 		return m(IconButton, {
 			title: "edit_action",
 			click: () => attrs.onEditMailbox(),
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		})
 	}

@@ -5,12 +5,7 @@ import { Icons } from "../../gui/base/icons/Icons.js"
 import { windowFacade } from "../../misc/WindowFacade.js"
 import { lang } from "../../misc/LanguageViewModel.js"
 import { client } from "../../misc/ClientDetector"
-import {
-	TUTA_CALENDAR_APP_STORE_URL,
-	TUTA_CALENDAR_GOOGLE_PLAY_URL,
-	TUTA_MAIL_APP_STORE_URL,
-	TUTA_MAIL_GOOGLE_PLAY_URL,
-} from "../../api/common/TutanotaConstants"
+import { TUTA_CALENDAR_APP_STORE_URL, TUTA_CALENDAR_GOOGLE_PLAY_URL, TUTA_MAIL_APP_STORE_URL, TUTA_MAIL_GOOGLE_PLAY_URL } from "@tutao/app-env"
 import { locator } from "../../api/main/CommonLocator.js"
 import { Dialog } from "../../gui/base/Dialog.js"
 
@@ -80,7 +75,7 @@ export class SupportSuccessPage implements Component<SupportSuccessPageAttrs> {
 
 				windowFacade.openLink(url)
 			},
-			rightIcon: { icon: Icons.Open, title: "open_action" },
+			rightIcon: { icon: Icons.OpenFilled, title: "open_action" },
 		})
 	}
 
@@ -97,7 +92,7 @@ export class SupportSuccessPage implements Component<SupportSuccessPageAttrs> {
 
 				windowFacade.openLink(url)
 			},
-			rightIcon: { icon: Icons.Open, title: "open_action" },
+			rightIcon: { icon: Icons.OpenFilled, title: "open_action" },
 		})
 	}
 }

@@ -2,9 +2,9 @@ import m, { Children, ClassComponent, CVnode } from "mithril"
 import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
 import { getElevatedBackground, theme } from "../theme"
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
 import type { ClickHandler } from "./GuiUtils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { BaseButton } from "./buttons/BaseButton.js"
 
 assertMainOrNode()
@@ -22,6 +22,7 @@ export const enum ButtonColor {
 	Fab = "fab",
 	Dialog = "dialog",
 	Primary = "primary",
+	MailTextEditor = "mailtexteditor",
 }
 
 export function getColors(buttonColors: ButtonColor | null | undefined): {
@@ -62,6 +63,11 @@ export function getColors(buttonColors: ButtonColor | null | undefined): {
 			return {
 				button: theme.primary,
 				border: theme.primary,
+			}
+		case ButtonColor.MailTextEditor:
+			return {
+				button: theme.outline,
+				border: theme.outline,
 			}
 		case ButtonColor.Content:
 		default:

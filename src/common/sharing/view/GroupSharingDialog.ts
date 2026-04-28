@@ -3,16 +3,15 @@ import stream from "mithril/stream"
 import { Dialog, DialogType } from "../../gui/base/Dialog"
 import type { TableLineAttrs } from "../../gui/base/Table.js"
 import { ColumnWidth, Table } from "../../gui/base/Table.js"
-import { assert, assertNotNull, contains, downcast, findAndRemove, neverNull, remove } from "@tutao/tutanota-utils"
+import { assert, assertNotNull, contains, downcast, findAndRemove, neverNull, remove } from "@tutao/utils"
 import { Icons } from "../../gui/base/icons/Icons"
 import { lang } from "../../misc/LanguageViewModel"
 import { ButtonType } from "../../gui/base/Button.js"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
-import { GroupType, ShareCapability } from "../../api/common/TutanotaConstants"
+import { GroupType, ShareCapability, UpgradePromptType } from "@tutao/app-env"
 import { DropDownSelector } from "../../gui/base/DropDownSelector.js"
-import { PreconditionFailedError, TooManyRequestsError } from "../../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { TextField } from "../../gui/base/TextField.js"
-import type { GroupInfo } from "../../api/entities/sys/TypeRefs.js"
 import { getCapabilityText, getMemberCapability, getSharedGroupName, hasCapabilityOnGroup, isShareableGroupType, isSharedGroupOwner } from "../GroupUtils"
 import { sendShareNotificationEmail } from "../GroupSharingUtils"
 import { GroupSharingModel } from "../model/GroupSharingModel"
@@ -29,8 +28,9 @@ import { showPlanUpgradeRequiredDialog } from "../../misc/SubscriptionDialogs.js
 import { getMailAddressDisplayText } from "../../mailFunctionality/SharedMailUtils.js"
 import { IconButtonAttrs } from "../../gui/base/IconButton.js"
 import { KeyVerificationMismatchError } from "../../api/common/error/KeyVerificationMismatchError"
+import { sysTypeRefs } from "@tutao/typerefs"
 
-export async function showGroupSharingDialog(groupInfo: GroupInfo, allowGroupNameOverride: boolean) {
+export async function showGroupSharingDialog(groupInfo: sysTypeRefs.GroupInfo, allowGroupNameOverride: boolean) {
 	const groupType = downcast(assertNotNull(groupInfo.groupType))
 	assert(isShareableGroupType(groupInfo.groupType as GroupType), `Group type "${groupType}" must be shareable`)
 	const texts = getTextsForGroupType(groupType)
@@ -98,7 +98,7 @@ class GroupSharingDialogContent implements Component<GroupSharingDialogAttrs> {
 					? {
 							title: "addParticipant_action",
 							click: () => showAddParticipantDialog(model, texts),
-							icon: Icons.Add,
+							icon: Icons.Plus,
 						}
 					: null,
 			}),
@@ -117,7 +117,7 @@ class GroupSharingDialogContent implements Component<GroupSharingDialogAttrs> {
 						m.redraw()
 					})
 				},
-				icon: Icons.Cancel,
+				icon: Icons.X,
 			}
 			return {
 				cells: () => [
@@ -148,7 +148,7 @@ class GroupSharingDialogContent implements Component<GroupSharingDialogAttrs> {
 				actionButtonAttrs: model.canRemoveGroupMember(memberInfo.member)
 					? {
 							title: "delete_action",
-							icon: Icons.Cancel,
+							icon: Icons.X,
 							click: () => {
 								getConfirmation(
 									lang.makeTranslation("confirmation_msg", texts.removeMemberMessage(groupName, downcast(memberInfo.info.mailAddress))),
@@ -258,14 +258,14 @@ async function showAddParticipantDialog(model: GroupSharingModel, texts: GroupSh
 			}
 
 			const { checkPaidSubscription, showPlanUpgradeRequiredDialog } = await import("../../misc/SubscriptionDialogs")
-			if (await checkPaidSubscription()) {
+			if (await checkPaidSubscription(UpgradePromptType.CALENDAR_EVENT_INVITATIONS)) {
 				try {
 					const invitedMailAddresses = await showProgressDialog(
 						"calendarInvitationProgress_msg",
 						model.sendGroupInvitation(model.info, recipients, capability()),
 					)
 					dialog.close()
-					await sendShareNotificationEmail(model.info, invitedMailAddresses, texts)
+					sendShareNotificationEmail(model.info, invitedMailAddresses, texts)
 				} catch (e) {
 					if (e instanceof KeyVerificationMismatchError) {
 						const failedRecipients: ResolvableRecipient[] = []
@@ -281,17 +281,17 @@ async function showAddParticipantDialog(model: GroupSharingModel, texts: GroupSh
 						await import("../../settings/keymanagement/KeyVerificationRecoveryDialog.js").then(
 							({ showMultiRecipientsKeyVerificationRecoveryDialog }) => showMultiRecipientsKeyVerificationRecoveryDialog(failedRecipients),
 						)
-					} else if (e instanceof PreconditionFailedError) {
+					} else if (e instanceof restError.PreconditionFailedError && e.data !== "keys.absent") {
 						if (locator.logins.getUserController().isGlobalAdmin()) {
 							const { getAvailablePlansWithSharing } = await import("../../subscription/utils/SubscriptionUtils.js")
 							const plans = await getAvailablePlansWithSharing()
-							await showPlanUpgradeRequiredDialog(plans)
+							await showPlanUpgradeRequiredDialog(UpgradePromptType.CALENDAR_EVENT_INVITATIONS, plans)
 						} else {
 							Dialog.message("contactAdmin_msg")
 						}
 					} else if (e instanceof UserError) {
 						showUserError(e)
-					} else if (e instanceof TooManyRequestsError) {
+					} else if (e instanceof restError.TooManyRequestsError) {
 						Dialog.message("tooManyAttempts_msg")
 					} else {
 						throw e

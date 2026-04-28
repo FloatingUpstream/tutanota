@@ -1,8 +1,8 @@
-import { assertNotNull, downcast, intersection, isSameTypeRef, toLowerCase } from "@tutao/tutanota-utils"
-import type { File as TutanotaFile } from "../../entities/tutanota/TypeRefs.js"
-import { FileTypeRef as TutanotaFileTypeRef } from "../../entities/tutanota/TypeRefs.js"
+import { assertNotNull, downcast, intersection, isSameTypeRef, toLowerCase } from "@tutao/utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { DataFile } from "../DataFile"
 import type { Attachment } from "../../../mailFunctionality/SendMailModel.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 type StringPredicate = (arg0: string) => boolean
 
@@ -16,6 +16,11 @@ export interface FileReference {
 	location: string
 	size: number
 	cid?: string
+}
+
+export interface WebFile {
+	readonly _type: "WebFile"
+	file: globalThis.File
 }
 
 /**
@@ -146,13 +151,13 @@ export function isReservedFilename(filename: string): boolean {
 	return (env.platformId === "win32" && winReservedRe.test(filename)) || reservedRe.test(filename)
 }
 
-export function isTutanotaFile(file: Attachment): file is TutanotaFile {
+export function isTutanotaFile(file: Attachment): file is tutanotaTypeRefs.File {
 	return (
 		file._type &&
 		typeof file._type === "object" &&
 		Object.hasOwn(file._type, "app") &&
 		Object.hasOwn(file._type, "typeId") &&
-		isSameTypeRef(downcast(file._type), TutanotaFileTypeRef)
+		isSameTypeRef(downcast(file._type), tutanotaTypeRefs.FileTypeRef)
 	)
 }
 
@@ -160,8 +165,11 @@ export function isDataFile(file: Attachment): file is DataFile {
 	return file._type === "DataFile"
 }
 
-export function isFileReference(file: Attachment): file is FileReference {
+export function isFileReference(file: Attachment | WebFile): file is FileReference {
 	return file._type === "FileReference"
+}
+export function isWebFile(file: Attachment | WebFile): file is WebFile {
+	return file._type === "WebFile"
 }
 
 export function assertOnlyFileReferences(files: Array<Attachment>): asserts files is Array<FileReference> {
@@ -183,7 +191,7 @@ export function fileListToArray(fileList: FileList): Array<File> {
 	return nativeFiles
 }
 
-export function* splitFileIntoChunks(chunkSize: number, file: File): Generator<globalThis.Blob, void> {
+export function* splitFileIntoChunks(chunkSize: number, file: globalThis.Blob): Generator<globalThis.Blob, void> {
 	if (chunkSize < 1) {
 		return
 	}

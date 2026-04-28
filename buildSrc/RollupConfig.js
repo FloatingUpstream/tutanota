@@ -24,6 +24,21 @@ export const dependencyMap = {
 	"./tensorflow-custom": path.normalize("./libs/tensorflow.js"),
 }
 
+export let tsImportAliases = {
+	"@tutao/utils": path.normalize("src/utils/dist/index.js"),
+	"@tutao/crypto-primitives": path.normalize("src/crypto-primitives/dist/crypto_primitives.js"),
+	"@tutao/crypto": path.normalize("src/crypto/dist/index.js"),
+	"@tutao/crypto/error": path.normalize("src/crypto/dist/error.js"),
+	"@tutao/wasm-loader": path.normalize("src/wasm-loader/dist/index.js"),
+	"@tutao/usagetests": path.normalize("src/usagetests/dist/index.js"),
+	"@tutao/mimimi": path.normalize("src/mimimi/dist/binding.js"),
+	"@tutao/rest-client": path.normalize("src/rest-client/dist/index.js"),
+	"@tutao/rest-client/error": path.normalize("src/rest-client/dist/error.js"),
+	"@tutao/app-env": path.normalize("src/app-env/dist/index.js"),
+	"@tutao/typerefs": path.normalize("src/typerefs/dist/index.js"),
+	"@tutao/instance-pipeline": path.normalize("src/instance-pipeline/dist/index.js"),
+}
+
 /**
  * These are the definitions of chunks with static dependencies. Key is the chunk and values are dependencies to other chunks
  */
@@ -135,14 +150,33 @@ export const allowedImports = {
 }
 
 /** resolves certain imports to vendored libraries for the dist build */
-export function resolveLibs(baseDir = ".") {
+export function resolveLibs(baseDir = ".", extraDependenciesMap = {}) {
 	return {
 		name: "resolve-libs",
 		resolveId(source) {
-			const value = dependencyMap[source]
+			const value = dependencyMap[source] ?? tsImportAliases[source] ?? extraDependenciesMap[source]
 			if (!value) return null
 			const id = path.join(baseDir, value)
 			return { id, resolvedBy: this.name }
+		},
+	}
+}
+
+export function esBuildResolveLibs(baseDir = ".", extraDependenciesMap = {}) {
+	const tsImportAliases = {}
+	return {
+		name: "resolve-libs",
+
+		setup(build) {
+			build.onResolve({ filter: /^[^./]/ }, (args) => {
+				const value = dependencyMap[args.path] ?? extraDependenciesMap[args.path]
+
+				if (!value) return
+
+				return {
+					path: path.resolve(path.join(baseDir, value)),
+				}
+			})
 		},
 	}
 }
@@ -165,7 +199,7 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		return moduleId.includes(path.normalize(subpath))
 	}
 
-	if (code.includes("@bundleInto:common-min") || isIn("libs/stream") || isIn("packages/tutanota-utils") || isIn("packages/tutanota-error")) {
+	if (code.includes("@bundleInto:common-min") || isIn("libs/stream") || isIn("src/app-env")) {
 		// if detecting this does not work even though the comment is there, add a blank line after the annotation.
 		return "common-min"
 	} else if (code.includes("@bundleInto:common")) {
@@ -233,7 +267,7 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		isIn("src/common/gui") ||
 		isIn("src/common/offline") ||
 		isIn("src/common/serviceworker") ||
-		moduleId.includes(path.normalize("packages/tutanota-usagetests")) ||
+		moduleId.includes(path.normalize("src/usagetests")) ||
 		moduleId.includes("NotificationContentSelector") ||
 		moduleId.includes("NotificationPermissionsDialog") ||
 		moduleId.includes("SettingsBannerButton")
@@ -276,13 +310,12 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		return "login"
 	} else if (
 		isIn("src/common/api/common") ||
-		isIn("src/common/api/entities") ||
 		isIn("src/desktop/config/ConfigKeys") ||
 		moduleId.includes("cborg") ||
 		// CryptoError is needed on the main thread in order to check errors
 		// We have to define both the entry point and the files referenced from it which is annoying
-		isIn("packages/tutanota-crypto/dist/error") ||
-		isIn("packages/tutanota-crypto/dist/misc/CryptoError.js")
+		isIn("src/crypto/error") ||
+		isIn("src/crypto/misc/CryptoError")
 	) {
 		// things that are used in both worker and client
 		// entities could be separate in theory but in practice they are anyway
@@ -294,7 +327,13 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		moduleId.includes("commonjs-dynamic-modules")
 	) {
 		return "polyfill-helpers"
-	} else if (isIn("src/common/settings") || isIn("src/common/subscription") || isIn("src/common/ratings") || isIn("src/common/termination")) {
+	} else if (
+		isIn("src/common/settings") ||
+		isIn("src/common/subscription") ||
+		isIn("src/common/ratings") ||
+		isIn("src/common/termination") ||
+		isIn("src/common/partner")
+	) {
 		// subscription and settings depend on each other right now.
 		// subscription is also a kitchen sink with signup, utils and views, we should break it up
 		return "settings"
@@ -314,7 +353,7 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		return "linkify"
 	} else if (isIn("src/common/api/worker/pdf") || isIn("src/common/api/worker/invoicegen") || isIn("src/common/api/worker/recoveryDocumentGenerator")) {
 		return "pdf"
-	} else if (isIn("src/common/api/worker") || isIn("packages/tutanota-crypto") || moduleId.includes("argon2")) {
+	} else if (isIn("src/common/api/worker") || moduleId.includes("argon2")) {
 		return "worker" // avoid that crypto stuff is only put into native
 	} else if (isIn("libs/jszip")) {
 		return "jszip"
@@ -324,6 +363,12 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 		return "qr"
 	} else if (isIn("src/drive-app")) {
 		return "drive"
+	} else if (isIn("src/utils")) {
+		return "common-min"
+	} else if (isIn("src/typerefs") || isIn("src/rest-client/error.ts")) {
+		return "common"
+	} else if (isIn("src/rest-client") || isIn("src/crypto") || isIn("src/instance-pipeline")) {
+		return "worker"
 	} else {
 		// Put all translations into "translation-code"
 		// Almost like in Rollup example: https://rollupjs.org/guide/en/#outputmanualchunks
@@ -334,6 +379,8 @@ export function getChunkName(moduleId, { getModuleInfo }) {
 			return "translation-" + language
 		} else if (isIn(`src/mail-app`) || isIn(`src/calendar-app`)) {
 			return "main"
+		} else {
+			throw new Error("I do not know which chunk? for: " + moduleId)
 		}
 	}
 }

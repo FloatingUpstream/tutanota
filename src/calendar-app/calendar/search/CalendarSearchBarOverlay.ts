@@ -1,11 +1,11 @@
 import { CalendarSearchBarAttrs, CalendarSearchBarState, Entry, ShowMoreAction } from "./CalendarSearchBar.js"
 import m, { Children, Component, Vnode } from "mithril"
-import { downcast, isEmpty, isSameTypeRef, TypeRef } from "@tutao/tutanota-utils"
+import { downcast, isEmpty, isSameTypeRef, TypeRef } from "@tutao/utils"
 import { px, size } from "../../../common/gui/size.js"
-import { CalendarEvent, CalendarEventTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { lang } from "../../../common/misc/LanguageViewModel.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
-import { FULL_INDEXED_TIMESTAMP } from "../../../common/api/common/TutanotaConstants.js"
+import { FULL_INDEXED_TIMESTAMP } from "@tutao/app-env"
 import { formatDate } from "../../../common/misc/Formatter.js"
 import { formatEventDuration } from "../gui/CalendarGuiUtils.js"
 import { getTimeZone } from "../../../common/calendar/date/CalendarUtils.js"
@@ -49,7 +49,7 @@ export class CalendarSearchBarOverlay implements Component<CalendarSearchBarOver
 
 		if (!type) {
 			return this.renderShowMoreAction(downcast(result))
-		} else if (isSameTypeRef(CalendarEventTypeRef, type)) {
+		} else if (isSameTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, type)) {
 			return this.renderCalendarEventResult(downcast(result))
 		} else {
 			return []
@@ -85,7 +85,7 @@ export class CalendarSearchBarOverlay implements Component<CalendarSearchBarOver
 			: m("li.plr-24.pt-8.pb-8.items-center.flex-center", m(".flex-center", infoText))
 	}
 
-	private renderCalendarEventResult(event: CalendarEvent): Children {
+	private renderCalendarEventResult(event: tutanotaTypeRefs.CalendarEvent): Children {
 		return [
 			m(".top.flex-space-between", m(".name.text-ellipsis", { title: event.summary }, event.summary)),
 			m(".bottom.flex-space-between", m("small.mail-address", formatEventDuration(event, getTimeZone(), false))),

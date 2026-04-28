@@ -1,19 +1,19 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { KnowledgeBaseModel } from "../model/KnowledgeBaseModel.js"
-import type { EmailTemplate, KnowledgeBaseEntry } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { KNOWLEDGEBASE_LIST_ENTRY_HEIGHT, KnowledgeBaseListEntry } from "./KnowledgeBaseListEntry.js"
 import { lang } from "../../../common/misc/LanguageViewModel.js"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import { KnowledgeBaseEntryView } from "./KnowledgeBaseEntryView.js"
-import { NotFoundError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { Dialog } from "../../../common/gui/base/Dialog.js"
 import { TextField } from "../../../common/gui/base/TextField.js"
 import { makeListSelectionChangedScrollHandler } from "../../../common/gui/base/GuiUtils.js"
-import { ofClass } from "@tutao/tutanota-utils"
+import { ofClass } from "@tutao/utils"
 
 export type KnowledgebaseDialogContentAttrs = {
-	readonly onTemplateSelect: (arg0: EmailTemplate) => void
+	readonly onTemplateSelect: (arg0: tutanotaTypeRefs.EmailTemplate) => void
 	readonly model: KnowledgeBaseModel
 }
 
@@ -57,7 +57,7 @@ export class KnowledgeBaseDialogContent implements Component<KnowledgebaseDialog
 							.then((fetchedTemplate) => {
 								attrs.onTemplateSelect(fetchedTemplate)
 							})
-							.catch(ofClass(NotFoundError, () => Dialog.message("templateNotExists_msg")))
+							.catch(ofClass(restError.NotFoundError, () => Dialog.message("templateNotExists_msg")))
 					},
 					readonly: model.isReadOnly(selectedEntry),
 				})
@@ -111,7 +111,7 @@ export class KnowledgeBaseDialogContent implements Component<KnowledgebaseDialog
 		)
 	}
 
-	_renderListEntry(model: KnowledgeBaseModel, entry: KnowledgeBaseEntry): Children {
+	_renderListEntry(model: KnowledgeBaseModel, entry: tutanotaTypeRefs.KnowledgeBaseEntry): Children {
 		return m(".flex.flex-column.click.hoverable-list-item", [
 			m(
 				".flex",

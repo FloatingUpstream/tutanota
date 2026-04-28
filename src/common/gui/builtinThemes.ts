@@ -2,7 +2,7 @@
  * @file color/theme definitions for default themes.
  */
 import type { Theme, ThemeId } from "./theme"
-import { assertMainOrNodeBoot } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import { getAppLogo } from "./base/Logo.js"
 import { client } from "../misc/ClientDetector"
 
@@ -55,7 +55,7 @@ export const themes = (): Themes => {
 	const lightRed = Object.freeze<Theme>({
 		...semanticColorsLight,
 		themeId: isCalendarApp ? "light_secondary" : "light",
-		logo: getAppLogo(),
+		logo: getAppLogo("#d0c4c4"),
 		// Basic color tokens
 		primary: "#8F4A4E",
 		on_primary: "#FFFFFF",
@@ -108,6 +108,15 @@ export const themes = (): Themes => {
 		il_outline: "#3B080F",
 		il_ne_outline: "#3B080F",
 		il_highlight: "#F9E5E5",
+		il_sign_up_flow_switch: "#F5EEEA",
+		il_sign_up_flow_switch_2: "#FFF",
+		il_sign_up_flow_switch_4: "#FFF",
+		// Drive icon colors
+		drive_folder: "#4A662C",
+		drive_document: "#8F4A4E",
+		drive_image: "#006A65",
+		drive_video: "#7F4D7B",
+		drive_audio: "#A2752F",
 	})
 	const darkRed = Object.freeze<Theme>({
 		...semanticColorsDark,
@@ -165,6 +174,15 @@ export const themes = (): Themes => {
 		il_outline: "#1A1111",
 		il_ne_outline: "#F9E5E5",
 		il_highlight: "#F9E5E5",
+		il_sign_up_flow_switch: "#D7C1C1",
+		il_sign_up_flow_switch_2: "#FCF9F6",
+		il_sign_up_flow_switch_4: "#FCF9F6",
+		// Drive icon colors
+		drive_folder: "#B0D18B",
+		drive_document: "#FFB3B5",
+		drive_image: "#81D5CE",
+		drive_video: "#F0B3E8",
+		drive_audio: "#F3BD6E",
 	})
 	const lightBlue = Object.freeze<Theme>({
 		...semanticColorsLight,
@@ -222,6 +240,15 @@ export const themes = (): Themes => {
 		il_outline: "#001A40",
 		il_ne_outline: "#001A40",
 		il_highlight: "#E9EFFF",
+		il_sign_up_flow_switch: "#EBEEF5",
+		il_sign_up_flow_switch_2: "#F7F9FC",
+		il_sign_up_flow_switch_4: "#F7F9FC",
+		// Drive icon colors
+		drive_folder: "#4A662C",
+		drive_document: "#8F4A4E",
+		drive_image: "#006A65",
+		drive_video: "#7F4D7B",
+		drive_audio: "#A2752F",
 	})
 	const darkBlue = Object.freeze<Theme>({
 		...semanticColorsDark,
@@ -279,6 +306,15 @@ export const themes = (): Themes => {
 		il_outline: "#101418",
 		il_ne_outline: "#E9EFFF",
 		il_highlight: "#E9EFFF",
+		il_sign_up_flow_switch: "#C4C6D0",
+		il_sign_up_flow_switch_2: "#F7F9FC",
+		il_sign_up_flow_switch_4: "#F7F9FC",
+		// Drive icon colors
+		drive_folder: "#B0D18B",
+		drive_document: "#FFB3B5",
+		drive_image: "#81D5CE",
+		drive_video: "#F0B3E8",
+		drive_audio: "#F3BD6E",
 	})
 
 	return {

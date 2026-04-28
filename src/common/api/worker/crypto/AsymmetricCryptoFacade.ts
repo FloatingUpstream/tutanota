@@ -1,40 +1,38 @@
-import { assertWorkerOrNode } from "../../common/Env"
+import {
+	assertWorkerOrNode,
+	CryptoProtocolVersion,
+	EncryptionAuthStatus,
+	EncryptionKeyVerificationState,
+	PresentableKeyVerificationState,
+	ProgrammingError,
+} from "@tutao/app-env"
 import {
 	AesKey,
 	AsymmetricKeyPair,
-	bitArrayToUint8Array,
+	cryptoUtils,
+	CryptoWrapper,
 	isPqKeyPairs,
 	isRsaOrRsaX25519KeyPair,
 	isRsaX25519KeyPair,
 	isVersionedPqPublicKey,
 	isVersionedRsaOrRsaX25519PublicKey,
 	isVersionedRsaX25519PublicKey,
+	keyToUint8Array,
 	PQPublicKeys,
 	PublicKey,
 	RsaPrivateKey,
-	uint8ArrayToBitArray,
+	uint8ArrayToKey,
 	X25519KeyPair,
 	X25519PublicKey,
-} from "@tutao/tutanota-crypto"
+} from "@tutao/crypto"
 import type { RsaImplementation } from "./RsaImplementation"
 import { PQFacade } from "../facades/PQFacade.js"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
-import {
-	asCryptoProtoocolVersion,
-	CryptoProtocolVersion,
-	EncryptionAuthStatus,
-	EncryptionKeyVerificationState,
-	PresentableKeyVerificationState,
-} from "../../common/TutanotaConstants.js"
-import { arrayEquals, assertNotNull, KeyVersion, lazy, Versioned } from "@tutao/tutanota-utils"
-import { KeyLoaderFacade, parseKeyVersion } from "../facades/KeyLoaderFacade.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError.js"
-import { createPublicKeyPutIn, PubEncKeyData } from "../../entities/sys/TypeRefs.js"
-import { CryptoWrapper } from "./CryptoWrapper.js"
-import { PublicKeyService } from "../../entities/sys/Services.js"
+import { CryptoError } from "@tutao/crypto/error"
+import { arrayEquals, assertNotNull, KeyVersion, lazy, Versioned } from "@tutao/utils"
+import { KeyLoaderFacade } from "../facades/KeyLoaderFacade.js"
+import { asCryptoProtoocolVersion, sysServices, sysTypeRefs, TypeId } from "@tutao/typerefs"
 import { IServiceExecutor } from "../../common/ServiceRequest.js"
 import { PublicEncryptionKeyProvider, PublicKeyIdentifier } from "../facades/PublicEncryptionKeyProvider.js"
-import { TypeId } from "../../common/EntityTypes"
 import { Category, syncMetrics } from "../utils/SyncMetrics"
 import { KeyVerificationMismatchError } from "../../common/error/KeyVerificationMismatchError"
 import { AdminKeyLoaderFacade } from "../facades/AdminKeyLoaderFacade"
@@ -143,7 +141,7 @@ export class AsymmetricCryptoFacade {
 	 */
 	async decryptSymKeyWithKeyPairAndAuthenticate(
 		recipientKeyPair: AsymmetricKeyPair,
-		pubEncKeyData: PubEncKeyData,
+		pubEncKeyData: sysTypeRefs.PubEncKeyData,
 		senderIdentifier: PublicKeyIdentifier,
 	): Promise<DecapsulatedAesKey> {
 		const cryptoProtocolVersion = asCryptoProtoocolVersion(pubEncKeyData.protocolVersion)
@@ -152,7 +150,7 @@ export class AsymmetricCryptoFacade {
 			const { authStatus } = await this.authenticateSender(
 				senderIdentifier,
 				assertNotNull(decapsulatedAesKey.senderIdentityPubKey),
-				parseKeyVersion(assertNotNull(pubEncKeyData.senderKeyVersion)),
+				cryptoUtils.parseKeyVersion(assertNotNull(pubEncKeyData.senderKeyVersion)),
 			)
 			if (authStatus !== EncryptionAuthStatus.TUTACRYPT_AUTHENTICATION_SUCCEEDED) {
 				throw new CryptoError("the provided public key could not be authenticated")
@@ -180,7 +178,7 @@ export class AsymmetricCryptoFacade {
 				const privateKey: RsaPrivateKey = recipientKeyPair.privateKey
 				const decryptedSymKey = await this.rsa.decrypt(privateKey, pubEncSymKey)
 				return {
-					decryptedAesKey: uint8ArrayToBitArray(decryptedSymKey),
+					decryptedAesKey: uint8ArrayToKey(decryptedSymKey),
 					senderIdentityPubKey: null,
 				}
 			}
@@ -190,7 +188,7 @@ export class AsymmetricCryptoFacade {
 				}
 				const { decryptedSymKeyBytes, senderIdentityPubKey } = await this.pqFacade.decapsulateEncoded(pubEncSymKey, recipientKeyPair)
 				return {
-					decryptedAesKey: uint8ArrayToBitArray(decryptedSymKeyBytes),
+					decryptedAesKey: uint8ArrayToKey(decryptedSymKeyBytes),
 					senderIdentityPubKey,
 				}
 			}
@@ -233,7 +231,7 @@ export class AsymmetricCryptoFacade {
 				version: senderKeyPair.version,
 			})
 		} else if (isVersionedRsaOrRsaX25519PublicKey(recipientPublicKey)) {
-			const pubEncSymKeyBytes = await this.rsa.encrypt(recipientPublicKey.object, bitArrayToUint8Array(symKey))
+			const pubEncSymKeyBytes = await this.rsa.encrypt(recipientPublicKey.object, keyToUint8Array(symKey))
 			return {
 				pubEncSymKeyBytes,
 				cryptoProtocolVersion: CryptoProtocolVersion.RSA,
@@ -268,7 +266,7 @@ export class AsymmetricCryptoFacade {
 			senderEccKeyPair.object,
 			ephemeralKeyPair,
 			recipientPublicKey.object,
-			bitArrayToUint8Array(symKey),
+			keyToUint8Array(symKey),
 		)
 		const senderKeyVersion = senderEccKeyPair.version
 		return {
@@ -307,12 +305,12 @@ export class AsymmetricCryptoFacade {
 		const symGroupKey = await this.adminKeyLoaderFacade().getCurrentGroupKeyViaAdminEncGKey(keyGroupId)
 		const newX25519KeyPair = this.cryptoWrapper.generateEccKeyPair()
 		const symEncPrivEccKey = this.cryptoWrapper.encryptX25519Key(symGroupKey.object, newX25519KeyPair.privateKey)
-		const data = createPublicKeyPutIn({
+		const data = sysTypeRefs.createPublicKeyPutIn({
 			pubEccKey: newX25519KeyPair.publicKey,
 			symEncPrivEccKey,
 			keyGroup: keyGroupId,
 		})
-		await this.serviceExecutor.put(PublicKeyService, data)
+		await this.serviceExecutor.put(sysServices.PublicKeyService, data)
 		return newX25519KeyPair
 	}
 }

@@ -6,7 +6,7 @@ import { lang } from "../../../../common/misc/LanguageViewModel.js"
 import { px } from "../../../../common/gui/size.js"
 import { theme } from "../../../../common/gui/theme.js"
 
-import { getStartOfDay, isSameDayOfDate, memoized, NBSP } from "@tutao/tutanota-utils"
+import { getStartOfDay, isSameDayOfDate, memoized, NBSP } from "@tutao/utils"
 import { DateTime } from "luxon"
 import { getAllDayDateLocal } from "../../../../common/api/common/utils/CommonCalendarUtils.js"
 import { TextField, TextFieldType } from "../../../../common/gui/base/TextField.js"
@@ -15,10 +15,10 @@ import { parseDate } from "../../../../common/misc/DateParser.js"
 import renderSwitchMonthArrowIcon from "../../../../common/gui/base/buttons/ArrowButton.js"
 import { getCalendarMonth } from "../CalendarGuiUtils.js"
 import { isKeyPressed, keyboardEventToKeyPress, keyHandler, KeyPress, useKeyHandler } from "../../../../common/misc/KeyManager.js"
-import { Keys, TabIndex } from "../../../../common/api/common/TutanotaConstants.js"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { AriaPopupType } from "../../../../common/gui/AriaUtils.js"
-import { isApp, isIOSApp } from "../../../../common/api/common/Env.js"
 import { InputButton, InputButtonAttributes, InputButtonVariant } from "../../../../common/gui/base/InputButton.js"
+import { isApp, isIOSApp } from "@tutao/app-env"
 
 export enum PickerPosition {
 	TOP,

@@ -38,13 +38,13 @@ import type { ContactModel } from "../../contactsFunctionality/ContactModel.js"
 import { ProgressTracker } from "./ProgressTracker.js"
 import { LoginController } from "./LoginController.js"
 import { Header } from "../../gui/Header.js"
-import { UsageTestController } from "@tutao/tutanota-usagetests"
+import { UsageTestController } from "@tutao/usagetests"
 import { UsageTestModel } from "../../misc/UsageTestModel.js"
 import { WebMobileFacade } from "../../native/main/WebMobileFacade.js"
 import { OperationProgressTracker } from "./OperationProgressTracker.js"
 import { DomainConfigProvider } from "../common/DomainConfigProvider.js"
 import { MailAddressTableModel, UserInfo } from "../../settings/mailaddress/MailAddressTableModel.js"
-import { lazy } from "@tutao/tutanota-utils"
+import { lazy } from "@tutao/utils"
 import { Router } from "../../gui/ScopedRouter.js"
 import { NativeInterfaceMain } from "../../native/main/NativeInterfaceMain.js"
 import { CommonSystemFacade } from "../../native/common/generatedipc/CommonSystemFacade.js"
@@ -54,7 +54,7 @@ import { NativeFileApp } from "../../native/common/FileApp.js"
 import { MobileSystemFacade } from "../../native/common/generatedipc/MobileSystemFacade.js"
 import { MobileContactsFacade } from "../../native/common/generatedipc/MobileContactsFacade.js"
 import { NativeCredentialsFacade } from "../../native/common/generatedipc/NativeCredentialsFacade.js"
-import { CalendarEvent, Contact, Mail, MailboxProperties } from "../entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { SendMailModel } from "../../mailFunctionality/SendMailModel.js"
 import { RecipientsSearchModel } from "../../misc/RecipientsSearchModel.js"
 import type { CalendarInfo, CalendarModel } from "../../../calendar-app/calendar/model/CalendarModel.js"
@@ -79,6 +79,7 @@ import type { WhitelabelThemeGenerator } from "../../gui/WhitelabelThemeGenerato
 import { LoginViewModel } from "../../login/LoginViewModel"
 import { DriveFacade } from "../worker/facades/lazy/DriveFacade.js"
 import { TransferProgressDispatcher } from "./TransferProgressDispatcher"
+import { CalendarEventUpdateCoordinator } from "../../../calendar-app/calendar/model/CalendarEventUpdateCoordinator"
 
 export interface CommonLocator {
 	worker: WorkerClient
@@ -130,6 +131,8 @@ export interface CommonLocator {
 
 	calendarModel(): Promise<CalendarModel>
 
+	calendarEventUpdateCoordinator(): Promise<CalendarEventUpdateCoordinator>
+
 	readonly calendarInviteHandler: () => Promise<CalendarInviteHandler>
 
 	eventController: EventController
@@ -155,7 +158,7 @@ export interface CommonLocator {
 
 	mailAddressTableModelForAdmin(mailGroupId: Id, userId: Id, userInfo: UserInfo): Promise<MailAddressTableModel>
 
-	sendMailModel(mailboxDetails: MailboxDetail, mailboxProperties: MailboxProperties): Promise<SendMailModel>
+	sendMailModel(mailboxDetails: MailboxDetail, mailboxProperties: tutanotaTypeRefs.MailboxProperties): Promise<SendMailModel>
 
 	recipientsModel(): Promise<RecipientsModel>
 
@@ -169,19 +172,23 @@ export interface CommonLocator {
 	// calendar-related
 	calendarEventModel(
 		editMode: CalendarOperation,
-		event: Partial<CalendarEvent>,
+		event: Partial<tutanotaTypeRefs.CalendarEvent>,
 		mailboxDetail: MailboxDetail,
-		mailboxProperties: MailboxProperties,
-		responseTo: Mail | null,
+		mailboxProperties: tutanotaTypeRefs.MailboxProperties,
+		responseTo: tutanotaTypeRefs.Mail | null,
 	): Promise<CalendarEventModel | null>
 
 	calendarEventPreviewModel(
-		selectedEvent: CalendarEvent,
+		selectedEvent: tutanotaTypeRefs.CalendarEvent,
 		calendars: ReadonlyMap<string, CalendarInfo>,
 		highlightedTokens: readonly SearchToken[],
 	): Promise<CalendarEventPreviewViewModel>
 
-	calendarContactPreviewModel(event: CalendarEvent, contact: Contact, canEdit: boolean): Promise<CalendarContactPreviewViewModel>
+	calendarContactPreviewModel(
+		event: tutanotaTypeRefs.CalendarEvent,
+		contact: tutanotaTypeRefs.Contact,
+		canEdit: boolean,
+	): Promise<CalendarContactPreviewViewModel>
 
 	// native
 	native: NativeInterfaceMain

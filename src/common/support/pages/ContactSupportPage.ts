@@ -2,26 +2,27 @@ import m, { Children, Component, Vnode, VnodeDOM } from "mithril"
 import { getCategoryName, getTopicIssue, SupportDialogState } from "../SupportDialog.js"
 import { clientInfoString, getLogAttachments } from "../../misc/ErrorReporter.js"
 import { DataFile } from "../../api/common/DataFile.js"
-import { Thunk } from "@tutao/tutanota-utils"
+import { Thunk } from "@tutao/utils"
 import { locator } from "../../api/main/CommonLocator.js"
 import { lang } from "../../misc/LanguageViewModel.js"
 import { Card } from "../../gui/base/Card.js"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { getHtmlSanitizer, HtmlSanitizer } from "../../misc/HtmlSanitizer.js"
-import { MailMethod, PlanTypeToName } from "../../api/common/TutanotaConstants.js"
+import { MailMethod } from "@tutao/app-env"
 import type { SendMailModel } from "../../mailFunctionality/SendMailModel.js"
 import { convertTextToHtml } from "../../misc/Formatter.js"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog.js"
 import { Switch } from "../../gui/base/Switch.js"
 import { SectionButton } from "../../gui/base/buttons/SectionButton.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
-import { Icon, IconSize } from "../../gui/base/Icon.js"
+import { Icon } from "../../gui/base/Icon.js"
 import { BaseButton } from "../../gui/base/buttons/BaseButton.js"
 import { ButtonColor, getColors } from "../../gui/base/Button.js"
 import { px, size } from "../../gui/size.js"
 import type { HtmlEditor } from "../../gui/editor/HtmlEditor.js"
 import { chooseAndAttachFile } from "../../../mail-app/mail/editor/MailEditorViewModel.js"
 import { getSupportUsageTestStage } from "../SupportUsageTestUtils.js"
+import { PlanTypeToName } from "@tutao/typerefs"
 
 type Props = {
 	data: SupportDialogState
@@ -151,7 +152,7 @@ export class ContactSupportPage implements Component<Props> {
 					[
 						m(SectionButton, {
 							text: "attachFiles_action",
-							rightIcon: { icon: Icons.Attachment, title: "attachFiles_action" },
+							rightIcon: { icon: Icons.Paperclip, title: "attachFiles_action" },
 							isDisabled: this.sendMailModel == null,
 							onclick: async (_, dom) => {
 								await chooseAndAttachFile(this.sendMailModel!, dom.getBoundingClientRect())
@@ -174,7 +175,7 @@ export class ContactSupportPage implements Component<Props> {
 										class: "flex justify-between flash",
 									},
 									m(Icon, {
-										icon: Icons.Trash,
+										icon: Icons.TrashFilled,
 										style: {
 											fill: getColors(ButtonColor.Content).button,
 											paddingInline: px((size.icon_24 - size.icon_16) / 2),

@@ -3,13 +3,12 @@ import { lang } from "../../../misc/LanguageViewModel"
 import { TitleSection } from "../../../gui/TitleSection"
 import { Icons } from "../../../gui/base/icons/Icons"
 import { LoginButton } from "../../../gui/base/buttons/LoginButton"
-import { theme } from "../../../gui/theme"
-import { IdentityKeySourceOfTrust } from "../../../api/common/TutanotaConstants"
 import { RecipientKeyVerificationRecoveryModel } from "../../../misc/RecipientKeyVerificationRecoveryModel"
 import { Card } from "../../../gui/base/Card"
 import { ExternalLink } from "../../../gui/base/ExternalLink"
 import { Icon, IconSize } from "../../../gui/base/Icon"
 import { OutlineButton } from "../../../gui/base/buttons/OutlineButton"
+import { IdentityKeySourceOfTrust } from "@tutao/app-env"
 
 type VerificationErrorInfoPageAttrs = {
 	model: RecipientKeyVerificationRecoveryModel
@@ -50,7 +49,7 @@ export class RecipientKeyVerificationRecoveryInfoPage implements Component<Verif
 				label: lang.makeTranslation("reject_recommended", `${lang.get("reject_action")} (${lang.get("recommended_action")})`),
 				onclick: async () => vnode.attrs.goToRejectPage(),
 				icon: m(Icon, {
-					icon: Icons.XCheckmark,
+					icon: Icons.Checkmark,
 					size: IconSize.PX20,
 					class: "mr-8 flex-center",
 				}),

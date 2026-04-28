@@ -4,15 +4,11 @@ import Stream from "mithril/stream"
 import { Dialog } from "../gui/base/Dialog"
 import { Autocomplete, TextField } from "../gui/base/TextField.js"
 import { SelectMailAddressForm, SelectMailAddressFormAttrs } from "../settings/SelectMailAddressForm"
-import {
-	DEFAULT_FREE_MAIL_ADDRESS_SIGNUP_DOMAIN,
-	DEFAULT_PAID_MAIL_ADDRESS_SIGNUP_DOMAIN,
-	TUTA_MAIL_ADDRESS_SIGNUP_DOMAINS,
-} from "../api/common/TutanotaConstants"
+import { DEFAULT_FREE_MAIL_ADDRESS_SIGNUP_DOMAIN, DEFAULT_PAID_MAIL_ADDRESS_SIGNUP_DOMAIN, TUTA_MAIL_ADDRESS_SIGNUP_DOMAINS } from "@tutao/app-env"
 
 import type { CheckboxAttrs } from "../gui/base/Checkbox.js"
 import { Checkbox } from "../gui/base/Checkbox.js"
-import { defer, DeferredObject, getFirstOrThrow, lazy } from "@tutao/tutanota-utils"
+import { defer, DeferredObject, getFirstOrThrow, lazy } from "@tutao/utils"
 import type { TranslationKey } from "../misc/LanguageViewModel"
 import { InfoLink, lang } from "../misc/LanguageViewModel"
 import { locator } from "../api/main/CommonLocator"
@@ -123,7 +119,7 @@ export class SignupForm implements Component<SignupFormAttrs> {
 		this.dom = vnode.dom as HTMLElement
 		try {
 			const userController = locator.logins.getUserController()
-			this.readonly = (await userController.loadCustomer()) !== null
+			this.readonly = (await userController.reloadCustomer()) !== null
 		} catch (e) {
 			this.readonly = false
 		}

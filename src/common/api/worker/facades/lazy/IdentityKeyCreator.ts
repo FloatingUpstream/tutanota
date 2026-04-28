@@ -1,21 +1,17 @@
-import { GroupType } from "../../../common/TutanotaConstants.js"
-import { assertNotNull, Versioned } from "@tutao/tutanota-utils"
-import { createIdentityKeyPair, createIdentityKeyPostIn, createKeyMac, GroupTypeRef } from "../../../entities/sys/TypeRefs.js"
+import { assertNotNull, Versioned } from "@tutao/utils"
 import { EntityClient } from "../../../common/EntityClient.js"
-import { assertWorkerOrNode } from "../../../common/Env.js"
+import { assertWorkerOrNode, GroupType, ProgrammingError } from "@tutao/app-env"
 import { IServiceExecutor } from "../../../common/ServiceRequest.js"
-import { IdentityKeyService } from "../../../entities/sys/Services.js"
+import { sysServices, sysTypeRefs } from "@tutao/typerefs"
 import { UserFacade } from "../UserFacade.js"
 import { KeyLoaderFacade } from "../KeyLoaderFacade.js"
 import { CacheManagementFacade } from "./CacheManagementFacade.js"
-import { CryptoWrapper, VersionedKey } from "../../crypto/CryptoWrapper.js"
 import { AsymmetricCryptoFacade } from "../../crypto/AsymmetricCryptoFacade.js"
-import { AsymmetricKeyPair, KeyPairType } from "@tutao/tutanota-crypto"
+import { AsymmetricKeyPair, CryptoWrapper, KeyPairType, VersionedKey } from "@tutao/crypto"
 import { KeyAuthenticationFacade } from "../KeyAuthenticationFacade.js"
 import { Ed25519Facade } from "../Ed25519Facade"
 import { PublicKeySignatureFacade } from "../PublicKeySignatureFacade"
 import { AdminKeyLoaderFacade } from "../AdminKeyLoaderFacade"
-import { ProgrammingError } from "../../../common/error/ProgrammingError"
 
 assertWorkerOrNode()
 
@@ -71,12 +67,12 @@ export class IdentityKeyCreator {
 				groupId,
 			},
 		})
-		const identityKeyPair = createIdentityKeyPair({
+		const identityKeyPair = sysTypeRefs.createIdentityKeyPair({
 			identityKeyVersion: identityKeyVersion.toString(),
 			encryptingKeyVersion: encPrivateIdentityKey.encryptingKeyVersion.toString(),
 			privateEd25519Key: encPrivateIdentityKey.key,
 			publicEd25519Key: this.cryptoWrapper.ed25519PublicKeyToBytes(newEd25519IdentityKeyPair.public_key),
-			publicKeyMac: createKeyMac({
+			publicKeyMac: sysTypeRefs.createKeyMac({
 				taggedKeyVersion: identityKeyVersion.toString(),
 				taggingKeyVersion: currentGroupKey.version.toString(),
 				taggingGroup: groupId,
@@ -101,14 +97,14 @@ export class IdentityKeyCreator {
 		}
 		// Do not try to re-create the key pair in case it already exists
 		// We check down here to make race conditions less likely.
-		const group = await this.entityClient.load(GroupTypeRef, groupId)
+		const group = await this.entityClient.load(sysTypeRefs.GroupTypeRef, groupId)
 		if (group.identityKeyPair != null) {
 			console.log(`Identity key pair already exists. Did not create it again for group: ${groupId}`)
 			return
 		}
 		await this.serviceExecutor.post(
-			IdentityKeyService,
-			createIdentityKeyPostIn({
+			sysServices.IdentityKeyService,
+			sysTypeRefs.createIdentityKeyPostIn({
 				identityKeyPair,
 				signatures,
 			}),
@@ -147,7 +143,7 @@ export class IdentityKeyCreator {
 		for (const groupId of teamGroupIds) {
 			try {
 				// it can be the case that some groups already have an identity key, so we check first
-				let group = await this.entityClient.load(GroupTypeRef, groupId)
+				let group = await this.entityClient.load(sysTypeRefs.GroupTypeRef, groupId)
 				if (group.identityKeyPair) continue
 
 				// shared mailbox group members don't need access to identity keys, that's the responsibility of the admins

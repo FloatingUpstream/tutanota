@@ -1,20 +1,17 @@
 import m from "mithril"
 import { Dialog } from "../../common/gui/base/Dialog"
 import { lang, TranslationKey } from "../../common/misc/LanguageViewModel"
-import { InboxRuleType, MailSetKind } from "../../common/api/common/TutanotaConstants"
+import { assertMainOrNode, InboxRuleType, MailSetKind, UpgradePromptType } from "@tutao/app-env"
 import { isDomainName, isMailAddress, isRegularExpression } from "../../common/misc/FormatValidator"
 import { getInboxRuleTypeNameMapping } from "../mail/model/InboxRuleHandler"
-import type { InboxRule } from "../../common/api/entities/tutanota/TypeRefs.js"
-import { createInboxRule } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { elementIdPart, isSameId, tutanotaTypeRefs } from "@tutao/typerefs"
 import type { MailboxDetail } from "../../common/mailFunctionality/MailboxModel.js"
 import stream from "mithril/stream"
 import { DropDownSelector } from "../../common/gui/base/DropDownSelector.js"
 import { Autocapitalize, TextField } from "../../common/gui/base/TextField.js"
-import { neverNull } from "@tutao/tutanota-utils"
-import { LockedError } from "../../common/api/common/error/RestError"
+import { neverNull } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
 import { showNotAvailableForFreeDialog } from "../../common/misc/SubscriptionDialogs"
-import { elementIdPart, isSameId } from "../../common/api/common/utils/EntityUtils"
-import { assertMainOrNode } from "../../common/api/common/Env"
 import { locator } from "../../common/api/main/CommonLocator"
 import { isOfflineError } from "../../common/api/common/utils/ErrorUtils.js"
 import { mailLocator } from "../mailLocator.js"
@@ -30,15 +27,15 @@ import { Checkbox } from "../../common/gui/base/Checkbox"
 
 assertMainOrNode()
 
-export type InboxRuleTemplate = Pick<InboxRule, "type" | "value"> & {
-	_id?: InboxRule["_id"]
-	targetFolder?: InboxRule["targetFolder"]
-	excludeFromSpamFilter?: InboxRule["excludeFromSpamFilter"]
+export type InboxRuleTemplate = Pick<tutanotaTypeRefs.InboxRule, "type" | "value"> & {
+	_id?: tutanotaTypeRefs.InboxRule["_id"]
+	targetFolder?: tutanotaTypeRefs.InboxRule["targetFolder"]
+	excludeFromSpamFilter?: tutanotaTypeRefs.InboxRule["excludeFromSpamFilter"]
 }
 
 export async function show(mailBoxDetail: MailboxDetail, ruleOrTemplate: InboxRuleTemplate) {
 	if (locator.logins.getUserController().isFreeAccount()) {
-		showNotAvailableForFreeDialog()
+		showNotAvailableForFreeDialog(UpgradePromptType.INBOX_RULES)
 	} else if (mailBoxDetail) {
 		const folders = await mailLocator.mailModel.getMailboxFoldersForId(mailBoxDetail.mailbox.mailSets._id)
 		let targetFolders = folders.getIndentedList().map((folderInfo: IndentedFolder) => {
@@ -79,19 +76,21 @@ export async function show(mailBoxDetail: MailboxDetail, ruleOrTemplate: InboxRu
 					selectionChangedHandler: inboxRuleTarget,
 					helpLabel: () => getPathToFolderString(folders, inboxRuleTarget(), true),
 				}),
-				m(
-					".pt-16",
-					m(Checkbox, {
-						label: () => lang.get("inboxRuleExcludedFromSpamFilter_msg"),
-						checked: isRuleExcludedFromSpamFilter(),
-						onChecked: (checked) => isRuleExcludedFromSpamFilter(checked),
-					}),
-				),
+				inboxRuleTarget().folderType === MailSetKind.SPAM
+					? null
+					: m(
+							".pt-16",
+							m(Checkbox, {
+								label: () => lang.get("inboxRuleExcludedFromSpamFilter_msg"),
+								checked: isRuleExcludedFromSpamFilter(),
+								onChecked: (checked) => isRuleExcludedFromSpamFilter(checked),
+							}),
+						),
 			]
 		}
 
 		const addInboxRuleOkAction = (dialog: Dialog) => {
-			let rule = createInboxRule({
+			let rule = tutanotaTypeRefs.createInboxRule({
 				type: inboxRuleType(),
 				value: getCleanedValue(inboxRuleType(), inboxRuleValue()),
 				targetFolder: inboxRuleTarget()._id,
@@ -102,6 +101,11 @@ export async function show(mailBoxDetail: MailboxDetail, ruleOrTemplate: InboxRu
 			const ruleId = ruleOrTemplate._id
 			if (ruleId) {
 				rule._id = ruleId
+			}
+
+			// When saving a rule that goes to spam, always set it to be excluded from the filter, so it always goes to spam
+			if (inboxRuleTarget().folderType === MailSetKind.SPAM) {
+				rule.excludeFromSpamFilter = true
 			}
 			props.inboxRules = ruleId == null ? [...inboxRules, rule] : inboxRules.map((inboxRule) => (isSameId(inboxRule._id, ruleId) ? rule : inboxRule))
 
@@ -115,7 +119,7 @@ export async function show(mailBoxDetail: MailboxDetail, ruleOrTemplate: InboxRu
 						props.inboxRules = inboxRules
 						//do not close
 						throw error
-					} else if (error instanceof LockedError) {
+					} else if (error instanceof restError.LockedError) {
 						dialog.close()
 					} else {
 						props.inboxRules = inboxRules

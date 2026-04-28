@@ -102,6 +102,9 @@ struct AgendaProvider: AppIntentTimelineProvider {
 	}
 
 	func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<WidgetEntry> {
+		let account = configuration.account?.email ?? "no-account"
+		let calendarsCount = configuration.calendars?.count ?? -1
+		printLog("Creating timeline - Current configuration: \(account) - \(calendarsCount) calendars")
 		var entries: [WidgetEntry] = []
 
 		let currentDate = Date()
@@ -119,7 +122,7 @@ struct AgendaProvider: AppIntentTimelineProvider {
 					if let newColor = loadedCalendars.first(where: { c in c.id == calendar.id })?.color { calendar.color = newColor }
 				}
 			}
-		} catch { printLog("Failed to refresh calendars: \(error)") }
+		} catch { printLog("Failed to refresh calendars - \(error)") }
 
 		guard let calendars = configuration.calendars else { return Timeline(entries: [], policy: .never) }
 
@@ -144,7 +147,7 @@ struct AgendaProvider: AppIntentTimelineProvider {
 
 			entries = [makeErrorEntry(configuration: configuration, error: errorType, stackTrace: nsError.debugDescription)]
 
-			printLog("Error loading events with user \(userId) for widget: \(error)")
+			printLog("Error loading events with userId \(userId) - \(error)")
 		}
 
 		return Timeline(entries: entries, policy: .atEnd)
@@ -178,35 +181,27 @@ extension View {
 
 struct AgendaWidgetEntryView: View {
 	var normalEvents: EventMap
-	var allDayEventsData: LongEventsDataMap
+	var allDayEventsData: LongEventsDataMap  // a map of
 	var error: WidgetError?
 	var userId: String
 
 	@Environment(\.widgetRenderingMode) var renderingMode
 
 	@Environment(\.widgetFamily) var family
+
 	var body: some View {
+
+		let noNormalEvents = normalEvents.allSatisfy({ $0.value.isEmpty })
+		let noAllDayEvents = allDayEventsData.allSatisfy({ $0.value.count == 0 })
+
 		GeometryReader { g in
 			VStack {
 				if let err = error {
 					ErrorBody(error: err)
+				} else if noNormalEvents && noAllDayEvents {
+					EmptyBody(widgetHeight: g.size.height, family: family, userId: userId)
 				} else {
-					let isEmpty =
-						normalEvents.allSatisfy({ $0.value.isEmpty })
-						&& !(allDayEventsData.contains(where: {
-							if let today = normalEvents.keys.min() { return $0.key != today && $0.value.count != 0 }
-
-							return false
-						}))
-
-					DaysList(
-						userId: userId,
-						isEmpty: isEmpty,
-						family: family,
-						widgetHeight: g.size.height,
-						normalEvents: normalEvents,
-						allDayEventsData: allDayEventsData
-					)
+					DaysList(userId: userId, family: family, widgetHeight: g.size.height, normalEvents: normalEvents, allDayEventsData: allDayEventsData)
 				}
 			}
 			.frame(maxHeight: g.size.height, alignment: .top)

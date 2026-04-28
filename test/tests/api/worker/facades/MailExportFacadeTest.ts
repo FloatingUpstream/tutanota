@@ -6,19 +6,19 @@ import { BlobFacade } from "../../../../../src/common/api/worker/facades/lazy/Bl
 import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade.js"
 import { instance, object, when } from "testdouble"
 import { createTestEntity } from "../../../TestUtils.js"
-import { FileTypeRef, MailDetailsTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { ArchiveDataType } from "../../../../../src/common/api/common/TutanotaConstants"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { ArchiveDataType } from "../../../../../src/app-env"
 import { createReferencingInstance } from "../../../../../src/common/api/common/utils/BlobUtils"
 import { BlobAccessTokenFacade } from "../../../../../src/common/api/worker/facades/BlobAccessTokenFacade"
-import { SuspensionBehavior } from "../../../../../src/common/api/worker/rest/RestClient"
+import { restSuspension } from "@tutao/rest-client"
 
 o.spec("MailExportFacade", () => {
 	const token = "my token"
 	const tokenHeaders = { [MAIL_EXPORT_TOKEN_HEADER]: token }
-	const mail1 = createTestEntity(MailTypeRef)
-	const mail2 = createTestEntity(MailTypeRef)
-	const details1 = createTestEntity(MailDetailsTypeRef)
-	const details2 = createTestEntity(MailDetailsTypeRef)
+	const mail1 = createTestEntity(tutanotaTypeRefs.MailTypeRef)
+	const mail2 = createTestEntity(tutanotaTypeRefs.MailTypeRef)
+	const details1 = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef)
+	const details2 = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef)
 
 	let facade!: MailExportFacade
 	let tokenFacade!: MailExportTokenFacade
@@ -43,7 +43,7 @@ o.spec("MailExportFacade", () => {
 			bulkMailLoader.loadFixedNumberOfMailsWithCache("mailListId", "startId", {
 				baseUrl: "baseUrl",
 				extraHeaders: tokenHeaders,
-				suspensionBehavior: SuspensionBehavior.Throw,
+				suspensionBehavior: restSuspension.SuspensionBehavior.Throw,
 			}),
 		).thenResolve([mail1, mail2])
 
@@ -61,7 +61,7 @@ o.spec("MailExportFacade", () => {
 			bulkMailLoader.loadMailDetails([mail1, mail2], {
 				baseUrl: "baseUrl",
 				extraHeaders: tokenHeaders,
-				suspensionBehavior: SuspensionBehavior.Throw,
+				suspensionBehavior: restSuspension.SuspensionBehavior.Throw,
 			}),
 		).thenResolve(expected)
 
@@ -71,12 +71,12 @@ o.spec("MailExportFacade", () => {
 	})
 
 	o.test("loadAttachments", async () => {
-		const expected = [createTestEntity(FileTypeRef), createTestEntity(FileTypeRef)]
+		const expected = [createTestEntity(tutanotaTypeRefs.FileTypeRef), createTestEntity(tutanotaTypeRefs.FileTypeRef)]
 		when(
 			bulkMailLoader.loadAttachments([mail1, mail2], {
 				baseUrl: "baseUrl",
 				extraHeaders: tokenHeaders,
-				suspensionBehavior: SuspensionBehavior.Throw,
+				suspensionBehavior: restSuspension.SuspensionBehavior.Throw,
 			}),
 		).thenResolve(expected)
 
@@ -89,13 +89,13 @@ o.spec("MailExportFacade", () => {
 		const dataByteMail1 = new Uint8Array([1, 2, 3])
 		const dataByteMail2 = new Uint8Array([4, 5, 6])
 		const mailAttachments = [
-			createTestEntity(FileTypeRef, {
+			createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 				name: "mail1",
 				mimeType: "img/png",
 				cid: "12345",
 				_id: ["attachment", "id1"],
 			}),
-			createTestEntity(FileTypeRef, { name: "mail2", mimeType: "pdf", cid: "12345", _id: ["attachment", "id2"] }),
+			createTestEntity(tutanotaTypeRefs.FileTypeRef, { name: "mail2", mimeType: "pdf", cid: "12345", _id: ["attachment", "id2"] }),
 		]
 
 		when(cryptoFacade.enforceSessionKeyUpdateIfNeeded(mail1, mailAttachments)).thenResolve(mailAttachments)
@@ -105,7 +105,7 @@ o.spec("MailExportFacade", () => {
 				[createReferencingInstance(mailAttachments[0]), createReferencingInstance(mailAttachments[1])],
 				{
 					extraHeaders: tokenHeaders,
-					suspensionBehavior: SuspensionBehavior.Throw,
+					suspensionBehavior: restSuspension.SuspensionBehavior.Throw,
 				},
 			),
 		).thenResolve(

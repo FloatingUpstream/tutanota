@@ -7,11 +7,11 @@ import { newMailEditorFromTemplate } from "../../mail-app/mail/editor/MailEditor
 import { UserError } from "../api/main/UserError.js"
 import { clientInfoString, getLogAttachments } from "../misc/ErrorReporter.js"
 import { ExternalLink } from "../gui/base/ExternalLink.js"
-import { isApp } from "../api/common/Env.js"
 import { px, size } from "../gui/size.js"
 import { getTutaLogo } from "../gui/base/Logo.js"
 import { prepareLogContent, showLogsDialog } from "../gui/LogDialogUtils"
 import { client } from "../misc/ClientDetector"
+import { isApp } from "@tutao/app-env"
 
 interface AboutDialogAttrs {
 	onShowSetupWizard: () => unknown
@@ -50,7 +50,7 @@ export class AboutDialog implements Component<AboutDialogAttrs> {
 			m(".flex.justify-center.selectable.flex-wrap", [
 				m("p.center.mt-16.mlr-12", `v${env.versionNumber}`),
 				m("p.text-center.mlr-12", "GPL-v3"),
-				m("p", "© 2025 Tutao GmbH"),
+				m("p", "© 2026 Tutao GmbH"),
 			]),
 			this.logsLink(),
 			// wrap it in a div so that it's not filling the whole width

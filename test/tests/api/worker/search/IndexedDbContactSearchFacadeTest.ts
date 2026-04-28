@@ -1,12 +1,12 @@
 import o from "@tutao/otest"
 import { object, when } from "testdouble"
-import { ContactTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { IndexedDbContactSearchFacade } from "../../../../../src/mail-app/workerUtils/index/IndexedDbContactSearchFacade"
 import { IndexedDbSearchFacade } from "../../../../../src/mail-app/workerUtils/index/IndexedDbSearchFacade"
 import { clientInitializedTypeModelResolver } from "../../../TestUtils"
-import { TypeModelResolver } from "../../../../../src/common/api/common/EntityFunctions"
+import { TypeModelResolver } from "@tutao/typerefs"
 import { SearchRestriction, SearchResult } from "../../../../../src/common/api/worker/search/SearchTypes"
-import { typedValues } from "@tutao/tutanota-utils"
+import { typedValues } from "@tutao/utils"
 
 o.spec("IndexedDbContactSearchFacade", () => {
 	let facade: IndexedDbContactSearchFacade
@@ -21,10 +21,10 @@ o.spec("IndexedDbContactSearchFacade", () => {
 
 	o.spec("findContacts", () => {
 		o.test("mailAddress", async () => {
-			const mailType = await typeModelResolver.resolveClientTypeReference(ContactTypeRef)
+			const mailType = await typeModelResolver.resolveClientTypeReference(tutanotaTypeRefs.ContactTypeRef)
 
 			const expectedRestriction: SearchRestriction = {
-				type: ContactTypeRef,
+				type: tutanotaTypeRefs.ContactTypeRef,
 				start: null,
 				end: null,
 				field: "mailAddresses",
@@ -42,10 +42,10 @@ o.spec("IndexedDbContactSearchFacade", () => {
 			o.check(result).deepEquals([["it's me", "a contact"] as IdTuple])
 		})
 		o.test("recipient", async () => {
-			const mailType = await typeModelResolver.resolveClientTypeReference(ContactTypeRef)
+			const mailType = await typeModelResolver.resolveClientTypeReference(tutanotaTypeRefs.ContactTypeRef)
 
 			const expectedRestriction: SearchRestriction = {
-				type: ContactTypeRef,
+				type: tutanotaTypeRefs.ContactTypeRef,
 				start: null,
 				end: null,
 				field: null,

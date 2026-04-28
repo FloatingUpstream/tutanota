@@ -9,17 +9,17 @@
 import { Dialog } from "../../../../common/gui/base/Dialog.js"
 import { lang } from "../../../../common/misc/LanguageViewModel.js"
 import { ButtonAttrs, ButtonType } from "../../../../common/gui/base/Button.js"
-import { Keys } from "../../../../common/api/common/TutanotaConstants.js"
+import { Keys, UpgradePromptType } from "@tutao/app-env"
 import { AlarmInterval, parseAlarmInterval } from "../../../../common/calendar/date/CalendarUtils.js"
 import { client } from "../../../../common/misc/ClientDetector.js"
-import { assertNotNull, noOp, Thunk } from "@tutao/tutanota-utils"
+import { assertNotNull, noOp, Thunk } from "@tutao/utils"
 import { PosRect } from "../../../../common/gui/base/Dropdown.js"
 import type { HtmlEditor } from "../../../../common/gui/editor/HtmlEditor.js"
 import { locator } from "../../../../common/api/main/CommonLocator.js"
 import { CalendarEventEditView, EditorPages } from "./CalendarEventEditView.js"
 import { askIfShouldSendCalendarUpdatesToAttendees } from "../CalendarGuiUtils.js"
 import { CalendarEventIdentity, CalendarEventModel, EventSaveResult } from "../eventeditor-model/CalendarEventModel.js"
-import { ProgrammingError } from "../../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { UpgradeRequiredError } from "../../../../common/api/main/UpgradeRequiredError.js"
 import { showPlanUpgradeRequiredDialog } from "../../../../common/misc/SubscriptionDialogs.js"
 import { convertTextToHtml } from "../../../../common/misc/Formatter.js"
@@ -28,7 +28,7 @@ import { showUserError } from "../../../../common/misc/ErrorHandlerImpl.js"
 import { theme } from "../../../../common/gui/theme.js"
 import stream from "mithril/stream"
 import { getStartOfTheWeekOffsetForUser } from "../../../../common/misc/weekOffset"
-import { newPromise } from "@tutao/tutanota-utils"
+import { newPromise } from "@tutao/utils"
 import { getTimeFormatForUser } from "../../../../common/api/common/utils/UserUtils"
 
 const enum ConfirmationResult {
@@ -202,7 +202,7 @@ export class EventEditorDialog {
 					// noinspection ES6MissingAwait
 					showUserError(e)
 				} else if (e instanceof UpgradeRequiredError) {
-					await showPlanUpgradeRequiredDialog(e.plans)
+					await showPlanUpgradeRequiredDialog(UpgradePromptType.NEW_CALENDAR_EVENT_REQUIRING_SUBSCRIPTION, e.plans)
 				} else {
 					throw e
 				}
@@ -250,7 +250,7 @@ export class EventEditorDialog {
 						// noinspection ES6MissingAwait
 						showUserError(e)
 					} else if (e instanceof UpgradeRequiredError) {
-						await showPlanUpgradeRequiredDialog(e.plans)
+						await showPlanUpgradeRequiredDialog(UpgradePromptType.EDIT_CALENDAR_EVENT_REQUIRING_SUBSCRIPTION, e.plans)
 					} else {
 						throw e
 					}

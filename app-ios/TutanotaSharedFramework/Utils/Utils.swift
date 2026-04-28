@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 public func translate(_ key: String, default defaultValue: String) -> String {
 	Bundle.main.localizedString(forKey: key, value: defaultValue, table: "InfoPlist")
@@ -46,7 +47,7 @@ public struct SuspensionTime {
  Gets suspension time from the request in seconds
  */
 public func extractSuspensionTime(from httpResponse: HTTPURLResponse) -> SuspensionTime {
-	let retryAfterHeader = (httpResponse.allHeaderFields["Retry-After"] ?? httpResponse.allHeaderFields["Suspension-Time"]) as! String?
+	let retryAfterHeader = (httpResponse.value(forHTTPHeaderField: "Retry-After") ?? httpResponse.value(forHTTPHeaderField: "Suspension-Time"))
 	let seconds = retryAfterHeader.flatMap { UInt32($0) } ?? 0
 	return SuspensionTime(seconds: seconds)
 }
@@ -67,9 +68,14 @@ public func makeUrlSession() -> URLSession {
 
 func appVersion() -> String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as! String }
 
+private let logger = Logger.init()
+
 public func printLog(_ message: String, _ file: StaticString = #fileID) {
 	let filename = file
 	TUTSLog("\(filename): \(message)")
+	#if DEBUG
+		logger.info("\(filename, privacy: .public): \(message, privacy: .public)")
+	#endif
 }
 
 public func getLogs() -> String {

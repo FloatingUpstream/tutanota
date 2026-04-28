@@ -1,21 +1,20 @@
-import type { Country } from "../../api/common/CountryList"
-import { Countries } from "../../api/common/CountryList"
+import { countryList } from "@tutao/app-env"
 import type { InfoLink, MaybeTranslation, TranslationKey } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
 import { ButtonColor } from "./Button.js"
 import { Icons } from "./icons/Icons"
 import { createAsyncDropdown, DomRectReadOnlyPolyfilled, DropdownChildAttrs, PosRect } from "./Dropdown.js"
-import type { $Promisable, lazy, MaybeLazy } from "@tutao/tutanota-utils"
-import { assertNotNull, lazyMemoized, resolveMaybeLazy } from "@tutao/tutanota-utils"
+import type { $Promisable, lazy, MaybeLazy } from "@tutao/utils"
+import { assertNotNull, lazyMemoized, resolveMaybeLazy } from "@tutao/utils"
 import { Dialog } from "./Dialog"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import m, { Children } from "mithril"
 import { DropDownSelector } from "./DropDownSelector.js"
 import { IconButtonAttrs } from "./IconButton.js"
 import { LoginController } from "../../api/main/LoginController.js"
 import { client } from "../../misc/ClientDetector.js"
-import type { Contact } from "../../api/entities/tutanota/TypeRefs.js"
-import { isColorLight } from "./Color.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { isColorLight, isValidCSSHexColor } from "./Color.js"
 import { DropDownSelectorNew, DropDownSelectorNewAttrs } from "./DropDownSelectorNew"
 import { theme } from "../theme"
 import { size } from "../size"
@@ -40,8 +39,12 @@ export type FolderDropData = {
 	dropType: DropType.Folder
 	folderId: string
 }
+export type DriveDropData = {
+	dropType: DropType.DriveItems
+	data: string
+}
 
-export type DropData = FileDropData | MailDropData | FolderDropData
+export type DropData = FileDropData | MailDropData | FolderDropData | DriveDropData
 
 export type DragStartHandler = (event: DragEvent) => void
 export type DropHandler = (dropData: DropData) => void
@@ -50,11 +53,11 @@ export type ClickHandler = (event: MouseEvent, dom: HTMLElement) => void
 export type KeyboardHandler = (event: KeyboardEvent, dom: HTMLElement) => void
 
 // lazy because of global dependencies
-const dropdownCountries = lazyMemoized(() => Countries.map((c) => ({ value: c, name: c.n })))
+const dropdownCountries = lazyMemoized(() => countryList.Countries.map((c) => ({ value: c, name: c.n })))
 
 export function renderCountryDropdown(params: {
-	selectedCountry: Country | null
-	onSelectionChanged: (country: Country) => void
+	selectedCountry: countryList.Country | null
+	onSelectionChanged: (country: countryList.Country) => void
 	helpLabel?: lazy<string>
 	label?: MaybeTranslation
 }): Children {
@@ -68,8 +71,8 @@ export function renderCountryDropdown(params: {
 }
 
 export function renderCountryDropdownNew(params: {
-	selectedCountry: Country | null
-	onSelectionChanged: (country: Country | null) => void
+	selectedCountry: countryList.Country | null
+	onSelectionChanged: (country: countryList.Country | null) => void
 	helpLabel?: lazy<string>
 	label?: MaybeTranslation
 }): Children {
@@ -86,10 +89,10 @@ export function renderCountryDropdownNew(params: {
 		selectedValue: params.selectedCountry,
 		selectionChangedHandler: params.onSelectionChanged,
 		icon: {
-			icon: Icons.Pin,
+			icon: Icons.PlaceFilled,
 			color: theme.on_surface_variant,
 		},
-	} satisfies DropDownSelectorNewAttrs<Country | null>)
+	} satisfies DropDownSelectorNewAttrs<countryList.Country | null>)
 }
 
 export function createMoreActionButtonAttrs(
@@ -282,7 +285,7 @@ export function getIfLargeScroll(oldPosition: number | null, newPosition: number
 	return difference > 10
 }
 
-export function getContactTitle(contact: Contact) {
+export function getContactTitle(contact: tutanotaTypeRefs.Contact) {
 	const title = contact.title ? `${contact.title} ` : ""
 	const middleName = contact.middleName != null ? ` ${contact.middleName} ` : " "
 	const fullName = `${contact.firstName}${middleName}${contact.lastName} `
@@ -298,6 +301,27 @@ export function getContactTitle(contact: Contact) {
  */
 export function colorForBg(bgColor: string): string {
 	return isColorLight(bgColor) ? "black" : "white"
+}
+
+/**
+ * Adds a # to the beginning of a string if there is none.  Returns the string unmodified if it already has a #.
+ *
+ * For use in situations when we are processing color hexes from multiple sources that may or may not
+ * already have a # at the beginning.
+ *
+ * Use this liberally because failure to do so can, in some situations, cause serious bugs.
+ *
+ * @param colorHex
+ */
+export function normalizeColorHex(colorHex: string) {
+	const normalized = colorHex.includes("#") ? colorHex : `#${colorHex}`
+
+	if (isValidCSSHexColor(normalized)) {
+		return normalized
+	}
+
+	console.warn("Trying to normalize a non-hex-color, this could be unintended...")
+	return colorHex
 }
 
 /**

@@ -1,5 +1,5 @@
-import { Contact } from "../../entities/tutanota/TypeRefs"
-import { PresentableKeyVerificationState } from "../TutanotaConstants"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { PresentableKeyVerificationState } from "@tutao/app-env"
 
 export const enum RecipientType {
 	UNKNOWN = "unknown",
@@ -11,7 +11,7 @@ export interface Recipient {
 	readonly address: string
 	readonly name: string
 	readonly type: RecipientType
-	readonly contact: Contact | null
+	readonly contact: tutanotaTypeRefs.Contact | null
 	readonly verificationState: PresentableKeyVerificationState
 }
 
@@ -24,7 +24,7 @@ export interface PartialRecipient {
 	address: string
 	name?: string | None
 	type?: RecipientType | None
-	contact?: Contact | IdTuple | None
+	contact?: tutanotaTypeRefs.Contact | IdTuple | None
 }
 
 export type RecipientList = Array<PartialRecipient>

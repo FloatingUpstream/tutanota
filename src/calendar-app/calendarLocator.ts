@@ -1,4 +1,4 @@
-import { assertMainOrNode, isAndroidApp, isApp, isBrowser, isDesktop, isElectronClient, isIOSApp, isTest } from "../common/api/common/Env.js"
+import { assertMainOrNode, GroupType, isAndroidApp, isApp, isBrowser, isDesktop, isIOSApp, KdfType, Mode } from "@tutao/app-env"
 import { EventController } from "../common/api/main/EventController.js"
 import { type MailboxDetail, MailboxModel } from "../common/mailFunctionality/MailboxModel.js"
 import { ContactModel } from "../common/contactsFunctionality/ContactModel.js"
@@ -26,7 +26,7 @@ import { BlobFacade } from "../common/api/worker/facades/lazy/BlobFacade.js"
 import { UserManagementFacade } from "../common/api/worker/facades/lazy/UserManagementFacade.js"
 import { RecoverCodeFacade } from "../common/api/worker/facades/lazy/RecoverCodeFacade.js"
 import { ContactFacade } from "../common/api/worker/facades/lazy/ContactFacade.js"
-import { UsageTestController } from "@tutao/tutanota-usagetests"
+import { UsageTestController } from "@tutao/usagetests"
 import { EphemeralUsageTestStorage, StorageBehavior, UsageTestModel } from "../common/misc/UsageTestModel.js"
 import { NewsModel } from "../common/misc/news/NewsModel.js"
 import { IServiceExecutor } from "../common/api/common/ServiceRequest.js"
@@ -46,10 +46,10 @@ import { InfoMessageHandler } from "../common/gui/InfoMessageHandler.js"
 import { NativeInterfaces } from "../common/native/main/NativeInterfaceFactory.js"
 import { EntropyFacade } from "../common/api/worker/facades/EntropyFacade.js"
 import { SqlCipherFacade } from "../common/native/common/generatedipc/SqlCipherFacade.js"
-import { assertNotNull, defer, DeferredObject, lazy, lazyAsync, LazyLoaded, lazyMemoized, noOp } from "@tutao/tutanota-utils"
+import { assertNotNull, defer, DeferredObject, lazy, lazyAsync, LazyLoaded, lazyMemoized, noOp } from "@tutao/utils"
 import { RecipientsModel } from "../common/api/main/RecipientsModel.js"
 import { NoZoneDateProvider } from "../common/api/common/utils/NoZoneDateProvider.js"
-import { CalendarEvent, CalendarEventAttendee, Contact, Mail, MailboxProperties } from "../common/api/entities/tutanota/TypeRefs.js"
+import { ClientModelInfo, ClientTypeModelResolver, tutanotaTypeRefs } from "@tutao/typerefs"
 import { SendMailModel } from "../common/mailFunctionality/SendMailModel.js"
 import { OfflineIndicatorViewModel } from "../common/gui/base/OfflineIndicatorViewModel.js"
 import { Router, ScopedRouter, ThrottledRouter } from "../common/gui/ScopedRouter.js"
@@ -57,7 +57,7 @@ import { DeviceConfig, deviceConfig } from "../common/misc/DeviceConfig.js"
 import { CalendarSearchViewModel } from "./calendar/search/view/CalendarSearchViewModel.js"
 import { SearchRouter } from "../common/search/view/SearchRouter.js"
 import { getEnabledMailAddressesWithUser } from "../common/mailFunctionality/SharedMailUtils.js"
-import { Const, FeatureType, GroupType, KdfType } from "../common/api/common/TutanotaConstants.js"
+import { Const, FeatureType } from "@tutao/app-env"
 import { ShareableGroupType } from "../common/sharing/GroupUtils.js"
 import { ReceivedGroupInvitationsModel } from "../common/sharing/model/ReceivedGroupInvitationsModel.js"
 import { CalendarViewModel } from "./calendar/view/CalendarViewModel.js"
@@ -78,7 +78,7 @@ import { DrawerMenuAttrs } from "../common/gui/nav/DrawerMenu.js"
 import { DomainConfigProvider } from "../common/api/common/DomainConfigProvider.js"
 import { CredentialRemovalHandler } from "../common/login/CredentialRemovalHandler.js"
 import { LoginViewModel } from "../common/login/LoginViewModel.js"
-import { ProgrammingError } from "../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { EntropyCollector } from "../common/api/main/EntropyCollector.js"
 import { notifications } from "../common/gui/Notifications.js"
 import { windowFacade } from "../common/misc/WindowFacade.js"
@@ -101,7 +101,6 @@ import { CalendarSearchModel } from "./calendar/search/model/CalendarSearchModel
 import { SearchIndexStateInfo } from "../common/api/worker/search/SearchTypes.js"
 import { CALENDAR_PREFIX } from "../common/misc/RouteChange.js"
 import { AppType } from "../common/misc/ClientConstants.js"
-import type { ParsedEvent } from "../common/calendar/gui/CalendarImporter.js"
 import { ExternalCalendarFacade } from "../common/native/common/generatedipc/ExternalCalendarFacade.js"
 import { WorkerRandomizer } from "../common/api/worker/workerInterfaces.js"
 import type { CalendarContactPreviewViewModel } from "./calendar/gui/eventpopup/CalendarContactPreviewViewModel.js"
@@ -110,7 +109,6 @@ import { SyncTracker } from "../common/api/main/SyncTracker.js"
 import { KeyVerificationFacade } from "../common/api/worker/facades/lazy/KeyVerificationFacade"
 import { getEventWithDefaultTimes, setNextHalfHour } from "../common/api/common/utils/CommonCalendarUtils.js"
 import { PublicEncryptionKeyProvider } from "../common/api/worker/facades/PublicEncryptionKeyProvider"
-import { ClientModelInfo, ClientTypeModelResolver } from "../common/api/common/EntityFunctions"
 import { CommonLocator } from "../common/api/main/CommonLocator"
 import { SearchToken } from "../common/api/common/utils/QueryTokenUtils"
 import { GroupSettingsModel } from "../common/sharing/model/GroupSettingsModel"
@@ -121,6 +119,8 @@ import type { AutosaveFacade, LocalAutosavedDraftData } from "../common/api/work
 import { lang } from "../common/misc/LanguageViewModel.js"
 import { DriveFacade } from "../common/api/worker/facades/lazy/DriveFacade"
 import { TransferProgressDispatcher } from "../common/api/main/TransferProgressDispatcher"
+import { CalendarEventUpdateCoordinator } from "./calendar/model/CalendarEventUpdateCoordinator"
+import { ParsedEvent } from "../common/calendar/gui/ImportExportUtils"
 
 assertMainOrNode()
 
@@ -199,7 +199,7 @@ class CalendarLocator implements CommonLocator {
 		return new NoZoneDateProvider()
 	}
 
-	async sendMailModel(mailboxDetails: MailboxDetail, mailboxProperties: MailboxProperties): Promise<SendMailModel> {
+	async sendMailModel(mailboxDetails: MailboxDetail, mailboxProperties: tutanotaTypeRefs.MailboxProperties): Promise<SendMailModel> {
 		const factory = await this.sendMailModelSyncFactory(mailboxDetails, mailboxProperties)
 		return factory()
 	}
@@ -272,7 +272,7 @@ class CalendarLocator implements CommonLocator {
 		const timeZone = new DefaultDateProvider().timeZone()
 		return new CalendarViewModel(
 			this.logins,
-			async (mode: CalendarOperation, event: CalendarEvent) => {
+			async (mode: CalendarOperation, event: tutanotaTypeRefs.CalendarEvent) => {
 				const mailboxDetail = await this.mailboxModel.getUserMailboxDetails()
 				const mailboxProperties = await this.mailboxModel.getMailboxProperties(mailboxDetail.mailboxGroupRoot)
 				return await this.calendarEventModel(mode, event, mailboxDetail, mailboxProperties, null)
@@ -309,7 +309,7 @@ class CalendarLocator implements CommonLocator {
 	})
 
 	/** This ugly bit exists because CalendarEventWhoModel wants a sync factory. */
-	private async sendMailModelSyncFactory(mailboxDetails: MailboxDetail, mailboxProperties: MailboxProperties): Promise<() => SendMailModel> {
+	private async sendMailModelSyncFactory(mailboxDetails: MailboxDetail, mailboxProperties: tutanotaTypeRefs.MailboxProperties): Promise<() => SendMailModel> {
 		const { SendMailModel } = await import("../common/mailFunctionality/SendMailModel.js")
 		const recipientsModel = await this.recipientsModel()
 		const dateProvider = await this.noZoneDateProvider()
@@ -335,19 +335,20 @@ class CalendarLocator implements CommonLocator {
 				dateProvider,
 				mailboxProperties,
 				noOpAutosave,
-				async (mail: Mail) => {
+				async (mail: tutanotaTypeRefs.Mail) => {
 					return false
 				},
 				this.syncTracker,
+				null,
 			)
 	}
 
 	async calendarEventModel(
 		editMode: CalendarOperation,
-		event: Partial<CalendarEvent>,
+		event: Partial<tutanotaTypeRefs.CalendarEvent>,
 		mailboxDetail: MailboxDetail,
-		mailboxProperties: MailboxProperties,
-		responseTo: Mail | null,
+		mailboxProperties: tutanotaTypeRefs.MailboxProperties,
+		responseTo: tutanotaTypeRefs.Mail | null,
 	): Promise<CalendarEventModel | null> {
 		const [{ makeCalendarEventModel }, { getTimeZone }, { calendarNotificationSender }] = await Promise.all([
 			import("./calendar/gui/eventeditor-model/CalendarEventModel.js"),
@@ -369,8 +370,8 @@ class CalendarLocator implements CommonLocator {
 			calendarNotificationSender,
 			this.entityClient,
 			responseTo,
+			await this.calendarInviteHandler(),
 			getTimeZone(),
-			showProgress,
 		)
 	}
 
@@ -620,8 +621,8 @@ class CalendarLocator implements CommonLocator {
 		)
 		// Should be called elsewhere later e.g. in CommonLocator
 		this.logins.init()
-		this.eventController = new EventController(calendarLocator.logins)
 		this.progressTracker = new ProgressTracker()
+		this.eventController = new EventController(calendarLocator.logins, this.progressTracker)
 		this.syncTracker = new SyncTracker()
 		this.search = new CalendarSearchModel(() => this.calendarEventsRepository())
 		this.entityClient = new EntityClient(restInterface, this.typeModelResolver())
@@ -704,7 +705,7 @@ class CalendarLocator implements CommonLocator {
 				AppType.Calendar,
 			)
 
-			if (isElectronClient()) {
+			if (isDesktop() || env.mode === Mode.Admin) {
 				const desktopInterfaces = createDesktopInterfaces(this.native)
 				this.searchTextFacade = desktopInterfaces.searchTextFacade
 				this.interWindowEventSender = desktopInterfaces.interWindowEventSender
@@ -801,9 +802,10 @@ class CalendarLocator implements CommonLocator {
 			isApp() || isDesktop()
 				? new NativeThemeFacade(new LazyLoaded<ThemeFacade>(async () => calendarLocator.themeFacade))
 				: new WebThemeFacade(deviceConfig)
-		const lazySanitizer = isTest()
-			? () => Promise.resolve(sanitizerStub as HtmlSanitizer)
-			: () => import("../common/misc/HtmlSanitizer").then(({ getHtmlSanitizer }) => getHtmlSanitizer())
+		const lazySanitizer =
+			env.mode === Mode.Test
+				? () => Promise.resolve(sanitizerStub as HtmlSanitizer)
+				: () => import("../common/misc/HtmlSanitizer").then(({ getHtmlSanitizer }) => getHtmlSanitizer())
 
 		this.themeController = new ThemeController(theme, selectedThemeFacade, lazySanitizer, AppType.Calendar, this.whitelabelThemeGenerator)
 
@@ -847,6 +849,7 @@ class CalendarLocator implements CommonLocator {
 			this.mailboxModel,
 			this.calendarFacade,
 			this.fileController,
+			this.contactModel,
 			timeZone,
 			!isBrowser() ? this.externalCalendarFacade : null,
 			deviceConfig,
@@ -867,6 +870,20 @@ class CalendarLocator implements CommonLocator {
 		)
 	})
 
+	readonly calendarEventUpdateCoordinator: () => Promise<CalendarEventUpdateCoordinator> = lazyMemoized(async () => {
+		const { CalendarEventUpdateCoordinator } = await import("./calendar/model/CalendarEventUpdateCoordinator")
+		const calendarModel = await this.calendarModel()
+		const connectivityModel: WebsocketConnectivityModel = this.connectivityModel
+		return new CalendarEventUpdateCoordinator(
+			connectivityModel,
+			calendarModel,
+			this.eventController,
+			this.entityClient,
+			this.mailboxModel,
+			this.syncTracker,
+		)
+	})
+
 	private alarmScheduler: () => Promise<AlarmScheduler> = lazyMemoized(async () => {
 		const { AlarmScheduler } = await import("../common/calendar/date/AlarmScheduler")
 		const { DefaultDateProvider } = await import("../common/calendar/date/CalendarUtils")
@@ -880,7 +897,7 @@ class CalendarLocator implements CommonLocator {
 	}
 
 	async calendarEventPreviewModel(
-		selectedEvent: CalendarEvent,
+		selectedEvent: tutanotaTypeRefs.CalendarEvent,
 		calendars: ReadonlyMap<string, CalendarInfo>,
 		highlightedTokens: readonly SearchToken[],
 	): Promise<CalendarEventPreviewViewModel> {
@@ -893,9 +910,9 @@ class CalendarLocator implements CommonLocator {
 		const mailboxProperties = await this.mailboxModel.getMailboxProperties(mailboxDetails.mailboxGroupRoot)
 
 		const userController = this.logins.getUserController()
-		const customer = await userController.loadCustomer()
+		const customer = await userController.reloadCustomer()
 		const ownMailAddresses = getEnabledMailAddressesWithUser(mailboxDetails, userController.userGroupInfo)
-		const ownAttendee: CalendarEventAttendee | null = findAttendeeInAddresses(selectedEvent.attendees, ownMailAddresses)
+		const ownAttendee: tutanotaTypeRefs.CalendarEventAttendee | null = findAttendeeInAddresses(selectedEvent.attendees, ownMailAddresses)
 		const eventType = getEventType(selectedEvent, calendars, ownMailAddresses, userController)
 		const hasBusinessFeature = isCustomizationEnabledForCustomer(customer, FeatureType.BusinessFeatureEnabled) || (await userController.isNewPaidPlan())
 		const lazyIndexEntry = async () => (selectedEvent.uid != null ? this.calendarFacade.getEventsByUid(selectedEvent.uid) : null)
@@ -906,7 +923,9 @@ class CalendarLocator implements CommonLocator {
 			hasBusinessFeature,
 			ownAttendee,
 			lazyIndexEntry,
-			async (mode: CalendarOperation, event: CalendarEvent) => this.calendarEventModel(mode, event, mailboxDetails, mailboxProperties, null),
+			async (mode: CalendarOperation, event: tutanotaTypeRefs.CalendarEvent) =>
+				this.calendarEventModel(mode, event, mailboxDetails, mailboxProperties, null),
+			this.calendarInviteHandler,
 			highlightedTokens,
 		)
 
@@ -917,7 +936,11 @@ class CalendarLocator implements CommonLocator {
 		return popupModel
 	}
 
-	async calendarContactPreviewModel(event: CalendarEvent, contact: Contact, canEdit: boolean): Promise<CalendarContactPreviewViewModel> {
+	async calendarContactPreviewModel(
+		event: tutanotaTypeRefs.CalendarEvent,
+		contact: tutanotaTypeRefs.Contact,
+		canEdit: boolean,
+	): Promise<CalendarContactPreviewViewModel> {
 		const { CalendarContactPreviewViewModel } = await import("./calendar/gui/eventpopup/CalendarContactPreviewViewModel.js")
 		return new CalendarContactPreviewViewModel(event, contact, canEdit)
 	}

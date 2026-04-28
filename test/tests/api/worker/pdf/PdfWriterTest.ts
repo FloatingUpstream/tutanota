@@ -1,7 +1,7 @@
 import o from "@tutao/otest"
 import { PdfWriter } from "../../../../../src/common/api/worker/pdf/PdfWriter.js"
 import { PDF_DEFAULT_OBJECTS, PdfDictValue } from "../../../../../src/common/api/worker/pdf/PdfConstants.js"
-import { mapToObject } from "@tutao/tutanota-test-utils"
+import { mapToObject } from "@tutao/otest"
 import { PdfObject } from "../../../../../src/common/api/worker/pdf/PdfObject.js"
 
 o.spec("PdfWriter", function () {
@@ -25,8 +25,8 @@ o.spec("PdfWriter", function () {
 					["nonRef", "meow"],
 				]),
 			),
-		).equals("<< /ref 1 0 R /nonRef meow >>")
-		o(writer.pdfDictionaryToString(new Map<string, PdfDictValue>())).equals("<< >>")
+		).equals("<<\n/ref 1 0 R\n/nonRef meow\n>>\n")
+		o(writer.pdfDictionaryToString(new Map<string, PdfDictValue>())).equals("<<\n>>\n")
 	})
 
 	o("Resolve deeply nested object references correctly", function () {
@@ -56,8 +56,8 @@ o.spec("PdfWriter", function () {
 					["Foo", "Bar"],
 					["List", "[ One Two 1 0 R ]"],
 					["Ref", "2 0 R"],
-					["Map", "<< /NestedFoo NestedBar /NestedRef 3 0 R >>"],
-					["SuperEvilListWithANestedDictionary", "[ << /DeviousRef 4 0 R >> ]"],
+					["Map", "<<\n/NestedFoo NestedBar\n/NestedRef 3 0 R\n>>\n"],
+					["SuperEvilListWithANestedDictionary", "[ <<\n/DeviousRef 4 0 R\n>>\n ]"],
 				]),
 			),
 		)
@@ -96,6 +96,6 @@ o.spec("PdfWriter", function () {
 		o(() => writer.makeTrailer(now)).throws(Error)
 
 		writer.createObject(new Map(), "CATALOG")
-		o(writer.makeTrailer(now)).equals(`trailer\n<<\n/Size 2/Root 1 0 R/ID [(${now})(${now})]\n>>\nstartxref\n15\n%%EOF`)
+		o(writer.makeTrailer(now)).equals(`trailer\n<<\n/Size 2\n/Root 1 0 R\n/ID [<${now}> <${now}>]\n\n>>\nstartxref\n15\n%%EOF`)
 	})
 })

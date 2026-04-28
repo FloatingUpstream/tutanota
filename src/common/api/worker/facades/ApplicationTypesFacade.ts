@@ -1,29 +1,13 @@
-import { assertWorkerOrNode, isApp, isDesktop } from "../../common/Env.js"
-import { defer, DeferredObject } from "@tutao/tutanota-utils"
-import { ApplicationTypesHash, HttpMethod, MediaType, ServerModelInfo } from "../../common/EntityFunctions"
+import { assertWorkerOrNode, isApp, isDesktop } from "@tutao/app-env"
+import { defer, DeferredObject, stringToUtf8Uint8Array, uint8ArrayToBase64, uint8ArrayToString } from "@tutao/utils"
+import { ApplicationTypesHash, baseModelInfo, baseServices, baseTypes, getServiceRestPath, ServerModelInfo, ServiceDefinition } from "@tutao/typerefs"
 import { FileFacade } from "../../../native/common/generatedipc/FileFacade"
-import { stringToUtf8Uint8Array, uint8ArrayToBase64, uint8ArrayToString } from "@tutao/tutanota-utils"
-import { RestClient } from "../rest/RestClient"
-import { decompressString } from "../crypto/ModelMapper"
-import { sha256Hash } from "@tutao/tutanota-crypto"
-import { getServiceRestPath } from "../rest/ServiceExecutor"
-import { ApplicationTypesService } from "../../entities/base/Services"
-import { ServiceDefinition } from "../../common/ServiceRequest"
+import { HttpMethod, MediaType, RestClient } from "@tutao/rest-client"
+import { decompressString } from "@tutao/instance-pipeline"
+import { sha256Hash } from "@tutao/crypto"
 import { ServerModelsUnavailableError } from "../../common/error/ServerModelsUnavailableError"
-import ModelInfo from "../../entities/base/ModelInfo"
 
 assertWorkerOrNode()
-
-/**
- * Do **NOT** change the names of these attributes, they need to match the record found on the
- * server at ApplicationTypesService#ApplicationTypesGetOut. This is to make sure we can update the
- * format of the service output in the future. With general schema definitions this would not be
- * possible as schemas returned by this service are required to read the schemas themselves.
- */
-export type ApplicationTypesGetOut = {
-	applicationTypesHash: ApplicationTypesHash
-	applicationTypesJson: string
-}
 
 /**
  * Facade to call the ApplicationTypesService, ensuring that multiple
@@ -39,9 +23,10 @@ export class ApplicationTypesFacade {
 	public applicationTypesGetInTimeout = 1000
 
 	private lastInvoked = 0
-	private deferredRequests: Array<DeferredObject<ApplicationTypesGetOut>>
+	private deferredRequests: Array<DeferredObject<baseTypes.ApplicationTypesGetOut>>
 
-	private readonly persistenceFilePath: string = "server_type_models.json"
+	private readonly APPLICATION_TYPES_PATH: string = "server_type_models.json"
+	private readonly APPLICATION_TYPES_PATH_SDK: string = "server_type_models_sdk.json"
 
 	constructor(
 		private readonly restClient: RestClient,
@@ -51,13 +36,13 @@ export class ApplicationTypesFacade {
 		this.deferredRequests = []
 	}
 
-	private async requestApplicationTypes(): Promise<ApplicationTypesGetOut> {
+	private async requestApplicationTypes(): Promise<baseTypes.ApplicationTypesGetOut> {
 		const applicationTypesGetOutCompressed = await this.restClient.request(
-			getServiceRestPath(ApplicationTypesService as ServiceDefinition),
+			getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition),
 			HttpMethod.GET,
 			{
 				headers: {
-					v: String(ModelInfo.version),
+					v: String(baseModelInfo.version),
 				},
 				responseType: MediaType.Binary,
 			},
@@ -70,8 +55,8 @@ export class ApplicationTypesFacade {
 	 * hash of that type  model. `expectedHash === null` means that we did not receive one from the server yet, which
 	 * means the one from the FS is fine to use.
 	 */
-	public async getServerApplicationTypesJson(expectedHash: string | null): Promise<ApplicationTypesGetOut> {
-		let deferredObject: DeferredObject<ApplicationTypesGetOut> = defer()
+	public async getServerApplicationTypesJson(expectedHash: string | null): Promise<baseTypes.ApplicationTypesGetOut> {
+		let deferredObject: DeferredObject<baseTypes.ApplicationTypesGetOut> = defer()
 		this.deferredRequests.push(deferredObject)
 		const fileSystemModels = await this.loadStoredTypeModels()
 
@@ -103,7 +88,7 @@ export class ApplicationTypesFacade {
 		if (isDesktop() || isApp()) {
 			try {
 				const fileContent = stringToUtf8Uint8Array(newApplicationTypesJsonString)
-				await this.fileFacade.writeToAppDir(fileContent, this.persistenceFilePath)
+				await this.fileFacade.writeToAppDir(fileContent, this.APPLICATION_TYPES_PATH)
 			} catch (err_to_ignore) {
 				console.error(`Failed to persist server model: ${err_to_ignore}`)
 			}
@@ -112,13 +97,13 @@ export class ApplicationTypesFacade {
 
 	// In case we fail to read the application types from the stored json file,
 	// we will request it from the server eagerly.
-	private async loadStoredTypeModels(): Promise<ApplicationTypesGetOut | null> {
+	private async loadStoredTypeModels(): Promise<baseTypes.ApplicationTypesGetOut | null> {
 		// in the web app, we do not have a persistent server model,
 		// therefore we will load it from the server
 		// when the web app is started and store it in memory
 		if (isDesktop() || isApp()) {
 			try {
-				const applicationTypesJsonData = await this.fileFacade.readFromAppDir(this.persistenceFilePath)
+				const applicationTypesJsonData = await this.fileFacade.readFromAppDir(this.APPLICATION_TYPES_PATH)
 				const applicationTypesHash = this.computeApplicationTypesHash(applicationTypesJsonData)
 				console.log(`initializing server model from local json data. Hash: ${applicationTypesHash}`)
 				const applicationTypesJson = uint8ArrayToString("utf-8", applicationTypesJsonData)
@@ -141,7 +126,7 @@ export class ApplicationTypesFacade {
 		return this.serverModelInfo.getApplicationTypesHash()
 	}
 
-	private resolvePendingRequests(typesReturn: ApplicationTypesGetOut) {
+	private resolvePendingRequests(typesReturn: baseTypes.ApplicationTypesGetOut) {
 		const deferredRequests = this.deferredRequests.slice(0, this.deferredRequests.length)
 		this.deferredRequests = []
 
@@ -156,6 +141,13 @@ export class ApplicationTypesFacade {
 
 		for (let deferredRequest of deferredRequests) {
 			deferredRequest.reject(e)
+		}
+	}
+
+	async invalidateApplicationTypes() {
+		if (isDesktop() || isApp()) {
+			await this.fileFacade.deleteFromAppDir(this.APPLICATION_TYPES_PATH)
+			await this.fileFacade.deleteFromAppDir(this.APPLICATION_TYPES_PATH_SDK)
 		}
 	}
 }

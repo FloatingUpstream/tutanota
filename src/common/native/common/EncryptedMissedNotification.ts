@@ -1,14 +1,6 @@
-import { ServerModelUntypedInstance, TypeModel } from "../../api/common/EntityTypes"
-import {
-	AlarmNotificationTypeRef,
-	createNotificationSessionKey,
-	MissedNotificationTypeRef,
-	NotificationSessionKey,
-	NotificationSessionKeyTypeRef,
-} from "../../api/entities/sys/TypeRefs"
-import { AttributeModel } from "../../api/common/AttributeModel"
-import { Base64, base64ToUint8Array, Nullable } from "@tutao/tutanota-utils"
-import { ClientTypeModelResolver } from "../../api/common/EntityFunctions"
+import { AttributeModel, ClientTypeModelResolver, ServerModelUntypedInstance, TypeModel } from "@tutao/typerefs"
+import { Base64, base64ToUint8Array, Nullable } from "@tutao/utils"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export class EncryptedMissedNotification {
 	private constructor(
@@ -19,9 +11,9 @@ export class EncryptedMissedNotification {
 	) {}
 
 	public static async from(untypedInstance: ServerModelUntypedInstance, typeModelResolver: ClientTypeModelResolver): Promise<EncryptedMissedNotification> {
-		const missedNotificationTypeModel = await typeModelResolver.resolveClientTypeReference(MissedNotificationTypeRef)
-		const alarmNotificationTypeModel = await typeModelResolver.resolveClientTypeReference(AlarmNotificationTypeRef)
-		const notificationSessionKeyTypeModel = await typeModelResolver.resolveClientTypeReference(NotificationSessionKeyTypeRef)
+		const missedNotificationTypeModel = await typeModelResolver.resolveClientTypeReference(sysTypeRefs.MissedNotificationTypeRef)
+		const alarmNotificationTypeModel = await typeModelResolver.resolveClientTypeReference(sysTypeRefs.AlarmNotificationTypeRef)
+		const notificationSessionKeyTypeModel = await typeModelResolver.resolveClientTypeReference(sysTypeRefs.NotificationSessionKeyTypeRef)
 
 		const sanitizedUntypedInstance = await AttributeModel.removeNetworkDebuggingInfoIfNeeded<ServerModelUntypedInstance>(untypedInstance)
 
@@ -33,7 +25,7 @@ export class EncryptedMissedNotification {
 		)
 	}
 
-	getNotificationSessionKeys(): Array<NotificationSessionKey> {
+	getNotificationSessionKeys(): Array<sysTypeRefs.NotificationSessionKey> {
 		const alarmNotifications = AttributeModel.getAttribute<ServerModelUntypedInstance[]>(
 			this.notification,
 			"alarmNotifications",
@@ -48,7 +40,7 @@ export class EncryptedMissedNotification {
 			)
 			if (notificationSessionKeys.length > 0) {
 				return notificationSessionKeys.map((nsk) => {
-					return createNotificationSessionKey({
+					return sysTypeRefs.createNotificationSessionKey({
 						pushIdentifier: AttributeModel.getAttribute<IdTuple[]>(nsk, "pushIdentifier", this.notificationSessionKeyTypeModel)[0],
 						pushIdentifierSessionEncSessionKey: base64ToUint8Array(
 							AttributeModel.getAttribute<Base64>(nsk, "pushIdentifierSessionEncSessionKey", this.notificationSessionKeyTypeModel),

@@ -1,11 +1,10 @@
 import m from "mithril"
-import { MailSetKind } from "../../../common/api/common/TutanotaConstants.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
 import { assertSystemFolderOfType } from "../../mail/model/MailUtils.js"
-import { getElementId } from "../../../common/api/common/utils/EntityUtils.js"
+import { getElementId } from "@tutao/typerefs"
 import { LoginController } from "../../../common/api/main/LoginController.js"
 import { MailModel } from "../../mail/model/MailModel.js"
 import { MailboxModel } from "../../../common/mailFunctionality/MailboxModel.js"
+import { MailSetKind } from "@tutao/app-env"
 
 /**
  * Handles requests for opening mailbox paths from native.

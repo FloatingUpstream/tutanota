@@ -1,22 +1,17 @@
 import { KeyVerificationFacade } from "../../api/worker/facades/lazy/KeyVerificationFacade"
-import { assertNotNull, Hex } from "@tutao/tutanota-utils"
-import {
-	IdentityKeyQrVerificationResult,
-	IdentityKeySourceOfTrust,
-	IdentityKeyVerificationMethod,
-	PublicKeyIdentifierType,
-} from "../../api/common/TutanotaConstants"
+import { assertNotNull, Hex } from "@tutao/utils"
+import { IdentityKeySourceOfTrust, IdentityKeyVerificationMethod, PublicKeyIdentifierType } from "@tutao/app-env"
 import { MobileSystemFacade } from "../../native/common/generatedipc/MobileSystemFacade"
 import { KeyVerificationScanCompleteMetric, KeyVerificationUsageTestUtils } from "./KeyVerificationUsageTestUtils"
 import { KeyVerificationQrPayload } from "./KeyVerificationQrPayload"
 import { QRCode } from "jsqr"
 import { PermissionType } from "../../native/common/generatedipc/PermissionType"
 import { PublicIdentityKeyProvider } from "../../api/worker/facades/PublicIdentityKeyProvider"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import { getCleanedMailAddress } from "../../misc/parsing/MailAddressParser"
 import { TrustDBEntry } from "../../api/worker/facades/IdentityKeyTrustDatabase"
 import { DesktopSystemFacade } from "../../native/common/generatedipc/DesktopSystemFacade"
-import { isApp, isAppleDevice, isDesktop } from "../../api/common/Env"
+import { IdentityKeyQrVerificationResult, isApp, isAppleDevice, isDesktop } from "@tutao/app-env"
 
 export type PublicIdentity = {
 	fingerprint: Hex

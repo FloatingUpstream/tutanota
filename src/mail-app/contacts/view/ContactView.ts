@@ -4,26 +4,24 @@ import { ColumnType, ViewColumn } from "../../../common/gui/base/ViewColumn"
 import { AppHeaderAttrs, Header } from "../../../common/gui/Header.js"
 import { Button, ButtonColor, ButtonType } from "../../../common/gui/base/Button.js"
 import { ContactEditor } from "../ContactEditor"
-import { Contact, ContactTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { ContactListView } from "./ContactListView"
 import { lang, Translation, TranslationKey } from "../../../common/misc/LanguageViewModel"
-import { assertNotNull, clear, getFirstOrThrow, isEmpty, isNotEmpty, noOp, ofClass } from "@tutao/tutanota-utils"
-import { ContactMergeAction, Keys } from "../../../common/api/common/TutanotaConstants"
-import { assertMainOrNode, isApp } from "../../../common/api/common/Env"
+import { assertNotNull, clear, getFirstOrThrow, isEmpty, isNotEmpty, noOp, ofClass } from "@tutao/utils"
+import { assertMainOrNode, ContactMergeAction, isApp, Keys, UpgradePromptType } from "@tutao/app-env"
 import type { Shortcut } from "../../../common/misc/KeyManager"
 import { keyManager } from "../../../common/misc/KeyManager"
 import { Icons } from "../../../common/gui/base/icons/Icons"
 import { Dialog } from "../../../common/gui/base/Dialog"
-import { LockedError, NotFoundError } from "../../../common/api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { getContactSelectionMessage, MultiContactViewer } from "./MultiContactViewer"
-import { BootIcons } from "../../../common/gui/base/icons/BootIcons"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog"
 import { locator } from "../../../common/api/main/CommonLocator"
 import { ContactMergeView } from "./ContactMergeView"
 import { getMergeableContacts, mergeContacts } from "../ContactMergeUtils"
 import { exportContacts } from "../VCardExporter"
 import { styles } from "../../../common/gui/styles"
-import { layout_size, size } from "../../../common/gui/size"
+import { layout_size } from "../../../common/gui/size"
 import { FolderColumnView } from "../../../common/gui/FolderColumnView.js"
 import { getGroupInfoDisplayName } from "../../../common/api/common/utils/GroupUtils"
 import { SidebarSection, SidebarSectionAttrs } from "../../../common/gui/SidebarSection"
@@ -65,11 +63,11 @@ import { mailLocator } from "../../mailLocator.js"
 import { BottomNav } from "../../gui/BottomNav.js"
 import { SidebarSectionRow, SidebarSectionRowAttrs } from "../../../common/gui/base/SidebarSectionRow"
 import { client } from "../../../common/misc/ClientDetector"
-import type { ReceivedGroupInvitation } from "../../../common/api/entities/sys/TypeRefs"
 import { GroupNameData } from "../../../common/sharing/model/GroupSettingsModel"
 
 assertMainOrNode()
 
+type Contact = tutanotaTypeRefs.Contact
 export interface ContactViewAttrs extends TopLevelAttrs {
 	drawerAttrs: DrawerMenuAttrs
 	header: AppHeaderAttrs
@@ -261,7 +259,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 			if (recipients && recipients.length > 0 && this.canEditSelectedContactList()) {
 				return m(IconButton, {
 					title: "delete_action",
-					icon: Icons.Trash,
+					icon: Icons.TrashFilled,
 					click: () => this.contactListViewModel.deleteContactListEntries(recipients),
 				})
 			}
@@ -316,7 +314,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 									actions: this.canEditSelectedContactList()
 										? [
 												{
-													icon: Icons.Trash,
+													icon: Icons.TrashFilled,
 													title: "delete_action",
 													action: () => this.contactListViewModel.deleteSelectedEntries(),
 												},
@@ -326,12 +324,12 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 							: m(MobileActionBar, {
 									actions: [
 										{
-											icon: Icons.Edit,
+											icon: Icons.PenFilled,
 											title: "edit_action",
 											action: () => this.editSelectedContact(),
 										},
 										{
-											icon: Icons.Trash,
+											icon: Icons.TrashFilled,
 											title: "delete_action",
 											action: () => this.deleteSelectedContacts(),
 										},
@@ -389,7 +387,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 		return m(IconButton, {
 			title: "newContact_action",
 			click: () => this.createNewContact(),
-			icon: Icons.Add,
+			icon: Icons.Plus,
 		})
 	}
 
@@ -398,7 +396,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 			return m(IconButton, {
 				title: "addEntries_action",
 				click: () => this.addAddressesToContactList(),
-				icon: Icons.Add,
+				icon: Icons.Plus,
 			})
 		} else {
 			return null
@@ -411,7 +409,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 			return this.contactListViewModel.listModel == null || this.showingListView()
 				? m(ColumnEmptyMessageBox, {
 						message: getContactListEntriesSelectionMessage(entries),
-						icon: Icons.People,
+						icon: Icons.PeopleFilled,
 						color: theme.on_surface_variant,
 						bottomContent:
 							entries.length > 0
@@ -495,7 +493,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 	private renderSidebarElements(): Children {
 		return [
 			m(SidebarSectionRow, {
-				icon: BootIcons.Contacts,
+				icon: Icons.PeopleFilled,
 				label: "all_contacts_label",
 				path: `/contact`,
 				onClick: () => this.viewSlider.focus(this.listColumn),
@@ -507,7 +505,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 				{
 					name: "contactLists_label",
 					button: m(IconButton, {
-						icon: Icons.Add,
+						icon: Icons.Plus,
 						size: ButtonSize.Compact,
 						title: "addContactList_action",
 						click: () => {
@@ -539,7 +537,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 		]
 	}
 
-	updateContactListInvitationsSection(receivedInvitations: ReceivedGroupInvitation[]) {
+	updateContactListInvitationsSection(receivedInvitations: sysTypeRefs.ReceivedGroupInvitation[]) {
 		if (isEmpty(receivedInvitations)) {
 			this.contactListInvitationSection = null
 		} else {
@@ -579,14 +577,14 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 							{
 								label: "importContacts_label",
 								click: () => importContacts(),
-								icon: Icons.ContactImport,
+								icon: Icons.PersonAddFilled,
 							},
 						]
 					: [
 							{
 								label: "exportVCard_action",
 								click: () => exportAsVCard(locator.contactModel),
-								icon: Icons.Export,
+								icon: Icons.CloudDownloadFilled,
 							},
 						]
 
@@ -594,11 +592,11 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 					{
 						label: "importVCard_action",
 						click: () => importAsVCard(),
-						icon: Icons.ContactImport,
+						icon: Icons.PersonAddFilled,
 					},
 					{
 						label: "merge_action",
-						icon: Icons.People,
+						icon: Icons.PeopleFilled,
 						click: () => this._mergeAction(),
 					},
 				])
@@ -611,7 +609,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 		const moreButton = this.createContactListMoreButton(contactListInfo)
 
 		return m(SidebarSectionRow, {
-			icon: Icons.People,
+			icon: Icons.PeopleFilled,
 			label: lang.makeTranslation("contactlist_name", contactListInfo.name),
 			path: `${CONTACTLIST_PREFIX}/${contactListInfo.groupRoot.entries}`,
 			onClick: () => {
@@ -635,7 +633,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 				return [
 					{
 						label: "edit_action",
-						icon: Icons.Edit,
+						icon: Icons.PenFilled,
 						click: async () => {
 							showContactListNameEditor(
 								await this.contactListViewModel.getContactListNewNameData(contactListInfo.groupInfo),
@@ -647,7 +645,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 					},
 					{
 						label: "sharing_label",
-						icon: Icons.ContactImport,
+						icon: Icons.PersonAddFilled,
 						click: async () => {
 							const { showGroupSharingDialog } = await import("../../../common/sharing/view/GroupSharingDialog.js")
 							showGroupSharingDialog(contactListInfo.groupInfo, true)
@@ -656,7 +654,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 					contactListInfo.isOwner
 						? {
 								label: "delete_action",
-								icon: Icons.Trash,
+								icon: Icons.TrashFilled,
 								click: async () => {
 									if (await Dialog.confirm("confirmDeleteContactList_msg")) {
 										this.contactListViewModel.deleteContactList(contactListInfo)
@@ -665,7 +663,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 							}
 						: {
 								label: "leaveGroup_action",
-								icon: Icons.Trash,
+								icon: Icons.TrashFilled,
 								click: async () => {
 									if (
 										await Dialog.confirm(
@@ -688,7 +686,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 		return showProgressDialog(
 			"pleaseWait_msg",
 			locator.contactModel.getContactListId().then((contactListId) => {
-				return contactListId ? locator.entityClient.loadAll(ContactTypeRef, contactListId) : []
+				return contactListId ? locator.entityClient.loadAll(tutanotaTypeRefs.ContactTypeRef, contactListId) : []
 			}),
 		).then((allContacts) => {
 			if (allContacts.length === 0) {
@@ -751,7 +749,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 						return showProgressDialog(
 							"pleaseWait_msg",
 							locator.entityClient.update(contact1).then(() => locator.entityClient.erase(contact2)),
-						).catch(ofClass(NotFoundError, noOp))
+						).catch(ofClass(restError.NotFoundError, noOp))
 					} else if (action === ContactMergeAction.DeleteFirst) {
 						this._removeFromMergableContacts(mergable, contact1)
 
@@ -850,7 +848,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 				this.canEditSelectedContactList()
 					? m(IconButton, {
 							title: "addEntries_action",
-							icon: Icons.Add,
+							icon: Icons.Plus,
 							click: () => {
 								this.addAddressesToContactList()
 							},
@@ -878,7 +876,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 	private renderSortByButton() {
 		return m(IconButton, {
 			title: "sortBy_label",
-			icon: Icons.ListOrdered,
+			icon: Icons.OrderedList,
 			click: (e: MouseEvent, dom: HTMLElement) => {
 				createDropdown({
 					lazyButtons: () => [
@@ -909,7 +907,7 @@ export class ContactView extends BaseTopLevelView implements TopLevelView<Contac
 			if (locator.logins.getUserController().isGlobalAdmin()) {
 				const { getAvailablePlansWithContactList } = await import("../../../common/subscription/utils/SubscriptionUtils.js")
 				const plans = await getAvailablePlansWithContactList()
-				await showPlanUpgradeRequiredDialog(plans)
+				await showPlanUpgradeRequiredDialog(UpgradePromptType.CONTACT_LISTS, plans)
 			} else {
 				Dialog.message("contactAdmin_msg")
 			}
@@ -935,7 +933,7 @@ export function deleteContacts(contactList: Contact[], onConfirm: () => void = n
 		if (confirmed) {
 			onConfirm()
 			for (const contact of contactList) {
-				locator.entityClient.erase(contact).catch(ofClass(NotFoundError, noOp)).catch(ofClass(LockedError, noOp))
+				locator.entityClient.erase(contact).catch(ofClass(restError.NotFoundError, noOp)).catch(ofClass(restError.LockedError, noOp))
 			}
 		}
 	})
@@ -949,7 +947,7 @@ export function confirmMerge(keptContact: Contact, goodbyeContact: Contact): Pro
 				return showProgressDialog(
 					"pleaseWait_msg",
 					locator.entityClient.update(keptContact).then(() => locator.entityClient.erase(goodbyeContact)),
-				).catch(ofClass(NotFoundError, noOp))
+				).catch(ofClass(restError.NotFoundError, noOp))
 			}
 		})
 	} else {

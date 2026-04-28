@@ -1,20 +1,18 @@
 import m, { Children } from "mithril"
-import type { lazy } from "@tutao/tutanota-utils"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
+import { assertNotNull } from "@tutao/utils"
 import { TextField } from "../../common/gui/base/TextField.js"
 import { Icons } from "../../common/gui/base/icons/Icons"
 import { getLanguageCode } from "./TemplateEditorModel"
 import { showTemplateEditor } from "./TemplateEditor"
 import { Dialog } from "../../common/gui/base/Dialog"
 import { lang, languageByCode, TranslationKey } from "../../common/misc/LanguageViewModel"
-import type { EmailTemplate } from "../../common/api/entities/tutanota/TypeRefs.js"
-import { TemplateGroupRootTypeRef } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { entityUpdateUtils, tutanotaTypeRefs } from "@tutao/typerefs"
 import { locator } from "../../common/api/main/CommonLocator"
 import { EntityClient } from "../../common/api/common/EntityClient"
 import { TEMPLATE_SHORTCUT_PREFIX } from "../templates/model/TemplatePopupModel"
 import { ActionBar } from "../../common/gui/base/ActionBar.js"
 import { getHtmlSanitizer } from "../../common/misc/HtmlSanitizer.js"
-import { EntityUpdateData } from "../../common/api/common/utils/EntityUpdateUtils.js"
 import { UpdatableSettingsDetailsViewer } from "../../common/settings/Interfaces.js"
 
 export class TemplateDetailsViewer implements UpdatableSettingsDetailsViewer {
@@ -23,7 +21,7 @@ export class TemplateDetailsViewer implements UpdatableSettingsDetailsViewer {
 	private readonly sanitizedContents: Array<{ text: string; languageCodeTextId: TranslationKey }>
 
 	constructor(
-		private readonly template: EmailTemplate,
+		private readonly template: tutanotaTypeRefs.EmailTemplate,
 		private readonly entityClient: EntityClient,
 		readonly isReadOnly: lazy<boolean>,
 	) {
@@ -49,12 +47,12 @@ export class TemplateDetailsViewer implements UpdatableSettingsDetailsViewer {
 						buttons: [
 							{
 								title: "edit_action",
-								icon: Icons.Edit,
+								icon: Icons.PenFilled,
 								click: () => this.editTemplate(),
 							},
 							{
 								title: "remove_action",
-								icon: Icons.Trash,
+								icon: Icons.TrashFilled,
 								click: () => this.deleteTemplate(),
 							},
 						],
@@ -83,11 +81,14 @@ export class TemplateDetailsViewer implements UpdatableSettingsDetailsViewer {
 
 	private async editTemplate() {
 		const { template } = this
-		const groupRoot = await locator.entityClient.load(TemplateGroupRootTypeRef, assertNotNull(template._ownerGroup, "template without ownerGroup!"))
+		const groupRoot = await locator.entityClient.load(
+			tutanotaTypeRefs.TemplateGroupRootTypeRef,
+			assertNotNull(template._ownerGroup, "template without ownerGroup!"),
+		)
 		showTemplateEditor(template, groupRoot)
 	}
 
-	entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		return Promise.resolve()
 	}
 }

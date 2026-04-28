@@ -6,8 +6,7 @@ import { LabelsPopupOpts, ShowMoveMailsDropdownOpts } from "./MailGuiUtils.js"
 import { modal } from "../../../common/gui/base/Modal.js"
 import type { MailViewerMoreActions } from "./MailViewerUtils.js"
 import { multipleMailViewerMoreActions } from "./MailViewerUtils.js"
-import { component_size, px, size } from "../../../common/gui/size.js"
-import { noOp } from "@tutao/tutanota-utils"
+import { component_size, px } from "../../../common/gui/size.js"
 
 export interface MobileMailActionBarAttrs {
 	deleteMailsAction: (() => void) | null
@@ -23,6 +22,7 @@ export interface MobileMailActionBarAttrs {
 	forwardAction: (() => void) | null
 	mailViewerMoreActions: MailViewerMoreActions | null
 	unscheduleMailAction: (() => void) | null
+	reportNotSpamAction: (() => void) | null
 }
 
 export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> {
@@ -31,6 +31,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 	view(vnode: Vnode<MobileMailActionBarAttrs>): Children {
 		const { attrs } = vnode
 
+		const isReportNotSpamButton = this.reportNotSpamButton(attrs) != null
 		return m(
 			".bottom-nav.bottom-action-bar.flex.items-center.plr-24.justify-between",
 			{
@@ -39,8 +40,8 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 				},
 			},
 			[
-				this.unscheduleButton(attrs) ?? this.editButton(attrs) ?? this.replyButton(attrs) ?? this.placeholder(),
-				this.forwardButton(attrs) ?? this.placeholder(),
+				this.reportNotSpamButton(attrs) ?? this.unscheduleButton(attrs) ?? this.editButton(attrs) ?? this.replyButton(attrs) ?? this.placeholder(),
+				isReportNotSpamButton ? this.placeholder() : (this.forwardButton(attrs) ?? this.placeholder()),
 				this.deleteButton(attrs) ?? this.trashButton(attrs) ?? this.placeholder(),
 				this.moveButton(attrs) ?? this.placeholder(),
 				this.moreButton(attrs),
@@ -56,6 +57,17 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 		})
 	}
 
+	private reportNotSpamButton({ reportNotSpamAction }: MobileMailActionBarAttrs) {
+		return (
+			reportNotSpamAction &&
+			m(IconButton, {
+				title: "reportNotSpam_action",
+				click: reportNotSpamAction,
+				icon: Icons.BugCrossedFilled,
+			})
+		)
+	}
+
 	private moveButton({ moveMailsAction }: MobileMailActionBarAttrs) {
 		return (
 			moveMailsAction &&
@@ -66,7 +78,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 						width: this.dropdownWidth(),
 						withBackground: true,
 					}),
-				icon: Icons.Folder,
+				icon: Icons.FolderFilled,
 			})
 		)
 	}
@@ -75,7 +87,14 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 		return this.dom?.offsetWidth ? this.dom.offsetWidth - DROPDOWN_MARGIN * 2 : undefined
 	}
 
-	private moreButton({ exportAction, applyLabelsAction, setUnreadStateAction, isUnread, mailViewerMoreActions }: MobileMailActionBarAttrs) {
+	private moreButton({
+		exportAction,
+		applyLabelsAction,
+		setUnreadStateAction,
+		isUnread,
+		mailViewerMoreActions,
+		reportNotSpamAction,
+	}: MobileMailActionBarAttrs) {
 		return m(IconButton, {
 			title: "more_label",
 			click: createDropdown({
@@ -91,19 +110,19 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 									origin: referenceDom.getBoundingClientRect(),
 								})
 							},
-							icon: Icons.Label,
+							icon: Icons.LabelFilled,
 						})
 					}
 					if (setUnreadStateAction != null) {
 						const readButton: DropdownButtonAttrs = {
 							label: "markRead_action",
 							click: () => setUnreadStateAction(false),
-							icon: Icons.Eye,
+							icon: Icons.EyeFilled,
 						}
 						const unreadButton: DropdownButtonAttrs = {
 							label: "markUnread_action",
 							click: () => setUnreadStateAction(true),
-							icon: Icons.NoEye,
+							icon: Icons.EyeCrossedFilled,
 						}
 
 						// isUnread means we are viewing one mail; otherwise, it is coming from a MultiViewer
@@ -117,6 +136,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 							moreButtons.push(readButton, unreadButton)
 						}
 					}
+
 					return [...moreButtons, ...multipleMailViewerMoreActions(exportAction, mailViewerMoreActions)]
 				},
 				width: this.dropdownWidth(),
@@ -132,7 +152,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 			m(IconButton, {
 				title: "delete_action",
 				click: deleteMailsAction,
-				icon: Icons.DeleteForever,
+				icon: Icons.TrashCrossFilled,
 			})
 		)
 	}
@@ -143,7 +163,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 			m(IconButton, {
 				title: "trash_action",
 				click: trashMailsAction,
-				icon: Icons.Trash,
+				icon: Icons.TrashFilled,
 			})
 		)
 	}
@@ -154,7 +174,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 			m(IconButton, {
 				title: "forward_action",
 				click: forwardAction,
-				icon: Icons.Forward,
+				icon: Icons.ArrowForwardFilled,
 			})
 		)
 	}
@@ -171,12 +191,12 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 									() => [
 										{
 											label: "replyAll_action",
-											icon: Icons.ReplyAll,
+											icon: Icons.DoubleArrowBackFilled,
 											click: replyAllAction,
 										},
 										{
 											label: "reply_action",
-											icon: Icons.Reply,
+											icon: Icons.ArrowBackFilled,
 											click: replyAction,
 										},
 									],
@@ -188,7 +208,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 								modal.displayUnique(dropdown, true)
 							}
 						: replyAction,
-				icon: replyAllAction != null ? Icons.ReplyAll : Icons.Reply,
+				icon: replyAllAction != null ? Icons.DoubleArrowBackFilled : Icons.ArrowBackFilled,
 			})
 		)
 	}
@@ -198,7 +218,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 			editDraftAction &&
 			m(IconButton, {
 				title: "edit_action",
-				icon: Icons.Edit,
+				icon: Icons.PenFilled,
 				click: editDraftAction,
 			})
 		)
@@ -209,7 +229,7 @@ export class MobileMailActionBar implements Component<MobileMailActionBarAttrs> 
 			unscheduleMailAction &&
 			m(IconButton, {
 				title: "cancelSend_action",
-				icon: Icons.XCross,
+				icon: Icons.X,
 				click: unscheduleMailAction,
 			})
 		)

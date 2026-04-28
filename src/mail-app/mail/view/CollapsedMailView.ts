@@ -5,7 +5,7 @@ import { theme } from "../../../common/gui/theme.js"
 import { AllIcons, Icon } from "../../../common/gui/base/Icon.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { responsiveCardHPadding } from "../../../common/gui/cards.js"
-import { Keys, TabIndex } from "../../../common/api/common/TutanotaConstants.js"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { isKeyPressed } from "../../../common/misc/KeyManager.js"
 import { lang } from "../../../common/misc/LanguageViewModel.js"
 import { getMailAddressDisplayText } from "../../../common/mailFunctionality/SharedMailUtils.js"
@@ -43,11 +43,11 @@ export class CollapsedMailView implements Component<CollapsedMailViewAttrs> {
 			},
 			[
 				viewModel.isUnread() ? this.renderUnreadDot() : null,
-				viewModel.isScheduled() ? m(".flex.mr-4", this.renderIcon(Icons.ScheduleMail, lang.getTranslationText("scheduled_label"))) : null,
-				viewModel.isEditableDraft() ? m(".flex.mr-4", this.renderIcon(Icons.Edit, lang.getTranslationText("draft_label"))) : null,
+				viewModel.isScheduled() ? m(".flex.mr-4", this.renderIcon(Icons.SendlaterFilled, lang.getTranslationText("scheduled_label"))) : null,
+				viewModel.isEditableDraft() ? m(".flex.mr-4", this.renderIcon(Icons.PenFilled, lang.getTranslationText("draft_label"))) : null,
 				this.renderSender(viewModel),
 				m(".flex.ml-between-4.items-center", [
-					mail.attachments.length > 0 ? this.renderIcon(Icons.Attachment, lang.get("attachment_label")) : null,
+					mail.attachments.length > 0 ? this.renderIcon(Icons.Paperclip, lang.get("attachment_label")) : null,
 					viewModel.isConfidential() ? this.renderIcon(getConfidentialIcon(mail), lang.get("confidential_label")) : null,
 					this.renderIcon(getFolderIconByType(folderInfo.folderType), folderInfo.name),
 					m(".small.font-weight-600", dateTime),

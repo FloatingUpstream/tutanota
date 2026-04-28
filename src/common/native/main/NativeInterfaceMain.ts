@@ -1,14 +1,15 @@
-import { assertMainOrNode, isAndroidApp, isElectronClient, isIOSApp } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import type { Transport } from "../../api/common/threading/Transport.js"
 import { MessageDispatcher, Request } from "../../api/common/threading/MessageDispatcher.js"
-import type { DeferredObject } from "@tutao/tutanota-utils"
-import { defer } from "@tutao/tutanota-utils"
+import type { DeferredObject } from "@tutao/utils"
+import { defer } from "@tutao/utils"
 import type { NativeInterface } from "../common/NativeInterface"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import { IosNativeTransport } from "./IosNativeTransport.js"
 import { AndroidNativeTransport } from "./AndroidNativeTransport.js"
 import { DesktopNativeTransport } from "./DesktopNativeTransport.js"
 import { WebGlobalDispatcher } from "../common/generatedipc/WebGlobalDispatcher.js"
+import { isAndroidApp, isDesktop, isIOSApp, Mode } from "@tutao/app-env"
 
 assertMainOrNode()
 
@@ -28,7 +29,7 @@ export class NativeInterfaceMain implements NativeInterface {
 			transport = androidTransport
 		} else if (isIOSApp()) {
 			transport = new IosNativeTransport(window)
-		} else if (isElectronClient()) {
+		} else if (isDesktop() || env.mode === Mode.Admin) {
 			transport = new DesktopNativeTransport(window.nativeApp)
 		} else {
 			throw new ProgrammingError("Tried to create a native interface in the browser")

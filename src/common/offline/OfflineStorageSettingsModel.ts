@@ -1,9 +1,9 @@
-import { assert, DAY_IN_MILLIS, getDayShifted, getStartOfDay } from "@tutao/tutanota-utils"
-import { OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS } from "../api/common/TutanotaConstants"
+import { assert, getDayShifted, getStartOfDay } from "@tutao/utils"
 import { UserController } from "../api/main/UserController"
 import { DeviceConfig } from "../misc/DeviceConfig"
-import { isOfflineStorageAvailable } from "../api/common/Env"
 import { getStartOfTheWeekOffsetForUser } from "../misc/weekOffset"
+import { DAY_IN_MILLIS, isBrowser, Mode } from "@tutao/app-env"
+import { getOfflineStorageDefaultTimeRangeDays } from "@tutao/typerefs"
 
 /**
  * A model for handling offline storage configuration
@@ -15,18 +15,21 @@ export class OfflineStorageSettingsModel {
 	private isEnabled: boolean | null = null
 
 	// the default value will never actually be used
-	private defaultTimeRange: Date = getStartOfDay(getDayShifted(new Date(), -OFFLINE_STORAGE_DEFAULT_TIME_RANGE_DAYS))
-	private timeRange: Date = new Date(this.defaultTimeRange.getTime())
+	private defaultTimeRange: Date
+	private timeRange: Date
 
 	// Native interfaces are lazy to allow us to unconditionally construct the SettingsModel
 	// If we are not in a native context, then they should never be accessed
 	constructor(
 		private readonly userController: UserController,
 		private readonly deviceConfig: DeviceConfig,
-	) {}
+	) {
+		this.defaultTimeRange = getStartOfDay(getDayShifted(new Date(), -getOfflineStorageDefaultTimeRangeDays(this.userController.getUserAccountType())))
+		this.timeRange = new Date(this.defaultTimeRange.getTime())
+	}
 
 	async init(): Promise<void> {
-		this.isEnabled = isOfflineStorageAvailable()
+		this.isEnabled = !isBrowser() && !(env.mode === Mode.Admin)
 
 		if (this.isEnabled) {
 			const stored = this.deviceConfig.getOfflineTimeRangeDate(this.userController.userId)
@@ -39,7 +42,7 @@ export class OfflineStorageSettingsModel {
 	}
 
 	available(): boolean {
-		return this.isInitialized && isOfflineStorageAvailable() && !!this.isEnabled
+		return this.isInitialized && !isBrowser() && !(env.mode === Mode.Admin) && !!this.isEnabled
 	}
 
 	private assertAvailable() {

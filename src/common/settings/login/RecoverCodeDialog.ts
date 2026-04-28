@@ -1,16 +1,14 @@
 import type { QRCode } from "jsqr"
 import { InfoLink, lang, TranslationKey } from "../../misc/LanguageViewModel.js"
 import { Dialog, DialogType } from "../../gui/base/Dialog.js"
-import { assertNotNull, Hex, newPromise, noOp, ofClass } from "@tutao/tutanota-utils"
+import { assertNotNull, Hex, newPromise, noOp, ofClass } from "@tutao/utils"
 import m, { Child, Children, Component, Vnode } from "mithril"
-import { assertMainOrNode, isApp } from "../../api/common/Env.js"
+import { assertMainOrNode, GroupType, isApp } from "@tutao/app-env"
 import { copyToClipboard } from "../../misc/ClipboardUtils.js"
-import { AccessBlockedError, NotAuthenticatedError } from "../../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { locator } from "../../api/main/CommonLocator.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
-import { User } from "../../api/entities/sys/TypeRefs.js"
-import { getEtId, isSameId } from "../../api/common/utils/EntityUtils.js"
-import { GroupType } from "../../api/common/TutanotaConstants.js"
+import { getEtId, isSameId, sysTypeRefs } from "@tutao/typerefs"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { IconButton } from "../../gui/base/IconButton.js"
 import { QrCodeScanner, QrCodeScannerErrorType } from "../../gui/QrCodeScanner.js"
@@ -19,12 +17,13 @@ import { MoreInfoLink } from "../../misc/news/MoreInfoLink.js"
 import { showRequestPasswordDialog } from "../../misc/passwords/PasswordRequestDialog.js"
 import { MonospaceTextDisplay } from "../../gui/base/MonospaceTextDisplay"
 import { getCleanedMailAddress } from "../../misc/parsing/MailAddressParser"
-import { BootIcons } from "../../gui/base/icons/BootIcons"
+import { RecoverCodeDisplay } from "../../subscription/RecoverCodeDisplay"
+import { getDefaultSenderFromUser } from "../../mailFunctionality/SharedMailUtils"
 
 type Action = "get" | "create"
 assertMainOrNode()
 
-export function showRecoverCodeDialogAfterPasswordVerificationAndInfoDialog(user: User) {
+export function showRecoverCodeDialogAfterPasswordVerificationAndInfoDialog(user: sysTypeRefs.User) {
 	// We only show the recovery code if it is for the current user and it is a global admin
 	if (!isSameId(getEtId(locator.logins.getUserController().user), getEtId(user)) || !user.memberships.some((gm) => gm.groupType === GroupType.Admin)) {
 		return
@@ -38,24 +37,24 @@ export function showRecoverCodeDialogAfterPasswordVerificationAndInfoDialog(user
 		allowOkWithReturn: true,
 		okAction: (dialog: Dialog) => {
 			dialog.close()
-			showRecoverCodeDialogAfterPasswordVerification(isRecoverCodeAvailable ? "get" : "create", false)
+			showRecoverCodeDialogAfterPasswordVerification(isRecoverCodeAvailable ? "get" : "create")
 		},
 		okActionTextId: isRecoverCodeAvailable ? "show_action" : "setUp_action",
 	})
 }
 
-export function showRecoverCodeDialogAfterPasswordVerification(action: Action, showMessage: boolean = true) {
+export function showRecoverCodeDialogAfterPasswordVerification(action: Action) {
 	const recoverCodeFacade = locator.recoverCodeFacade
 	const dialog = showRequestPasswordDialog({
 		action: (pw) => {
 			return (action === "get" ? recoverCodeFacade.getRecoverCodeHex(pw) : recoverCodeFacade.createRecoveryCode(pw))
 				.then((recoverCode) => {
 					dialog.close()
-					showRecoverCodeDialog(recoverCode, showMessage)
+					showRecoverCodeDialog(recoverCode)
 					return ""
 				})
-				.catch(ofClass(NotAuthenticatedError, () => lang.get("invalidPassword_msg")))
-				.catch(ofClass(AccessBlockedError, () => lang.get("tooManyAttempts_msg")))
+				.catch(ofClass(restError.NotAuthenticatedError, () => lang.get("invalidPassword_msg")))
+				.catch(ofClass(restError.TooManyRequestsError, () => lang.get("tooManyAttempts_msg")))
 		},
 		cancel: {
 			textId: "cancel_action",
@@ -64,17 +63,20 @@ export function showRecoverCodeDialogAfterPasswordVerification(action: Action, s
 	})
 }
 
-export function showRecoverCodeDialog(recoverCode: Hex, showMessage: boolean): Promise<void> {
+export function showRecoverCodeDialog(recoverCode: Hex): Promise<void> {
 	return newPromise((resolve) => {
 		Dialog.showActionDialog({
 			title: "recoveryCode_label",
 			child: {
-				view: () => {
-					return m(RecoverCodeField, {
-						showMessage,
+				view: () => [
+					m(".pt-16.pb-16", [lang.get("recoveryCode_msg"), m("", [m(MoreInfoLink, { link: InfoLink.RecoverCode, isSmall: true })])]),
+					m(RecoverCodeDisplay, {
+						column: true,
 						recoverCode,
-					})
-				},
+						mailAddress: getDefaultSenderFromUser(locator.logins.getUserController()),
+						monoSpaceFontSize: 16,
+					}),
+				],
 			},
 			allowCancel: false,
 			allowOkWithReturn: true,
@@ -126,14 +128,14 @@ export class RecoverCodeField {
 				? m(".flex.flex-end.mt-12", [
 						m(IconButton, {
 							title: "copy_action",
-							icon: Icons.Clipboard,
+							icon: Icons.ClipboardFilled,
 							click: () => copyToClipboard(splitRecoverCode),
 						}),
 						isApp() || typeof window.print !== "function"
 							? null
 							: m(IconButton, {
 									title: "print_action",
-									icon: Icons.Print,
+									icon: Icons.PrinterFilled,
 									click: () => window.print(),
 								}),
 					])
@@ -173,7 +175,9 @@ function parseRecoverCodeQrPayload(data: string): RecoverCodeQrPayload {
 				return { recoveryCode: trimmed, mailAddress: cleanedMailAddress }
 			}
 		}
-	} catch {}
+	} catch {
+		/* empty */
+	}
 
 	return { recoveryCode: trimmed }
 }
@@ -202,7 +206,7 @@ export class RecoverCodeInput implements Component<RecoverCodeInputAttrs> {
 				".mt-8",
 				m(LoginButton, {
 					label: this.isScanning ? "cancel_action" : "keyManagement.qrCode_label",
-					icon: this.isScanning ? Icons.Close : BootIcons.QRCodeOutline,
+					icon: this.isScanning ? Icons.X : Icons.QRCodeSimple,
 					onclick: () => {
 						this.isScanning = !this.isScanning
 					},

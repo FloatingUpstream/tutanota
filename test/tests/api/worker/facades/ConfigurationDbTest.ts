@@ -7,24 +7,23 @@ import {
 	loadEncryptionMetadata,
 	updateEncryptionMetadata,
 } from "../../../../../src/common/api/worker/facades/lazy/ConfigurationDatabase.js"
-import { downcast, KeyVersion } from "@tutao/tutanota-utils"
+import { downcast, KeyVersion } from "@tutao/utils"
 import { DbStub } from "../search/DbStub.js"
-import { ExternalImageRule, NewsletterBannerRule } from "../../../../../src/common/api/common/TutanotaConstants.js"
-import { UserTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
-import { aes256RandomKey, aesDecrypt, aesEncrypt, AesKey, bitArrayToUint8Array, encryptKey, IV_BYTE_LENGTH, random } from "@tutao/tutanota-crypto"
+import { ExternalImageRule, NewsletterBannerRule } from "../../../../../src/app-env"
+import { aes256RandomKey, aesEncrypt, AesKey, decryptKey, encryptKey, IV_BYTE_LENGTH, random, VersionedKey } from "@tutao/crypto"
 import { createTestEntity } from "../../../TestUtils.js"
 import { KeyLoaderFacade } from "../../../../../src/common/api/worker/facades/KeyLoaderFacade.js"
 import { matchers, object, verify, when } from "testdouble"
 import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade.js"
 import { DbFacade, DbTransaction } from "../../../../../src/common/api/worker/search/DbFacade.js"
 import { Metadata } from "../../../../../src/common/api/worker/search/IndexTables.js"
-
-import { VersionedKey } from "../../../../../src/common/api/worker/crypto/CryptoWrapper.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 o.spec("ConfigurationDbTest", function () {
 	let keyLoaderFacade: KeyLoaderFacade
 
-	o.beforeEach(function () {
+	o.beforeEach(async function () {
+		await random.addEntropy([{ data: 36, entropy: 256, source: "key" }])
 		keyLoaderFacade = object()
 	})
 
@@ -38,7 +37,7 @@ o.spec("ConfigurationDbTest", function () {
 		const iv = random.generateRandomData(IV_BYTE_LENGTH)
 		const logins = downcast({
 			getLoggedInUser() {
-				return createTestEntity(UserTypeRef)
+				return createTestEntity(sysTypeRefs.UserTypeRef)
 			},
 
 			getUserGroupKey() {},
@@ -80,7 +79,7 @@ o.spec("ConfigurationDbTest", function () {
 		const iv = random.generateRandomData(IV_BYTE_LENGTH)
 		const logins = downcast({
 			getLoggedInUser() {
-				return createTestEntity(UserTypeRef)
+				return createTestEntity(sysTypeRefs.UserTypeRef)
 			},
 
 			getUserGroupKey() {},
@@ -184,7 +183,7 @@ o.spec("ConfigurationDbTest", function () {
 			when(keyLoaderFacade.getCurrentSymUserGroupKey()).thenReturn(currentUserGroupKey)
 			dbKey = aes256RandomKey()
 			iv = random.generateRandomData(16)
-			encIv = aesEncrypt(dbKey, iv, undefined, true, true)
+			encIv = aesEncrypt(dbKey, iv)
 			when(transaction.get(ConfigurationMetaDataOS, Metadata.encDbIv)).thenResolve(encIv)
 		})
 
@@ -203,7 +202,7 @@ o.spec("ConfigurationDbTest", function () {
 			const groupKeyVersion = 6
 			const groupKey = aes256RandomKey()
 
-			const encDBKey = aesEncrypt(groupKey, bitArrayToUint8Array(dbKey), iv, false, true)
+			const encDBKey = encryptKey(groupKey, dbKey)
 			when(transaction.get(ConfigurationMetaDataOS, Metadata.userGroupKeyVersion)).thenResolve(groupKeyVersion)
 			when(transaction.get(ConfigurationMetaDataOS, Metadata.userEncDbKey)).thenResolve(encDBKey)
 			when(keyLoaderFacade.loadSymUserGroupKey(groupKeyVersion)).thenResolve(groupKey)
@@ -227,15 +226,14 @@ o.spec("ConfigurationDbTest", function () {
 			verify(transaction.put(ConfigurationMetaDataOS, Metadata.userGroupKeyVersion, currentUserGroupKey.version))
 			const encDbKeyCaptor = matchers.captor()
 			verify(transaction.put(ConfigurationMetaDataOS, Metadata.userEncDbKey, encDbKeyCaptor.capture()))
-			const capturedDbKey = aesDecrypt(currentUserGroupKey.object, encDbKeyCaptor.value, false)
-			o(capturedDbKey).deepEquals(bitArrayToUint8Array(dbKey))
+			const capturedDbKey = decryptKey(currentUserGroupKey.object, encDbKeyCaptor.value)
+			o(capturedDbKey).deepEquals(dbKey)
 		})
 
 		o("read group key version when without meta data entry", async function () {
 			const groupKeyVersion = 0
 			const groupKey = aes256RandomKey()
-
-			const encDBKey = aesEncrypt(groupKey, bitArrayToUint8Array(dbKey), iv, false, true)
+			const encDBKey = encryptKey(groupKey, dbKey)
 			when(transaction.get(ConfigurationMetaDataOS, Metadata.userGroupKeyVersion)).thenResolve(undefined)
 			when(transaction.get(ConfigurationMetaDataOS, Metadata.userEncDbKey)).thenResolve(encDBKey)
 			when(keyLoaderFacade.loadSymUserGroupKey(groupKeyVersion)).thenResolve(groupKey)

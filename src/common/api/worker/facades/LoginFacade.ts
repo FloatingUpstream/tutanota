@@ -16,53 +16,27 @@ import {
 	ofClass,
 	uint8ArrayToBase64,
 	utf8Uint8ArrayToString,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import {
-	ChangeKdfService,
-	ChangePasswordService,
-	CustomerService,
-	ResetFactorsService,
-	SaltService,
-	SecondFactorAuthService,
-	SessionService,
-	TakeOverDeletedAddressService,
-	VerifierTokenService,
-} from "../../entities/sys/Services"
-import { asKdfType, CloseEventBusOption, Const, DeactivationReason, DEFAULT_KDF_TYPE, KdfType, RolloutType } from "../../common/TutanotaConstants"
-import {
-	Challenge,
-	createChangeKdfPostIn,
-	createChangePasswordPostIn,
-	createCreateSessionData,
-	createDeleteCustomerData,
-	createResetFactorsDeleteData,
-	createSaltData,
-	createSecondFactorAuthDeleteData,
-	createSecondFactorAuthGetData,
-	CreateSessionReturn,
-	createTakeOverDeletedAddressData,
-	createVerifierTokenServiceIn,
-	GroupInfo,
-	GroupInfoTypeRef,
-	RecoverCodeTypeRef,
-	SecondFactorAuthData,
-	SessionTypeRef,
-	SurveyData,
-	User,
-	UserTypeRef,
-} from "../../entities/sys/TypeRefs.js"
-import { TutanotaPropertiesTypeRef } from "../../entities/tutanota/TypeRefs.js"
-import { HttpMethod, MediaType, TypeModelResolver } from "../../common/EntityFunctions"
-import { assertWorkerOrNode } from "../../common/Env"
+	asKdfType,
+	AttributeModel,
+	GENERATED_ID_BYTES_LENGTH,
+	isSameId,
+	ServerModelUntypedInstance,
+	sysServices,
+	sysTypeRefs,
+	tutanotaTypeRefs,
+	TypeModelResolver,
+} from "@tutao/typerefs"
+import { assertWorkerOrNode, CloseEventBusOption, Const, DeactivationReason, DEFAULT_KDF_TYPE, KdfType, ProgrammingError, RolloutType } from "@tutao/app-env"
 import { ConnectMode, EventBusClient } from "../EventBusClient"
 import { CacheMode, EntityRestClient, typeModelToRestPath } from "../rest/EntityRestClient"
-import { AccessExpiredError, ConnectionError, LockedError, NotAuthenticatedError, NotFoundError, SessionExpiredError } from "../../common/error/RestError"
+import { HttpMethod, MediaType, RestClient, restError } from "@tutao/rest-client"
 import { CancelledError } from "../../common/error/CancelledError"
-import { RestClient } from "../rest/RestClient"
 import { EntityClient } from "../../common/EntityClient"
-import { GENERATED_ID_BYTES_LENGTH, isSameId } from "../../common/utils/EntityUtils"
 import type { Credentials } from "../../../misc/credentials/Credentials"
 import {
+	_encryptString,
 	Aes128Key,
 	aes256DecryptWithRecoveryKey,
 	Aes256Key,
@@ -80,8 +54,8 @@ import {
 	sha256Hash,
 	TotpSecret,
 	TotpVerifier,
-	uint8ArrayToBitArray,
-} from "@tutao/tutanota-crypto"
+	uint8ArrayToKey,
+} from "@tutao/crypto"
 import { CryptoFacade } from "../crypto/CryptoFacade"
 import { IServiceExecutor } from "../../common/ServiceRequest"
 import { SessionType } from "../../common/SessionType"
@@ -90,25 +64,22 @@ import { AuthDataProvider, UserFacade } from "./UserFacade"
 import { LoginFailReason } from "../../main/PageContextLoginListener.js"
 import { EntropyFacade } from "./EntropyFacade.js"
 import { BlobAccessTokenFacade } from "./BlobAccessTokenFacade.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError.js"
 import { DatabaseKeyFactory } from "../../../misc/credentials/DatabaseKeyFactory.js"
 import { ExternalUserKeyDeriver } from "../../../misc/LoginUtils.js"
 import { Argon2idFacade } from "./Argon2idFacade.js"
 import { CredentialType } from "../../../misc/credentials/CredentialType.js"
 import { KeyRotationFacade, KeyRotationRolloutAction } from "./KeyRotationFacade.js"
-import { _encryptString } from "../crypto/CryptoWrapper.js"
+import { InstancePipeline } from "@tutao/instance-pipeline"
 import { CacheManagementFacade } from "./lazy/CacheManagementFacade.js"
-import { InstancePipeline } from "../crypto/InstancePipeline"
-import { AttributeModel } from "../../common/AttributeModel"
-import { ServerModelUntypedInstance } from "../../common/EntityTypes"
 import { RolloutFacade } from "./RolloutFacade"
 import { LoginIncompleteError } from "../../common/error/LoginIncompleteError"
+import { ApplicationTypesFacade } from "./ApplicationTypesFacade"
 
 assertWorkerOrNode()
 
 export type NewSessionData = {
-	user: User
-	userGroupInfo: GroupInfo
+	user: sysTypeRefs.User
+	userGroupInfo: sysTypeRefs.GroupInfo
 	sessionId: IdTuple
 	credentials: Credentials
 	databaseKey: Uint8Array | null
@@ -121,8 +92,8 @@ export type CacheInfo = {
 }
 
 interface ResumeSessionResultData {
-	user: User
-	userGroupInfo: GroupInfo
+	user: sysTypeRefs.User
+	userGroupInfo: sysTypeRefs.GroupInfo
 	sessionId: IdTuple
 }
 
@@ -186,7 +157,7 @@ export interface LoginListener {
 	/**
 	 * Shows a dialog with possibility to use second factor and with a message that the login can be approved from another client.
 	 */
-	onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<Challenge>, mailAddress: string | null): Promise<void>
+	onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<sysTypeRefs.Challenge>, mailAddress: string | null): Promise<void>
 }
 
 export class LoginFacade {
@@ -217,7 +188,7 @@ export class LoginFacade {
 		/**
 		 *  Only needed so that we can initialize the offline storage after login.
 		 *  This is necessary because we don't know if we'll be persistent or not until the user tries to login
-		 *  Once the credentials handling has been changed to *always* save in desktop, then this should become obsolete
+		 *  Once the credential handling has been changed to *always* save in desktop, then this should become obsolete
 		 */
 		private readonly cacheInitializer: CacheStorageLateInitializer,
 		private readonly serviceExecutor: IServiceExecutor,
@@ -231,6 +202,7 @@ export class LoginFacade {
 		private readonly cacheManagementFacade: lazyAsync<CacheManagementFacade>,
 		private readonly typeModelResolver: TypeModelResolver,
 		private readonly rolloutFacade: RolloutFacade,
+		private readonly applicationTypesFacade: ApplicationTypesFacade,
 	) {}
 
 	init(eventBusClient: EventBusClient) {
@@ -241,10 +213,6 @@ export class LoginFacade {
 		this.eventBusClient.close(CloseEventBusOption.Terminate)
 		await this.deInitCache()
 		this.userFacade.reset()
-	}
-
-	async checkOutOfSyncCache(): Promise<void> {
-		await this.eventBusClient.checkOutOfSync()
 	}
 
 	/**
@@ -271,7 +239,7 @@ export class LoginFacade {
 		const { userPassphraseKey, kdfType } = await this.loadUserPassphraseKey(mailAddress, passphrase)
 		// the verifier is always sent as url parameter, so it must be url encoded
 		const authVerifier = createAuthVerifierAsBase64Url(userPassphraseKey)
-		const createSessionData = createCreateSessionData({
+		const createSessionData = sysTypeRefs.createCreateSessionData({
 			accessKey: null,
 			authToken: null,
 			authVerifier,
@@ -287,7 +255,7 @@ export class LoginFacade {
 			accessKey = aes256RandomKey()
 			createSessionData.accessKey = keyToUint8Array(accessKey)
 		}
-		const createSessionReturn = await this.serviceExecutor.post(SessionService, createSessionData)
+		const createSessionReturn = await this.serviceExecutor.post(sysServices.SessionService, createSessionData)
 		const sessionData = await this.waitUntilSecondFactorApprovedOrCancelled(createSessionReturn, mailAddress)
 
 		const forceNewDatabase = sessionType === SessionType.Persistent && databaseKey == null
@@ -357,7 +325,7 @@ export class LoginFacade {
 	 * @param passphrase either the plaintext passphrase or the encrypted passphrase with the access token necessary to decrypt it
 	 * @param user the user we are updating
 	 */
-	public async migrateKdfType(targetKdfType: KdfType, passphrase: string, user: User): Promise<void> {
+	public async migrateKdfType(targetKdfType: KdfType, passphrase: string, user: sysTypeRefs.User): Promise<void> {
 		if (!Const.EXECUTE_KDF_MIGRATION) {
 			// Migration is not yet enabled on this version.
 			return
@@ -382,7 +350,7 @@ export class LoginFacade {
 		const pwEncUserGroupKey = encryptKey(newUserPassphraseKey, currentUserGroupKey.object)
 		const newAuthVerifier = createAuthVerifier(newUserPassphraseKey)
 
-		const changeKdfPostIn = createChangeKdfPostIn({
+		const changeKdfPostIn = sysTypeRefs.createChangeKdfPostIn({
 			kdfVersion: newPassphraseKeyData.kdfType,
 			salt: newPassphraseKeyData.salt,
 			pwEncUserGroupKey,
@@ -391,7 +359,7 @@ export class LoginFacade {
 			userGroupKeyVersion: String(currentUserGroupKey.version),
 		})
 		console.log("Migrate KDF from:", user.kdfVersion, "to", targetKdfType)
-		await this.serviceExecutor.post(ChangeKdfService, changeKdfPostIn)
+		await this.serviceExecutor.post(sysServices.ChangeKdfService, changeKdfPostIn)
 		// We reload the user because we experienced a race condition
 		// were we do not process the User update after doing the argon2 migration from the web client.´
 		// In order do not rework the entity processing and its initialization for new clients we
@@ -414,7 +382,7 @@ export class LoginFacade {
 	 * If the second factor login has been cancelled a CancelledError is thrown.
 	 */
 	private waitUntilSecondFactorApprovedOrCancelled(
-		createSessionReturn: CreateSessionReturn,
+		createSessionReturn: sysTypeRefs.CreateSessionReturn,
 		mailAddress: string | null,
 	): Promise<{
 		sessionId: IdTuple
@@ -442,11 +410,11 @@ export class LoginFacade {
 	}
 
 	private async waitUntilSecondFactorApproved(accessToken: Base64Url, sessionId: IdTuple, retryOnNetworkError: number): Promise<void> {
-		let secondFactorAuthGetData = createSecondFactorAuthGetData({
+		let secondFactorAuthGetData = sysTypeRefs.createSecondFactorAuthGetData({
 			accessToken,
 		})
 		try {
-			const secondFactorAuthGetReturn = await this.serviceExecutor.get(SecondFactorAuthService, secondFactorAuthGetData)
+			const secondFactorAuthGetReturn = await this.serviceExecutor.get(sysServices.SecondFactorAuthService, secondFactorAuthGetData)
 			if (!this.loginRequestSessionId || !isSameId(this.loginRequestSessionId, sessionId)) {
 				throw new CancelledError("login cancelled")
 			}
@@ -455,7 +423,7 @@ export class LoginFacade {
 				return this.waitUntilSecondFactorApproved(accessToken, sessionId, 0)
 			}
 		} catch (e) {
-			if (e instanceof ConnectionError && retryOnNetworkError < 10) {
+			if (e instanceof restError.ConnectionError && retryOnNetworkError < 10) {
 				// Connection error can occur on ios when switching between apps or just as a timeout (our request timeout is shorter than the overall
 				// auth flow timeout). Just retry in this case.
 				return this.waitUntilSecondFactorApproved(accessToken, sessionId, retryOnNetworkError + 1)
@@ -484,7 +452,7 @@ export class LoginFacade {
 		// the verifier is always sent as url parameter, so it must be url encoded
 		const authVerifier = createAuthVerifierAsBase64Url(userPassphraseKey)
 		const authToken = base64ToBase64Url(uint8ArrayToBase64(sha256Hash(salt)))
-		const sessionData = createCreateSessionData({
+		const sessionData = sysTypeRefs.createCreateSessionData({
 			accessKey: null,
 			authToken,
 			authVerifier,
@@ -500,7 +468,7 @@ export class LoginFacade {
 			sessionData.accessKey = keyToUint8Array(accessKey)
 		}
 
-		const createSessionReturn = await this.serviceExecutor.post(SessionService, sessionData)
+		const createSessionReturn = await this.serviceExecutor.post(sysServices.SessionService, sessionData)
 
 		let sessionId = [this.getSessionListId(createSessionReturn.accessToken), this.getSessionElementId(createSessionReturn.accessToken)] as const
 		const cacheInfo = await this.initCache({
@@ -551,20 +519,20 @@ export class LoginFacade {
 			throw new Error("Trying to cancel session creation but the state is invalid")
 		}
 
-		const secondFactorAuthDeleteData = createSecondFactorAuthDeleteData({
+		const secondFactorAuthDeleteData = sysTypeRefs.createSecondFactorAuthDeleteData({
 			session: sessionId,
 		})
 		await this.serviceExecutor
-			.delete(SecondFactorAuthService, secondFactorAuthDeleteData)
+			.delete(sysServices.SecondFactorAuthService, secondFactorAuthDeleteData)
 			.catch(
-				ofClass(NotFoundError, (e) => {
+				ofClass(restError.NotFoundError, (e) => {
 					// This can happen during some odd behavior in browser where main loop would be blocked by webauthn (hello, FF) and then we would try to
 					// cancel too late. No harm here anyway if the session is already gone.
 					console.warn("Tried to cancel second factor but it was not there anymore", e)
 				}),
 			)
 			.catch(
-				ofClass(LockedError, (e) => {
+				ofClass(restError.LockedError, (e) => {
 					// Might happen if we trigger cancel and confirm at the same time.
 					console.warn("Tried to cancel second factor but it is currently locked", e)
 				}),
@@ -574,8 +542,8 @@ export class LoginFacade {
 	}
 
 	/** Finishes 2FA process either using second factor or approving session on another client. */
-	async authenticateWithSecondFactor(data: SecondFactorAuthData, host?: string): Promise<void> {
-		await this.serviceExecutor.post(SecondFactorAuthService, data, { baseUrl: host })
+	async authenticateWithSecondFactor(data: sysTypeRefs.SecondFactorAuthData, host?: string): Promise<void> {
+		await this.serviceExecutor.post(sysServices.SecondFactorAuthService, data, { baseUrl: host })
 	}
 
 	/**
@@ -619,14 +587,14 @@ export class LoginFacade {
 			// synchronous login in order to load all the necessary keys and such
 			// the next time they log in they will be able to do asynchronous login
 			if (cacheInfo?.isPersistent && !cacheInfo.isNewOfflineDb) {
-				const user = await this.entityClient.load(UserTypeRef, credentials.userId)
+				const user = await this.entityClient.load(sysTypeRefs.UserTypeRef, credentials.userId)
 				this.userFacade.setUser(user)
 
 				// Before offline login was enabled (in 3.96.4) we didn't use cache for the login process, only afterwards.
 				// This could lead to a situation where we never loaded or saved user groupInfo but would try to use it now.
-				let userGroupInfo: GroupInfo
+				let userGroupInfo: sysTypeRefs.GroupInfo
 				try {
-					userGroupInfo = await this.entityClient.load(GroupInfoTypeRef, user.userGroup.groupInfo)
+					userGroupInfo = await this.entityClient.load(sysTypeRefs.GroupInfoTypeRef, user.userGroup.groupInfo)
 				} catch (e) {
 					console.log("Could not do start login, groupInfo is not cached, falling back to sync login")
 					if (e instanceof LoginIncompleteError) {
@@ -652,11 +620,12 @@ export class LoginFacade {
 				return await this.finishResumeSession(credentials, externalUserKeyDeriver, cacheInfo)
 			}
 		} catch (e) {
-			// If we initialized the cache, but then we couldn't authenticate we should de-initialize
+			// If we initialized the cache, but then we couldn't authenticate, we should de-initialize
 			// the cache again because we will initialize it for the next attempt.
-			// It might be also called in initSession but the error can be thrown even before that (e.g. if the db is empty for some reason) so we reset
+			// It might be also called in initSession but the error can be thrown even before that (e.g. if the db is empty for some reason), so we reset
 			// the session here as well, otherwise we might try to open the DB twice.
 			await this.resetSession()
+			await this.applicationTypesFacade.invalidateApplicationTypes()
 			throw e
 		}
 	}
@@ -669,6 +638,16 @@ export class LoginFacade {
 	private async triggerFullLoginSuccess(sessionType: SessionType, cacheInfo: CacheInfo, credentials: Credentials): Promise<void> {
 		this.lastLoginSessionType = sessionType
 		await this.loginListener.onFullLoginSuccess(sessionType, cacheInfo, credentials)
+
+		// If we have been fully logged in at least once already (probably expired ephemeral session)
+		// then we just reconnect and re-download missing events.
+		// For new connections we have special handling.
+		const wasFullyLoggedIn = this.userFacade.isFullyLoggedIn()
+		if (wasFullyLoggedIn) {
+			await this.eventBusClient.connect(ConnectMode.Reconnect)
+		} else {
+			await this.eventBusClient.connect(ConnectMode.Initial)
+		}
 	}
 
 	public async getSessionType(): Promise<SessionType | null> {
@@ -692,13 +671,16 @@ export class LoginFacade {
 		try {
 			await this.finishResumeSession(credentials, null, cacheInfo)
 		} catch (e) {
-			if (e instanceof NotAuthenticatedError || e instanceof SessionExpiredError) {
+			if (e instanceof restError.NotAuthenticatedError || e instanceof restError.SessionExpiredError) {
 				// For this type of errors we cannot use credentials anymore.
 				this.asyncLoginState = { state: "idle" }
 				await this.loginListener.onLoginFailure(LoginFailReason.SessionExpired)
 			} else {
 				this.asyncLoginState = { state: "failed", credentials, cacheInfo }
-				if (!(e instanceof ConnectionError)) await this.sendError(e)
+				if (!(e instanceof restError.ConnectionError)) {
+					await this.applicationTypesFacade.invalidateApplicationTypes()
+					await this.sendError(e)
+				}
 				await this.loginListener.onLoginFailure(LoginFailReason.Error)
 			}
 		}
@@ -771,7 +753,7 @@ export class LoginFacade {
 		userId: Id,
 		accessToken: Base64Url,
 		userPassphraseKey: AesKey,
-	): Promise<{ user: User; accessToken: string; userGroupInfo: GroupInfo }> {
+	): Promise<{ user: sysTypeRefs.User; accessToken: string; userGroupInfo: sysTypeRefs.GroupInfo }> {
 		// We might have userId already if:
 		// - session has expired and a new one was created
 		// - if it's a partial login
@@ -785,32 +767,22 @@ export class LoginFacade {
 
 		try {
 			// We need to use up-to-date user to make sure that we are not checking for outdated verified against cached user.
-			const user = await this.entityClient.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })
+			const user = await this.entityClient.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })
 			await this.checkOutdatedVerifier(user, accessToken, userPassphraseKey)
 
 			// this may be the second time we set user in case we had a partial offline login before
 			// we do it unconditionally here, to make sure we unlock the latest user group key right below
 			this.userFacade.setUser(user)
-			const wasFullyLoggedIn = this.userFacade.isFullyLoggedIn()
-
 			this.userFacade.unlockUserGroupKey(userPassphraseKey)
-			const userGroupInfo = await this.entityClient.load(GroupInfoTypeRef, user.userGroup.groupInfo)
 
+			const userGroupInfo = await this.entityClient.load(sysTypeRefs.GroupInfoTypeRef, user.userGroup.groupInfo)
 			await this.loadEntropy()
-
-			// If we have been fully logged in at least once already (probably expired ephemeral session)
-			// then we just reconnect and re-download missing events.
-			// For new connections we have special handling.
-			if (wasFullyLoggedIn) {
-				this.eventBusClient.connect(ConnectMode.Reconnect)
-			} else {
-				this.eventBusClient.connect(ConnectMode.Initial)
-			}
 
 			await this.entropyFacade.storeEntropy()
 			return { user, accessToken, userGroupInfo }
 		} catch (e) {
-			this.resetSession()
+			await this.resetSession()
+			await this.applicationTypesFacade.invalidateApplicationTypes()
 			throw e
 		}
 	}
@@ -827,18 +799,24 @@ export class LoginFacade {
 	 */
 	private async initCache({ userId, databaseKey, timeRangeDate, forceNewDatabase }: InitCacheOptions): Promise<CacheInfo> {
 		if (databaseKey != null) {
-			return {
+			const { isPersistent, isNewOfflineDb } = await this.cacheInitializer.initialize({
+				type: "offline",
+				userId,
 				databaseKey,
-				...(await this.cacheInitializer.initialize({
-					type: "offline",
-					userId,
-					databaseKey,
-					timeRangeDate,
-					forceNewDatabase,
-				})),
+				timeRangeDate,
+				forceNewDatabase,
+			})
+			return {
+				isPersistent,
+				isNewOfflineDb,
+				databaseKey,
 			}
 		} else {
-			return { databaseKey: null, ...(await this.cacheInitializer.initialize({ type: "ephemeral", userId })) }
+			const { isPersistent, isNewOfflineDb } = await this.cacheInitializer.initialize({
+				type: "ephemeral",
+				userId,
+			})
+			return { isPersistent, isNewOfflineDb, databaseKey: null }
 		}
 	}
 
@@ -858,13 +836,13 @@ export class LoginFacade {
 		externalUserSalt: Uint8Array,
 	) {
 		this.userFacade.setAccessToken(credentials.accessToken)
-		const user = await this.entityClient.load(UserTypeRef, sessionData.userId)
+		const user = await this.entityClient.load(sysTypeRefs.UserTypeRef, sessionData.userId)
 		const latestSaltHash = assertNotNull(user.externalAuthInfo!.latestSaltHash, "latestSaltHash is not set!")
 		if (!arrayEquals(latestSaltHash, sha256Hash(externalUserSalt))) {
 			// Do not delete session or credentials, we can still use them if the password
 			// hasn't been changed.
 			this.resetSession()
-			throw new AccessExpiredError("Salt changed, outdated link?")
+			throw new restError.AccessExpiredError("Salt changed, outdated link?")
 		}
 	}
 
@@ -876,13 +854,13 @@ export class LoginFacade {
 	 *
 	 * @param user Should be up-to-date, i.e., not loaded from cache, but fresh from the server, otherwise an outdated verifier will cause a logout.
 	 */
-	private async checkOutdatedVerifier(user: User, accessToken: string, userPassphraseKey: Aes128Key) {
+	private async checkOutdatedVerifier(user: sysTypeRefs.User, accessToken: string, userPassphraseKey: Aes128Key) {
 		if (uint8ArrayToBase64(user.verifier) !== uint8ArrayToBase64(sha256Hash(createAuthVerifier(userPassphraseKey)))) {
 			console.log("Auth verifier has changed")
 			// delete the obsolete session to make sure it can not be used any more
 			await this.deleteSession(accessToken).catch((e) => console.error("Could not delete session", e))
 			await this.resetSession()
-			throw new NotAuthenticatedError("Auth verifier has changed")
+			throw new restError.NotAuthenticatedError("Auth verifier has changed")
 		}
 	}
 
@@ -894,8 +872,8 @@ export class LoginFacade {
 		userPassphraseKey: AesKey
 	}> {
 		mailAddress = mailAddress.toLowerCase().trim()
-		const saltRequest = createSaltData({ mailAddress })
-		const saltReturn = await this.serviceExecutor.get(SaltService, saltRequest)
+		const saltRequest = sysTypeRefs.createSaltData({ mailAddress })
+		const saltReturn = await this.serviceExecutor.get(sysServices.SaltService, saltRequest)
 		const kdfType = asKdfType(saltReturn.kdfVersion)
 		return {
 			userPassphraseKey: await this.deriveUserPassphraseKey({ kdfType, passphrase, salt: saltReturn.salt }),
@@ -909,9 +887,9 @@ export class LoginFacade {
 	 * @param pushIdentifier identifier associated with this device, if any, to delete PushIdentifier on the server
 	 */
 	async deleteSession(accessToken: Base64Url, pushIdentifier: string | null = null): Promise<void> {
-		const typeModel = await this.typeModelResolver.resolveServerTypeReference(SessionTypeRef)
+		const typeModel = await this.typeModelResolver.resolveServerTypeReference(sysTypeRefs.SessionTypeRef)
 		let path = typeModelToRestPath(typeModel) + "/" + this.getSessionListId(accessToken) + "/" + this.getSessionElementId(accessToken)
-		const sessionTypeModel = await this.typeModelResolver.resolveClientTypeReference(SessionTypeRef)
+		const sessionTypeModel = await this.typeModelResolver.resolveClientTypeReference(sysTypeRefs.SessionTypeRef)
 
 		const headers = {
 			accessToken: neverNull(accessToken),
@@ -925,12 +903,12 @@ export class LoginFacade {
 				queryParams,
 			})
 			.catch(
-				ofClass(NotAuthenticatedError, () => {
+				ofClass(restError.NotAuthenticatedError, () => {
 					console.log("authentication failed => session is already closed")
 				}),
 			)
 			.catch(
-				ofClass(NotFoundError, () => {
+				ofClass(restError.NotFoundError, () => {
 					console.log("authentication failed => session instance is already deleted")
 				}),
 			)
@@ -950,9 +928,9 @@ export class LoginFacade {
 		userId: Id
 		accessKey: AesKey | null
 	}> {
-		const typeModel = await this.typeModelResolver.resolveClientTypeReference(SessionTypeRef)
+		const typeModel = await this.typeModelResolver.resolveClientTypeReference(sysTypeRefs.SessionTypeRef)
 		const path = typeModelToRestPath(typeModel) + "/" + this.getSessionListId(accessToken) + "/" + this.getSessionElementId(accessToken)
-		const SessionTypeModel = await this.typeModelResolver.resolveClientTypeReference(SessionTypeRef)
+		const SessionTypeModel = await this.typeModelResolver.resolveClientTypeReference(sysTypeRefs.SessionTypeRef)
 
 		let headers = {
 			accessToken: accessToken,
@@ -980,7 +958,7 @@ export class LoginFacade {
 	 * Loads entropy from the last logout.
 	 */
 	private async loadEntropy(): Promise<void> {
-		const tutanotaProperties = await this.entityClient.loadRoot(TutanotaPropertiesTypeRef, this.userFacade.getUserGroupId())
+		const tutanotaProperties = await this.entityClient.loadRoot(tutanotaTypeRefs.TutanotaPropertiesTypeRef, this.userFacade.getUserGroupId())
 		return this.entropyFacade.loadEntropy(tutanotaProperties)
 	}
 
@@ -1003,7 +981,7 @@ export class LoginFacade {
 		const currentUserGroupKey = this.userFacade.getCurrentUserGroupKey()
 		const pwEncUserGroupKey = encryptKey(newUserPassphraseKey, currentUserGroupKey.object)
 		const authVerifier = createAuthVerifier(newUserPassphraseKey)
-		const service = createChangePasswordPostIn({
+		const service = sysTypeRefs.createChangePasswordPostIn({
 			code: null,
 			kdfVersion: newPasswordKeyDataTemplate.kdfType,
 			oldVerifier: currentAuthVerifier,
@@ -1014,7 +992,7 @@ export class LoginFacade {
 			userGroupKeyVersion: String(currentUserGroupKey.version),
 		})
 
-		await this.serviceExecutor.post(ChangePasswordService, service)
+		await this.serviceExecutor.post(sysServices.ChangePasswordService, service)
 
 		this.userFacade.setUserDistKey(currentUserGroupKey.version, newUserPassphraseKey)
 		const accessToken = assertNotNull(this.userFacade.getAccessToken())
@@ -1029,7 +1007,7 @@ export class LoginFacade {
 		}
 	}
 
-	async deleteAccount(password: string, takeover: string, surveyData: SurveyData | null = null): Promise<void> {
+	async deleteAccount(password: string, takeover: string, surveyData: sysTypeRefs.SurveyData | null = null): Promise<void> {
 		const userSalt = assertNotNull(this.userFacade.getLoggedInUser().salt)
 
 		const passphraseKeyData = {
@@ -1038,7 +1016,7 @@ export class LoginFacade {
 			salt: userSalt,
 		}
 		const passwordKey = await this.deriveUserPassphraseKey(passphraseKeyData)
-		const deleteCustomerData = createDeleteCustomerData({
+		const deleteCustomerData = sysTypeRefs.createDeleteCustomerData({
 			authVerifier: createAuthVerifier(passwordKey),
 			reason: DeactivationReason.UserRequest.toString(),
 			formattedReason: null,
@@ -1054,15 +1032,15 @@ export class LoginFacade {
 		} else {
 			deleteCustomerData.takeoverMailAddress = null
 		}
-		await this.serviceExecutor.delete(CustomerService, deleteCustomerData)
+		await this.serviceExecutor.delete(sysServices.CustomerService, deleteCustomerData)
 	}
 
 	/** Changes user password to another one using recoverCode instead of the old password. */
 	async recoverLogin(mailAddress: string, recoverCode: string, newPassword: string, clientIdentifier: string): Promise<void> {
-		const recoverCodeKey = uint8ArrayToBitArray(hexToUint8Array(recoverCode))
+		const recoverCodeKey = uint8ArrayToKey(hexToUint8Array(recoverCode))
 		const recoverCodeVerifier = createAuthVerifier(recoverCodeKey)
 		const recoverCodeVerifierBase64 = base64ToBase64Url(uint8ArrayToBase64(recoverCodeVerifier))
-		const sessionData = createCreateSessionData({
+		const sessionData = sysTypeRefs.createCreateSessionData({
 			accessKey: null,
 			authToken: null,
 			authVerifier: null,
@@ -1094,10 +1072,10 @@ export class LoginFacade {
 			this.typeModelResolver,
 		)
 		const entityClient = new EntityClient(eventRestClient, this.typeModelResolver)
-		const createSessionReturn = await this.serviceExecutor.post(SessionService, sessionData) // Don't pass email address to avoid proposing to reset second factor when we're resetting password
+		const createSessionReturn = await this.serviceExecutor.post(sysServices.SessionService, sessionData) // Don't pass email address to avoid proposing to reset second factor when we're resetting password
 
 		const { userId, accessToken } = await this.waitUntilSecondFactorApprovedOrCancelled(createSessionReturn, null)
-		const user = await entityClient.load(UserTypeRef, userId, {
+		const user = await entityClient.load(sysTypeRefs.UserTypeRef, userId, {
 			extraHeaders: {
 				accessToken,
 			},
@@ -1110,7 +1088,7 @@ export class LoginFacade {
 			recoverCodeVerifier: recoverCodeVerifierBase64,
 		}
 
-		const recoverCodeData = await entityClient.load(RecoverCodeTypeRef, user.auth.recoverCode, { extraHeaders: recoverCodeExtraHeaders })
+		const recoverCodeData = await entityClient.load(sysTypeRefs.RecoverCodeTypeRef, user.auth.recoverCode, { extraHeaders: recoverCodeExtraHeaders })
 		try {
 			const groupKey = aes256DecryptWithRecoveryKey(recoverCodeKey, recoverCodeData.recoverCodeEncUserGroupKey)
 			const salt = generateRandomSalt()
@@ -1120,7 +1098,7 @@ export class LoginFacade {
 			const userPassphraseKey = await this.deriveUserPassphraseKey(newPassphraseKeyData)
 			const pwEncUserGroupKey = encryptKey(userPassphraseKey, groupKey)
 			const newPasswordVerifier = createAuthVerifier(userPassphraseKey)
-			const postData = createChangePasswordPostIn({
+			const postData = sysTypeRefs.createChangePasswordPostIn({
 				code: null,
 				kdfVersion: newKdfType,
 				oldVerifier: null,
@@ -1134,7 +1112,7 @@ export class LoginFacade {
 			const extraHeaders = {
 				accessToken,
 			}
-			await this.serviceExecutor.post(ChangePasswordService, postData, { extraHeaders })
+			await this.serviceExecutor.post(sysServices.ChangePasswordService, postData, { extraHeaders })
 		} finally {
 			this.deleteSession(accessToken)
 		}
@@ -1144,14 +1122,14 @@ export class LoginFacade {
 	resetSecondFactors(mailAddress: string, password: string, recoverCode: Hex): Promise<void> {
 		return this.loadUserPassphraseKey(mailAddress, password).then((passphraseReturn) => {
 			const authVerifier = createAuthVerifierAsBase64Url(passphraseReturn.userPassphraseKey)
-			const recoverCodeKey = uint8ArrayToBitArray(hexToUint8Array(recoverCode))
+			const recoverCodeKey = uint8ArrayToKey(hexToUint8Array(recoverCode))
 			const recoverCodeVerifier = createAuthVerifierAsBase64Url(recoverCodeKey)
-			const deleteData = createResetFactorsDeleteData({
+			const deleteData = sysTypeRefs.createResetFactorsDeleteData({
 				mailAddress,
 				authVerifier,
 				recoverCodeVerifier,
 			})
-			return this.serviceExecutor.delete(ResetFactorsService, deleteData)
+			return this.serviceExecutor.delete(sysServices.ResetFactorsService, deleteData)
 		})
 	}
 
@@ -1161,17 +1139,17 @@ export class LoginFacade {
 			let recoverCodeVerifier: Base64 | null = null
 
 			if (recoverCode) {
-				const recoverCodeKey = uint8ArrayToBitArray(hexToUint8Array(recoverCode))
+				const recoverCodeKey = uint8ArrayToKey(hexToUint8Array(recoverCode))
 				recoverCodeVerifier = createAuthVerifierAsBase64Url(recoverCodeKey)
 			}
 
-			let data = createTakeOverDeletedAddressData({
+			let data = sysTypeRefs.createTakeOverDeletedAddressData({
 				mailAddress,
 				authVerifier,
 				recoverCodeVerifier,
 				targetAccountMailAddress,
 			})
-			return this.serviceExecutor.post(TakeOverDeletedAddressService, data)
+			return this.serviceExecutor.post(sysServices.TakeOverDeletedAddressService, data)
 		})
 	}
 
@@ -1210,7 +1188,7 @@ export class LoginFacade {
 		})
 
 		const authVerifier = createAuthVerifier(passphraseKey)
-		const out = await this.serviceExecutor.post(VerifierTokenService, createVerifierTokenServiceIn({ authVerifier }))
+		const out = await this.serviceExecutor.post(sysServices.VerifierTokenService, sysTypeRefs.createVerifierTokenServiceIn({ authVerifier }))
 		return out.token
 	}
 }

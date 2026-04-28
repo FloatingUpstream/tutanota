@@ -1,5 +1,5 @@
-import { Keys, MailState, SYSTEM_GROUP_MAIL_ADDRESS } from "../../../common/api/common/TutanotaConstants"
-import { $Promisable, assertNotNull, groupByAndMap, isEmpty, neverNull, promiseMap } from "@tutao/tutanota-utils"
+import { isApp, isBrowser, isDesktop, Keys, MailState, SYSTEM_GROUP_MAIL_ADDRESS } from "@tutao/app-env"
+import { $Promisable, assertNotNull, groupByAndMap, isEmpty, neverNull, promiseMap } from "@tutao/utils"
 import { InfoLink, lang, TranslationKey } from "../../../common/misc/LanguageViewModel"
 import { Dialog, DialogType } from "../../../common/gui/base/Dialog"
 import m from "mithril"
@@ -14,18 +14,17 @@ import { DropdownButtonAttrs } from "../../../common/gui/base/Dropdown.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { client } from "../../../common/misc/ClientDetector.js"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog.js"
-import { LockedError, NotFoundError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { ifAllowedTutaLinks } from "../../../common/gui/base/GuiUtils.js"
 import { ExternalLink } from "../../../common/gui/base/ExternalLink.js"
 import { SourceCodeViewer } from "./SourceCodeViewer.js"
 import { getMailAddressDisplayText, hasValidEncryptionAuthForTeamOrSystemMail } from "../../../common/mailFunctionality/SharedMailUtils.js"
 import { mailLocator } from "../../mailLocator.js"
-import { ConversationEntry, ConversationEntryTypeRef, Mail, MailDetails, MailTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { elementIdPart, listIdPart, tutanotaTypeRefs } from "@tutao/typerefs"
 import { getDisplayedSender } from "../../../common/api/common/CommonMailUtils.js"
 import { MailFacade } from "../../../common/api/worker/facades/lazy/MailFacade.js"
 
 import { ListFilter } from "../../../common/misc/ListModel.js"
-import { isApp, isBrowser, isDesktop } from "../../../common/api/common/Env.js"
 import { isDraft } from "../model/MailChecks.js"
 import { DialogHeaderBar, DialogHeaderBarAttrs } from "../../../common/gui/base/DialogHeaderBar"
 import { exportMails } from "../export/Exporter"
@@ -33,7 +32,6 @@ import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import { ExpanderButton, ExpanderPanel } from "../../../common/gui/base/Expander"
 import { ColumnWidth, Table } from "../../../common/gui/base/Table"
-import { elementIdPart, listIdPart } from "../../../common/api/common/utils/EntityUtils"
 import { OperationHandle } from "../../../common/api/main/OperationProgressTracker"
 import { ContentWithOptionsDialog } from "../../../common/gui/dialogs/ContentWithOptionsDialog"
 import { Card } from "../../../common/gui/base/Card"
@@ -45,10 +43,13 @@ export type MailViewerMoreActions = {
 	showImagesAction?: () => void
 	unsubscribeAction?: () => void
 	printAction?: () => void
-	reportSpamAction?: () => void
-	reportPhishingAction?: () => void
 	reapplyInboxRulesAction?: (() => void) | null
+	reportSpamAction?: () => void
+	reportNotSpamAction?: () => void
+	reportPhishingAction?: () => void
 }
+
+const MAX_MAILS_BEFORE_SUGGESTING_SETTINGS_EXPORT = 1000
 
 export async function showHeaderDialog(headersPromise: Promise<string | null>) {
 	let state: { state: "loading" } | { state: "loaded"; headers: string | null } = { state: "loading" }
@@ -91,7 +92,7 @@ export async function showHeaderDialog(headersPromise: Promise<string | null>) {
 		.show()
 }
 
-export async function loadMailDetails(mailFacade: MailFacade, mail: Mail): Promise<MailDetails> {
+export async function loadMailDetails(mailFacade: MailFacade, mail: tutanotaTypeRefs.Mail): Promise<tutanotaTypeRefs.MailDetails> {
 	if (isDraft(mail)) {
 		const detailsDraftId = assertNotNull(mail.mailDetailsDraft)
 		return mailFacade.loadMailDetailsDraft(mail)
@@ -120,11 +121,11 @@ export async function createEditDraftDialog(viewModel: MailViewerViewModel, loca
 					return null
 				}
 
-				let conversationEntry: ConversationEntry
+				let conversationEntry: tutanotaTypeRefs.ConversationEntry
 				try {
-					conversationEntry = await locator.entityClient.load(ConversationEntryTypeRef, viewModel.mail.conversationEntry)
+					conversationEntry = await locator.entityClient.load(tutanotaTypeRefs.ConversationEntryTypeRef, viewModel.mail.conversationEntry)
 				} catch (e) {
-					if (e instanceof NotFoundError) {
+					if (e instanceof restError.NotFoundError) {
 						// draft was likely deleted
 						return null
 					} else {
@@ -192,7 +193,9 @@ export function startExport(actionableMails: () => Promise<readonly IdTuple[]>) 
 					"{total}": "?",
 				})
 			} else {
-				return lang.getTranslation("mailExportProgress_msg", {
+				const exportMessage =
+					numberOfMails > MAX_MAILS_BEFORE_SUGGESTING_SETTINGS_EXPORT ? "mailExportSuggestAlternative_msg" : "mailExportProgress_msg"
+				return lang.getTranslation(exportMessage, {
 					"{current}": Math.round((operation.progress() / 100) * numberOfMails).toFixed(0),
 					"{total}": numberOfMails,
 				})
@@ -214,14 +217,16 @@ async function doExport(
 	numberOfMailsStream(mailIdsToLoad.length)
 	const mailIdsPerList = groupByAndMap(mailIdsToLoad, listIdPart, elementIdPart)
 	const mails = (
-		await promiseMap(mailIdsPerList, ([listId, elementIds]) => locator.entityClient.loadMultiple(MailTypeRef, listId, elementIds), { concurrency: 2 })
+		await promiseMap(mailIdsPerList, ([listId, elementIds]) => locator.entityClient.loadMultiple(tutanotaTypeRefs.MailTypeRef, listId, elementIds), {
+			concurrency: 2,
+		})
 	).flat()
 	return exportMails(mails, locator.mailFacade, locator.entityClient, locator.fileController, locator.cryptoFacade, operation.id, ac.signal)
 		.then((result) => handleExportEmailsResult(result.failed))
 		.finally(operation.done)
 }
 
-function handleExportEmailsResult(mailList: Mail[]) {
+function handleExportEmailsResult(mailList: tutanotaTypeRefs.Mail[]) {
 	if (mailList && mailList.length > 0) {
 		const lines = mailList.map((mail) => ({
 			cells: [mail.sender.address, mail.subject],
@@ -274,7 +279,7 @@ export function multipleMailViewerMoreActions(exportAction: (() => void) | null,
 		moreButtons.push({
 			label: "export_action",
 			click: exportAction,
-			icon: Icons.Export,
+			icon: Icons.CloudDownloadFilled,
 		})
 	}
 
@@ -291,7 +296,7 @@ export function singleMailViewerMoreActions(viewModel: MailViewerViewModel, more
 		moreButtons.push({
 			label: "export_action",
 			click: () => showProgressDialog("pleaseWait_msg", viewModel.exportMail()),
-			icon: Icons.Export,
+			icon: Icons.CloudDownloadFilled,
 		})
 	}
 
@@ -299,7 +304,7 @@ export function singleMailViewerMoreActions(viewModel: MailViewerViewModel, more
 		moreButtons.push({
 			label: "showHeaders_action",
 			click: () => showHeaderDialog(viewModel.getHeaders()),
-			icon: Icons.ListUnordered,
+			icon: Icons.UnorderedList,
 		})
 	}
 
@@ -319,7 +324,7 @@ export function addToggleLightModeButtonAttrs(viewModel: MailViewerViewModel, to
 		toArray.push({
 			label: willForceLightMode ? "viewInLightMode_action" : "viewInDarkMode_action",
 			click: () => viewModel.setForceLightMode(willForceLightMode),
-			icon: willForceLightMode ? Icons.Bulb : Icons.BulbOutline,
+			icon: willForceLightMode ? Icons.LightbulbFilled : Icons.LightbulbOutline,
 		})
 	}
 }
@@ -330,12 +335,14 @@ export function getMailViewerMoreActions({
 	print,
 	reportPhishing,
 	reapplyInboxRules,
+	reportNotSpam,
 }: {
 	viewModel: MailViewerViewModel
 	print: (() => unknown) | null
-	reportSpam: (() => unknown) | null
-	reportPhishing: (() => unknown) | null
 	reapplyInboxRules: (() => unknown) | null
+	reportSpam: (() => unknown) | null
+	reportNotSpam: (() => unknown) | null
+	reportPhishing: (() => unknown) | null
 }): MailViewerMoreActions {
 	const actions: MailViewerMoreActions = {}
 
@@ -362,8 +369,13 @@ export function getMailViewerMoreActions({
 	if (reportPhishing) {
 		actions.reportPhishingAction = reportPhishing
 	}
+
 	if (reapplyInboxRules) {
 		actions.reapplyInboxRulesAction = reapplyInboxRules
+	}
+
+	if (reportNotSpam) {
+		actions.reportNotSpamAction = reportNotSpam
 	}
 
 	return actions
@@ -374,9 +386,10 @@ function mailViewerMoreActions({
 	showImagesAction,
 	unsubscribeAction,
 	printAction,
-	reportSpamAction,
-	reportPhishingAction,
 	reapplyInboxRulesAction,
+	reportSpamAction,
+	reportNotSpamAction,
+	reportPhishingAction,
 }: MailViewerMoreActions): Array<DropdownButtonAttrs> {
 	const moreButtons: Array<DropdownButtonAttrs> = []
 
@@ -384,7 +397,7 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "disallowExternalContent_action",
 			click: disallowExternalContentAction,
-			icon: Icons.Picture,
+			icon: Icons.PictureFilled,
 		})
 	}
 
@@ -392,7 +405,7 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "showImages_action",
 			click: showImagesAction,
-			icon: Icons.Picture,
+			icon: Icons.PictureFilled,
 		})
 	}
 
@@ -400,7 +413,7 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "unsubscribe_action",
 			click: unsubscribeAction,
-			icon: Icons.Cancel,
+			icon: Icons.X,
 		})
 	}
 
@@ -408,7 +421,7 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "print_action",
 			click: printAction,
-			icon: Icons.Print,
+			icon: Icons.PrinterFilled,
 		})
 	}
 
@@ -416,15 +429,23 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "reapplyInboxRules_action",
 			click: reapplyInboxRulesAction,
-			icon: Icons.Redo,
+			icon: Icons.ArrowCurvedForwardFilled,
 		})
 	}
 
 	if (reportSpamAction != null) {
 		moreButtons.push({
-			label: "spam_move_action",
+			label: "reportSpam_action",
 			click: reportSpamAction,
-			icon: Icons.Spam,
+			icon: Icons.BugFilled,
+		})
+	}
+
+	if (reportNotSpamAction != null) {
+		moreButtons.push({
+			label: "reportNotSpam_action",
+			click: reportNotSpamAction,
+			icon: Icons.BugCrossedFilled,
 		})
 	}
 
@@ -432,7 +453,7 @@ function mailViewerMoreActions({
 		moreButtons.push({
 			label: "reportPhishing_action",
 			click: reportPhishingAction,
-			icon: Icons.Warning,
+			icon: Icons.ExclamationFilled,
 		})
 	}
 	// adding more optional buttons? put them above the report action so the new button
@@ -502,7 +523,7 @@ async function showUnsubscribeDialog(nextUnsubscribeActions: Array<UnsubscribeAc
 							{
 								mainActionText: dialogAttrs.button,
 								mainActionClick: async () => {
-									if (nextUnsubscribeAction.type === UnsubscribeType.MAILTO_UNSUBSCRIBE) {
+									if (nextUnsubscribeAction?.type === UnsubscribeType.MAILTO_UNSUBSCRIBE) {
 										const { newMailtoUrlMailEditor } = await import("../editor/MailEditor")
 										const newMailDialog = await newMailtoUrlMailEditor(
 											nextUnsubscribeAction.requestUrl!,
@@ -513,7 +534,7 @@ async function showUnsubscribeDialog(nextUnsubscribeActions: Array<UnsubscribeAc
 											dialog.close()
 											newMailDialog.show()
 										}
-									} else if (nextUnsubscribeAction.type === UnsubscribeType.HTTP_GET_UNSUBSCRIBE) {
+									} else if (nextUnsubscribeAction?.type === UnsubscribeType.HTTP_GET_UNSUBSCRIBE) {
 										if (isApp()) {
 											mailLocator.systemFacade.openLink(nextUnsubscribeAction.requestUrl)
 										} else {
@@ -521,7 +542,7 @@ async function showUnsubscribeDialog(nextUnsubscribeActions: Array<UnsubscribeAc
 										}
 										dialog.close()
 									} else {
-										showProgressDialog("unsubscribing_msg", viewModel.unsubscribePost(nextUnsubscribeAction))
+										showProgressDialog("unsubscribing_msg", viewModel.unsubscribePost(nextUnsubscribeAction!))
 											.then((isSuccess) => {
 												if (isSuccess || (!isSuccess && isEmpty(nextUnsubscribeActions))) {
 													return Dialog.showUnsubscribeFinishedDialog(isSuccess)
@@ -530,7 +551,7 @@ async function showUnsubscribeDialog(nextUnsubscribeActions: Array<UnsubscribeAc
 												}
 											})
 											.catch((e) => {
-												if (e instanceof LockedError) {
+												if (e instanceof restError.LockedError) {
 													return Dialog.message("operationStillActive_msg")
 												} else {
 													if (isEmpty(nextUnsubscribeActions)) {
@@ -600,7 +621,7 @@ export function isNoReplyTeamAddress(address: string): boolean {
 /**
  * Is this a system notification?
  */
-export function isSystemNotification(mail: Mail): boolean {
+export function isSystemNotification(mail: tutanotaTypeRefs.Mail): boolean {
 	const { confidential, sender, state } = mail
 	return (
 		state === MailState.RECEIVED &&
@@ -613,7 +634,7 @@ export function isSystemNotification(mail: Mail): boolean {
 	)
 }
 
-export function getRecipientHeading(mail: Mail, preferNameOnly: boolean) {
+export function getRecipientHeading(mail: tutanotaTypeRefs.Mail, preferNameOnly: boolean) {
 	let recipientCount = parseInt(mail.recipientCount)
 	if (recipientCount > 0) {
 		let recipient = neverNull(mail.firstRecipient)
@@ -656,7 +677,7 @@ function getUnsubscribeDialogAttrForUnsubscribeType(unsubscribeType: Unsubscribe
 	}
 }
 
-export function getSenderOrRecipientHeading(mail: Mail, preferNameOnly: boolean): string {
+export function getSenderOrRecipientHeading(mail: tutanotaTypeRefs.Mail, preferNameOnly: boolean): string {
 	if (isSystemNotification(mail)) {
 		return ""
 	} else if (mail.state === MailState.RECEIVED) {
@@ -673,7 +694,7 @@ export enum MailFilterType {
 	WithAttachments,
 }
 
-export function getMailFilterForType(filter: MailFilterType): ListFilter<Mail> {
+export function getMailFilterForType(filter: MailFilterType): ListFilter<tutanotaTypeRefs.Mail> {
 	switch (filter) {
 		case MailFilterType.Read:
 			return (mail) => !mail.unread

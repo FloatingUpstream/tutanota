@@ -1,8 +1,8 @@
 import { lang } from "./LanguageViewModel"
-import { isSameDayOfDate, pad } from "@tutao/tutanota-utils"
-import type { UserSettingsGroupRoot } from "../api/entities/tutanota/TypeRefs.js"
-import { TimeFormat } from "../api/common/TutanotaConstants"
-import { assertMainOrNode } from "../api/common/Env"
+import { isSameDay, isSameDayOfDate, pad } from "@tutao/utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { TimeFormat } from "@tutao/app-env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { cleanMailAddress } from "../api/common/utils/CommonCalendarUtils.js"
 
 assertMainOrNode()
@@ -154,7 +154,7 @@ export function convertTextToHtml(text: string) {
 	return text.replace(/(\r)?\n/g, "<br>")
 }
 
-export function getHourCycle(userSettings: UserSettingsGroupRoot): "h12" | "h23" {
+export function getHourCycle(userSettings: tutanotaTypeRefs.UserSettingsGroupRoot): "h12" | "h23" {
 	return userSettings.timeFormat === TimeFormat.TWELVE_HOURS ? "h12" : "h23"
 }
 
@@ -184,4 +184,19 @@ export function timeStringFromParts(hours: number, minutes: number, amPm: boolea
 
 export function formatMailAddressFromParts(name: string, domain: string): string {
 	return cleanMailAddress(`${name}@${domain}`)
+}
+export function formatNotificationForDisplay(eventStartTime: Date, summary: string, isAllDay: boolean): { title: string; body: string } {
+	let dateString: string
+
+	if (isAllDay) {
+		dateString = formatDateWithWeekday(eventStartTime)
+	} else if (isSameDay(eventStartTime, new Date())) {
+		dateString = formatTime(eventStartTime)
+	} else {
+		dateString = formatDateWithWeekdayAndTime(eventStartTime)
+	}
+
+	const body = `${dateString} ${summary}`
+
+	return { body, title: body }
 }

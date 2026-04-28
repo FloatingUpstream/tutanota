@@ -1,19 +1,26 @@
 import o from "@tutao/otest"
-import { ApplicationTypesFacade, ApplicationTypesGetOut } from "../../../../../src/common/api/worker/facades/ApplicationTypesFacade"
+import { ApplicationTypesFacade } from "../../../../../src/common/api/worker/facades/ApplicationTypesFacade"
 import { matchers, object, verify, when } from "testdouble"
-import { ApplicationTypesService } from "../../../../../src/common/api/entities/base/Services"
-import { AssociationType, Cardinality, Type } from "../../../../../src/common/api/common/EntityConstants"
-import { HttpMethod, MediaType, ServerModelInfo, ServerModels } from "../../../../../src/common/api/common/EntityFunctions"
-import { Mode } from "../../../../../src/common/api/common/Env"
-import { AppName, AppNameEnum, downcast, stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
-import { ModelAssociation, ServerTypeModel } from "../../../../../src/common/api/common/EntityTypes"
+import {
+	AssociationType,
+	baseModelInfo,
+	baseServices,
+	baseTypes,
+	Cardinality,
+	getServiceRestPath,
+	ModelAssociation,
+	ServerModelInfo,
+	ServerModels,
+	ServerTypeModel,
+	ServiceDefinition,
+	Type,
+} from "@tutao/typerefs"
+import { AppName, AppNameEnum, downcast, stringToUtf8Uint8Array } from "@tutao/utils"
 import { FileFacade } from "../../../../../src/common/native/common/generatedipc/FileFacade"
-import { RestClient } from "../../../../../src/common/api/worker/rest/RestClient"
-import { getServiceRestPath } from "../../../../../src/common/api/worker/rest/ServiceExecutor"
-import { ServiceDefinition } from "../../../../../src/common/api/common/ServiceRequest"
-import { compressString, decompressString } from "../../../../../src/common/api/worker/crypto/ModelMapper"
+import { HttpMethod, MediaType, RestClient } from "@tutao/rest-client"
+import { compressString, decompressString } from "@tutao/instance-pipeline"
 import { withOverriddenEnv } from "../../../TestUtils"
-import ModelInfo from "../../../../../src/common/api/entities/base/ModelInfo"
+import { Mode } from "../../../../../src/app-env"
 
 const { anything } = matchers
 
@@ -80,8 +87,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 		o.timeout(200)
 
 		when(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 		).thenResolve(mockResponse)
@@ -95,8 +102,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 		await promise3
 
 		verify(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 			{
@@ -110,8 +117,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 		applicationTypesFacade.applicationTypesGetInTimeout = 100
 
 		when(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 		).thenResolve(mockResponse)
@@ -124,8 +131,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 		await promise2
 
 		verify(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 			{
@@ -135,13 +142,13 @@ o.spec("ApplicationTypesFacadeTest", function () {
 	})
 
 	function createApplicationTypesGetOutFromResponse(applicationTypesGetOut: Uint8Array) {
-		return JSON.parse(decompressString(applicationTypesGetOut)) as ApplicationTypesGetOut
+		return JSON.parse(decompressString(applicationTypesGetOut)) as baseTypes.ApplicationTypesGetOut
 	}
 
 	o("should attempt to write file but not propagate write error", async () => {
 		when(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 		).thenResolve(mockResponse)
@@ -154,7 +161,7 @@ o.spec("ApplicationTypesFacadeTest", function () {
 	})
 
 	o("should attempt to read but not fail on read error", async () => {
-		when(fileFacade.readDataFile(anything())).thenReject(Error("reading failed simulation failed"))
+		when(fileFacade.readDataFile(anything())).thenReject(Error("reading simulation failed"))
 		await withOverriddenEnv({ mode: Mode.Desktop }, () => new ApplicationTypesFacade(object(), fileFacade, serverModelInfo))
 		// did not throw
 	})
@@ -164,8 +171,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 
 		o(`Server model should persist for native platforms: ${targetEnv}`, async () => {
 			when(
-				restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-					headers: { v: ModelInfo.version.toString() },
+				restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+					headers: { v: baseModelInfo.version.toString() },
 					responseType: MediaType.Binary,
 				}),
 			).thenResolve(mockResponse)
@@ -179,8 +186,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 		o(`Server model should be initialised from file for native platforms: ${targetEnv}`, async () => {
 			when(fileFacade.readFromAppDir(anything())).thenResolve(stringToUtf8Uint8Array(mockModel.applicationTypesJson))
 			when(
-				restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-					headers: { v: ModelInfo.version.toString() },
+				restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+					headers: { v: baseModelInfo.version.toString() },
 					responseType: MediaType.Binary,
 				}),
 			).thenResolve(mockResponse)
@@ -194,8 +201,8 @@ o.spec("ApplicationTypesFacadeTest", function () {
 	o("AAAA Server model should be fetched from server if local copy hash does not match", async () => {
 		when(fileFacade.readFromAppDir(anything())).thenResolve(stringToUtf8Uint8Array("{}"))
 		when(
-			restClient.request(getServiceRestPath(ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
-				headers: { v: ModelInfo.version.toString() },
+			restClient.request(getServiceRestPath(baseServices.ApplicationTypesService as ServiceDefinition), HttpMethod.GET, {
+				headers: { v: baseModelInfo.version.toString() },
 				responseType: MediaType.Binary,
 			}),
 		).thenResolve(mockResponse)

@@ -1,9 +1,12 @@
 import m from "mithril"
-import { assertMainOrNode } from "../../api/common/Env"
+import { CancelledError } from "../../api/common/error/CancelledError.js"
+import { assertMainOrNode } from "@tutao/app-env"
+import { locator } from "../../api/main/CommonLocator.js"
 import { modal } from "../../gui/base/Modal"
+import { showUpgradeDialog } from "../../gui/nav/NavFunctions.js"
 import { CALENDAR_PREFIX, CONTACTS_PREFIX, SEARCH_PREFIX, SETTINGS_PREFIX } from "../../misc/RouteChange"
-import { last } from "@tutao/tutanota-utils"
-import { CloseEventBusOption, SECOND_MS } from "../../api/common/TutanotaConstants.js"
+import { last } from "@tutao/utils"
+import { CloseEventBusOption, SECOND_MS, UpgradePromptType } from "@tutao/app-env"
 import { MobileFacade } from "../common/generatedipc/MobileFacade.js"
 import { styles } from "../../gui/styles"
 import { WebsocketConnectivityModel } from "../../misc/WebsocketConnectivityModel.js"
@@ -98,5 +101,26 @@ export class WebMobileFacade implements MobileFacade {
 	async keyboardSizeChanged(newSize: number): Promise<void> {
 		const { windowFacade } = await import("../../misc/WindowFacade.js")
 		return windowFacade.onKeyboardSizeChanged(newSize)
+	}
+
+	async handleAppleInAppEvents(action: string): Promise<void> {
+		if (action === "signup") {
+			m.route.set("/signup")
+			return
+		}
+
+		if (action === "upgrade") {
+			void locator.logins
+				.waitForFullLogin()
+				.then(() => showUpgradeDialog(UpgradePromptType.APPLE_IN_APP_EVENT))
+				.catch((error) => {
+					if (!(error instanceof CancelledError)) {
+						console.warn("Failed to open upgrade dialog from Apple in-app event", error)
+					}
+				})
+			return
+		}
+
+		console.warn("Unknown Apple in-app event action", action)
 	}
 }

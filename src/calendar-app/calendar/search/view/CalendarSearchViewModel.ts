@@ -1,8 +1,7 @@
 import { CalendarSearchResultListEntry } from "./CalendarSearchListView.js"
 import { SearchRestriction, SearchResult } from "../../../../common/api/worker/search/SearchTypes.js"
-import { EntityEventsListener, EventController } from "../../../../common/api/main/EventController.js"
-import { CalendarEvent, CalendarEventTypeRef, Contact, ContactTypeRef, MailTypeRef } from "../../../../common/api/entities/tutanota/TypeRefs.js"
-import { assertIsEntity2, elementIdPart, GENERATED_MAX_ID, getElementId, isSameId, ListElement } from "../../../../common/api/common/utils/EntityUtils.js"
+import { EventController } from "../../../../common/api/main/EventController.js"
+import { assertIsEntity2, elementIdPart, entityUpdateUtils, GENERATED_MAX_ID, getElementId, isSameId, ListElement, tutanotaTypeRefs } from "@tutao/typerefs"
 import { ListLoadingState, ListState } from "../../../../common/gui/base/List.js"
 import {
 	deepEqual,
@@ -18,21 +17,21 @@ import {
 	stringToBase64,
 	TypeRef,
 	YEAR_IN_MILLIS,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import { areResultsForTheSameQuery, CalendarSearchModel, hasMoreResults, isSameSearchRestriction } from "../model/CalendarSearchModel.js"
-import { NotFoundError } from "../../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { createRestriction, decodeCalendarSearchKey, encodeCalendarSearchKey, getRestriction } from "../model/SearchUtils.js"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
 import { generateCalendarInstancesInRange, isBirthdayCalendar, retrieveBirthdayEventsForUser } from "../../../../common/calendar/date/CalendarUtils.js"
 import { LoginController } from "../../../../common/api/main/LoginController.js"
 import { EntityClient } from "../../../../common/api/common/EntityClient.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../../../common/api/common/utils/EntityUpdateUtils.js"
+
 import { CalendarInfoBase, CalendarModel, isBirthdayCalendarInfo, isCalendarInfo } from "../../model/CalendarModel.js"
 import { CalendarFacade } from "../../../../common/api/worker/facades/lazy/CalendarFacade.js"
 import { ProgressTracker } from "../../../../common/api/main/ProgressTracker.js"
 import { ListAutoSelectBehavior } from "../../../../common/misc/DeviceConfig.js"
-import { ProgrammingError } from "../../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { SearchRouter } from "../../../../common/search/view/SearchRouter.js"
 import { CalendarEventsRepository } from "../../../../common/calendar/date/CalendarEventsRepository"
 import { ListElementListModel } from "../../../../common/misc/ListElementListModel"
@@ -45,6 +44,7 @@ export enum PaidFunctionResult {
 	PaidSubscriptionNeeded,
 }
 
+type CalendarEvent = tutanotaTypeRefs.CalendarEvent
 export class CalendarSearchViewModel {
 	private _listModel: ListElementListModel<CalendarSearchResultListEntry>
 	get listModel(): ListElementListModel<CalendarSearchResultListEntry> {
@@ -146,10 +146,13 @@ export class CalendarSearchViewModel {
 		this.eventController.addEntityListener(this.entityEventsListener)
 	})
 
-	private readonly entityEventsListener: EntityEventsListener = async (updates) => {
-		for (const update of updates) {
-			await this.entityEventReceived(update)
-		}
+	private readonly entityEventsListener: entityUpdateUtils.EntityEventsListener = {
+		onEntityUpdatesReceived: async (updates) => {
+			for (const update of updates) {
+				await this.entityEventReceived(update)
+			}
+		},
+		priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
 	}
 
 	onNewUrl(args: Record<string, any>, requestedPath: string) {
@@ -164,7 +167,7 @@ export class CalendarSearchViewModel {
 
 		this.currentQuery = args.query
 		const lastQuery = this.search.lastQueryString()
-		const maxResults = isSameTypeRef(MailTypeRef, restriction.type) ? SEARCH_PAGE_SIZE : null
+		const maxResults = isSameTypeRef(tutanotaTypeRefs.MailTypeRef, restriction.type) ? SEARCH_PAGE_SIZE : null
 		const listModel = this.listModel
 		// using hasOwnProperty to distinguish case when url is like '/search/mail/query='
 		if (Object.hasOwn(args, "query") && this.search.isNewSearch(args.query, restriction)) {
@@ -410,8 +413,8 @@ export class CalendarSearchViewModel {
 		return encodeCalendarSearchKey(element)
 	}
 
-	private isPossibleABirthdayContactUpdate(update: EntityUpdateData): update is EntityUpdateData<Contact> {
-		if (isUpdateForTypeRef(ContactTypeRef, update)) {
+	private isPossibleABirthdayContactUpdate(update: entityUpdateUtils.EntityUpdateData): update is entityUpdateUtils.EntityUpdateData {
+		if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactTypeRef, update)) {
 			const { instanceListId, instanceId } = update
 			const encodedContactId = stringToBase64(`${instanceListId}/${instanceId}`)
 
@@ -421,8 +424,8 @@ export class CalendarSearchViewModel {
 		}
 	}
 
-	private isSelectedEventAnUpdatedBirthday(update: EntityUpdateData): boolean {
-		if (isUpdateForTypeRef(ContactTypeRef, update)) {
+	private isSelectedEventAnUpdatedBirthday(update: entityUpdateUtils.EntityUpdateData): boolean {
+		if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactTypeRef, update)) {
 			const { instanceListId, instanceId } = update
 			const encodedContactId = stringToBase64(`${instanceListId}/${instanceId}`)
 
@@ -437,10 +440,10 @@ export class CalendarSearchViewModel {
 		return false
 	}
 
-	private async entityEventReceived(update: EntityUpdateData): Promise<void> {
+	private async entityEventReceived(update: entityUpdateUtils.EntityUpdateData): Promise<void> {
 		const isPossibleABirthdayContactUpdate = this.isPossibleABirthdayContactUpdate(update)
 
-		if (!isUpdateForTypeRef(CalendarEventTypeRef, update) && !isPossibleABirthdayContactUpdate) {
+		if (!entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, update) && !isPossibleABirthdayContactUpdate) {
 			return
 		}
 
@@ -460,7 +463,7 @@ export class CalendarSearchViewModel {
 		const listModel = this.createList()
 
 		if (isPossibleABirthdayContactUpdate && (await this.eventsRepository.canLoadBirthdaysCalendar())) {
-			await this.eventsRepository.handleContactEvent(update.operation, [update.instanceListId, update.instanceId])
+			await this.eventsRepository.handleContactEvent(update.operation, [update.instanceListId!, update.instanceId])
 		}
 
 		await listModel.loadInitial()
@@ -483,7 +486,7 @@ export class CalendarSearchViewModel {
 		return this.listModel
 			.getSelectedAsArray()
 			.map((e) => e.entry)
-			.filter(assertIsEntity2(CalendarEventTypeRef))
+			.filter(assertIsEntity2(tutanotaTypeRefs.CalendarEventTypeRef))
 	}
 
 	private onListStateChange(newState: ListState<CalendarSearchResultListEntry>) {
@@ -528,7 +531,7 @@ export class CalendarSearchViewModel {
 						.load(lastResult.restriction.type, id)
 						.then((entity) => new CalendarSearchResultListEntry(entity))
 						.catch(
-							ofClass(NotFoundError, (_) => {
+							ofClass(restError.NotFoundError, (_) => {
 								return null
 							}),
 						)
@@ -548,7 +551,7 @@ export class CalendarSearchViewModel {
 		if (result && isSameTypeRef(typeRef, result.restriction.type)) {
 			// The list id must be null/empty, otherwise the user is filtering by list, and it shouldn't be ignored
 
-			const ignoreList = isSameTypeRef(typeRef, MailTypeRef) && result.restriction.folderIds.length === 0
+			const ignoreList = isSameTypeRef(typeRef, tutanotaTypeRefs.MailTypeRef) && result.restriction.folderIds.length === 0
 
 			return result.results.some((r) => this.compareItemId(r, id, ignoreList))
 		}
@@ -570,7 +573,7 @@ export class CalendarSearchViewModel {
 		this.searchResult = updatedResult
 
 		let items: CalendarEvent[]
-		if (isSameTypeRef(currentResult.restriction.type, CalendarEventTypeRef)) {
+		if (isSameTypeRef(currentResult.restriction.type, tutanotaTypeRefs.CalendarEventTypeRef)) {
 			try {
 				const { start, end } = currentResult.restriction
 				if (start == null || end == null) {
