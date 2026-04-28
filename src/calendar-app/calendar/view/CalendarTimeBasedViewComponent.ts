@@ -1,6 +1,6 @@
 import m, { Children, ClassComponent, Vnode, VnodeDOM } from "mithril"
 import { styles } from "../../../common/gui/styles"
-import { WeekStart } from "../../../common/api/common/TutanotaConstants"
+import { WeekStart } from "@tutao/app-env"
 import { calendarWeek, extractCalendarEventModifierKey } from "../gui/CalendarGuiUtils"
 import { WeekDaysComponent, WeekDaysComponentAttrs } from "./WeekDaysComponent"
 import { CalendarTimeColumn, CalendarTimeColumnAttrs, getTimeColumnWidth } from "../../../common/calendar/gui/CalendarTimeColumn"
@@ -10,7 +10,7 @@ import { CalendarTimeGrid, CalendarTimeGridAttributes, SUBROWS_PER_INTERVAL, Tim
 import { EventWrapper, ScrollByListener } from "./CalendarViewModel"
 import { EventBubbleInteractions } from "../../../common/calendar/gui/CalendarEventBubble"
 import { EventDragHandler, type EventDragHandlerCallbacks, type MousePos } from "./EventDragHandler"
-import { isEmpty, isToday, neverNull, ofClass } from "@tutao/tutanota-utils"
+import { isEmpty, isToday, neverNull, ofClass } from "@tutao/utils"
 import { deviceConfig } from "../../../common/misc/DeviceConfig"
 import { PageView } from "../../../common/gui/base/PageView"
 import { AllDaySection, AllDaySectionAttrs } from "../../../common/calendar/gui/AllDaySection"
@@ -412,6 +412,9 @@ export class CalendarTimeBasedViewComponent implements ClassComponent<CalendarTi
 	}
 
 	private prepareEventDrag(eventWrapper: EventWrapper, keepTime: boolean) {
+		if (eventWrapper.flags.isGhost) {
+			return
+		}
 		const lastMousePos = this.dragState.lastMousePos
 
 		if (this.dragState.dateUnderMouse && lastMousePos) {

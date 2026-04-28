@@ -48,9 +48,7 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 			["Pages", { refId: "PAGES" }],
 			["PageLayout", "/SinglePage"],
 			["Metadata", { refId: "METADATA" }],
-			["MarkInfo", "<< /Marked true >>"],
 			["OutputIntents", [{ refId: "OUTPUT_INTENT" }]],
-			["StructTreeRoot", { refId: "STRUCT_TREE_ROOT" }],
 		]),
 	}),
 	Object.freeze({
@@ -62,14 +60,6 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 			["OutputConditionIdentifier", "(sRGB)"],
 			["Info", "(sRGB)"],
 			["DestOutputProfile", { refId: "DEST_OUTPUT_PROFILE" }],
-		]),
-	}),
-	Object.freeze({
-		// Object specifying the structure of the PDF for accessibility. Required for PDF/A
-		refId: "STRUCT_TREE_ROOT",
-		dictionary: new Map<string, PdfDictValue>([
-			["Type", "/StructTreeRoot"],
-			["K", "[ null ]"],
 		]),
 	}),
 	Object.freeze({
@@ -116,10 +106,11 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 		refId: "FONT_REGULAR_DESCRIPTOR",
 		dictionary: new Map<string, PdfDictValue>([
 			["Type", "/FontDescriptor"],
+			["FontBBox", "[ 0 0 0 0 ]"],
 			["FontName", "/SourceSans3-Regular"],
 			["FontFile2", { refId: "FONT_REGULAR_FILE" }],
 			["Subtype", "/TrueType"],
-			["Flags", "64"],
+			["Flags", "32"],
 		]),
 	}),
 	Object.freeze({
@@ -141,10 +132,11 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 		refId: "FONT_BOLD_DESCRIPTOR",
 		dictionary: new Map<string, PdfDictValue>([
 			["Type", "/FontDescriptor"],
+			["FontBBox", "[ 0 0 0 0 ]"],
 			["FontName", "/SourceSans3-Bold"],
 			["FontFile2", { refId: "FONT_BOLD_FILE" }],
 			["Subtype", "/TrueType"],
-			["Flags", "64"],
+			["Flags", "32"],
 		]),
 	}),
 
@@ -167,10 +159,11 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 		refId: "FONT_MONO_BOLD_DESCRIPTOR",
 		dictionary: new Map<string, PdfDictValue>([
 			["Type", "/FontDescriptor"],
+			["FontBBox", "[ 0 0 0 0 ]"],
 			["FontName", "/NotoSansMono-Bold"],
 			["FontFile2", { refId: "FONT_MONO_BOLD_FILE" }],
 			["Subtype", "/TrueType"],
-			["Flags", "64"],
+			["Flags", "33"],
 		]),
 	}),
 	// Invisible font for the purpose of writing full UTF8, selectable ghost text.
@@ -194,7 +187,7 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 			["Subtype", "/CIDFontType2"],
 			["CIDToGIDMap", "/Identity"],
 			["FontDescriptor", { refId: "FONT_INVISIBLE_CID_DESCRIPTOR" }],
-			["CIDSystemInfo", "<< /Registry (Adobe) /Ordering (Identity) /Supplement 0>>"],
+			["CIDSystemInfo", "<< /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"],
 			["DW", "1000"],
 		]),
 	}),
@@ -202,9 +195,10 @@ export const PDF_DEFAULT_OBJECTS = Object.freeze([
 		refId: "FONT_INVISIBLE_CID_DESCRIPTOR",
 		dictionary: new Map<string, PdfDictValue>([
 			["Type", "/FontDescriptor"],
+			["FontBBox", "[ 0 0 0 0 ]"],
 			["FontName", "/Helvetica"],
 			["Subtype", "/TrueType"],
-			["Flags", "64"],
+			["Flags", "32"],
 		]),
 	}),
 ])
@@ -217,7 +211,7 @@ export const PDF_METADATA = `<?xpacket begin="?" id="W5M0MpCehiHzreSzNTczkc9d"?>
 					 xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" rdf:about="">
 		<xmp:CreateDate>{slotCreateDate}</xmp:CreateDate>
 		<xmp:ModifyDate>{slotModifyDate}</xmp:ModifyDate>
-		<pdfaid:conformance>A</pdfaid:conformance>
+		<pdfaid:conformance>B</pdfaid:conformance>
 		<pdfaid:part>1</pdfaid:part>
 		<pdf:Producer>Tuta PDF Generator</pdf:Producer>
 	</rdf:Description>

@@ -1,9 +1,9 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { Dialog } from "../../common/gui/base/Dialog"
-import type { OutOfOfficeNotification } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { TextField } from "../../common/gui/base/TextField.js"
 import { lang } from "../../common/misc/LanguageViewModel"
-import { Keys, OUT_OF_OFFICE_SUBJECT_PREFIX } from "../../common/api/common/TutanotaConstants"
+import { Keys, UpgradePromptType } from "@tutao/app-env"
 import { Checkbox } from "../../common/gui/base/Checkbox.js"
 import { px } from "../../common/gui/size"
 import { ButtonType } from "../../common/gui/base/Button.js"
@@ -16,13 +16,14 @@ import { EditOutOfOfficeNotificationDialogModel, RecipientMessageType } from "./
 import { HtmlEditor } from "../../common/gui/editor/HtmlEditor"
 import { UserError } from "../../common/api/main/UserError"
 import { DatePicker } from "../../calendar-app/calendar/gui/pickers/DatePicker"
-import type { lazy } from "@tutao/tutanota-utils"
-import { ofClass } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
+import { ofClass } from "@tutao/utils"
 import { DialogHeaderBarAttrs } from "../../common/gui/base/DialogHeaderBar"
 import { UpgradeRequiredError } from "../../common/api/main/UpgradeRequiredError.js"
 import { getStartOfTheWeekOffsetForUser } from "../../common/misc/weekOffset"
+import { OUT_OF_OFFICE_SUBJECT_PREFIX } from "@tutao/app-env"
 
-export function showEditOutOfOfficeNotificationDialog(outOfOfficeNotification: OutOfOfficeNotification | null) {
+export function showEditOutOfOfficeNotificationDialog(outOfOfficeNotification: tutanotaTypeRefs.OutOfOfficeNotification | null) {
 	const dialogModel = new EditOutOfOfficeNotificationDialogModel(
 		outOfOfficeNotification,
 		locator.entityClient,
@@ -46,7 +47,7 @@ export function showEditOutOfOfficeNotificationDialog(outOfOfficeNotification: O
 			.catch(ofClass(UserError, (e) => showUserError(e)))
 			.catch(
 				ofClass(UpgradeRequiredError, (e) => {
-					showPlanUpgradeRequiredDialog(e.plans)
+					showPlanUpgradeRequiredDialog(UpgradePromptType.OUT_OF_OFFICE_NOTIFICATIONS, e.plans)
 				}),
 			)
 	}

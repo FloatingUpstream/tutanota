@@ -12,20 +12,19 @@ import {
 	SearchIndexMetaDataRow,
 } from "../../../../../src/common/api/worker/search/SearchTypes.js"
 import { _createNewIndexUpdate, getIdFromEncSearchIndexEntry, typeRefToTypeInfo } from "../../../../../src/common/api/common/utils/IndexUtils.js"
-import { base64ToUint8Array, concat, defer, downcast, neverNull, noOp, PromisableWrapper, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
-import { spy } from "@tutao/tutanota-test-utils"
-import { ContactTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { base64ToUint8Array, concat, defer, downcast, neverNull, noOp, PromisableWrapper, uint8ArrayToBase64 } from "@tutao/utils"
+import { spy } from "@tutao/otest"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { DbKey, DbTransaction } from "../../../../../src/common/api/worker/search/DbFacade.js"
 import { appendBinaryBlocks } from "../../../../../src/common/api/worker/search/SearchIndexEncoding.js"
 import { createSearchIndexDbStub, DbStub, DbStubTransaction } from "./DbStub.js"
 import { IndexerCore } from "../../../../../src/mail-app/workerUtils/index/IndexerCore.js"
-import { elementIdPart, generatedIdToTimestamp, listIdPart, timestampToGeneratedId } from "../../../../../src/common/api/common/utils/EntityUtils.js"
+import { elementIdPart, generatedIdToTimestamp, listIdPart, timestampToGeneratedId } from "@tutao/typerefs"
 import { createTestEntity, makeCore } from "../../../TestUtils.js"
-import { Aes256Key, aes256RandomKey, aesEncrypt, fixedIv, IV_BYTE_LENGTH, random, unauthenticatedAesDecrypt } from "@tutao/tutanota-crypto"
+import { Aes256Key, aes256RandomKey, aesDecryptUnauthenticated, aesEncrypt, FIXED_IV } from "@tutao/crypto"
 import { ElementDataOS, GroupDataOS, ObjectStoreName, SearchIndexMetaDataOS, SearchIndexOS } from "../../../../../src/common/api/worker/search/IndexTables.js"
-import { AttributeModel } from "../../../../../src/common/api/common/AttributeModel"
-import { ClientModelInfo } from "../../../../../src/common/api/common/EntityFunctions"
-import { EntityUpdateData } from "../../../../../src/common/api/common/utils/EntityUpdateUtils"
+import { AttributeModel } from "@tutao/typerefs"
+import { ClientModelInfo } from "@tutao/typerefs"
 import { CancelledError } from "../../../../../src/common/api/common/error/CancelledError.js"
 import {
 	decryptIndexKey,
@@ -36,8 +35,8 @@ import {
 	encryptMetaData,
 } from "../../../../../src/common/api/worker/search/IndexEncryptionUtils"
 
-const mailTypeInfo = typeRefToTypeInfo(MailTypeRef)
-const contactTypeInfo = typeRefToTypeInfo(ContactTypeRef)
+const mailTypeInfo = typeRefToTypeInfo(tutanotaTypeRefs.MailTypeRef)
+const contactTypeInfo = typeRefToTypeInfo(tutanotaTypeRefs.ContactTypeRef)
 
 function makeEntries(key: Aes256Key, iv: Uint8Array, n: number, baseTimestamp: number = 0): Array<EncSearchIndexEntryWithTimestamp> {
 	const newEntries: EncSearchIndexEntryWithTimestamp[] = []
@@ -66,15 +65,15 @@ o.spec("IndexerCore", () => {
 
 	o.beforeEach(function () {
 		key = aes256RandomKey()
-		iv = fixedIv
+		iv = FIXED_IV
 		encryptionData = { key, iv }
 	})
 
 	o.test("createIndexEntriesForAttributes", async function () {
-		const ContactModel = await ClientModelInfo.getNewInstanceForTestsOnly().resolveClientTypeReference(ContactTypeRef)
+		const ContactModel = await ClientModelInfo.getNewInstanceForTestsOnly().resolveClientTypeReference(tutanotaTypeRefs.ContactTypeRef)
 
 		let core = makeCore({ encryptionData })
-		let contact = createTestEntity(ContactTypeRef)
+		let contact = createTestEntity(tutanotaTypeRefs.ContactTypeRef)
 		contact._id = ["", "L-dNNLe----0"]
 		contact.firstName = "Max Tim"
 		contact.lastName = "Meier" // not indexed
@@ -478,7 +477,7 @@ o.spec("IndexerCore", () => {
 		o.check(rowKey).equals(encInstanceId)
 		const [listIdValue, encRowsValue, ownerGroupValue] = value
 		o.check(listIdValue).equals(listId)
-		o.check(Array.from(unauthenticatedAesDecrypt(key, encRowsValue, true))).deepEquals(Array.from(new Uint8Array([searchIndexRowKey])))
+		o.check(Array.from(aesDecryptUnauthenticated(key, encRowsValue))).deepEquals(Array.from(new Uint8Array([searchIndexRowKey])))
 		o.check(ownerGroupValue).equals(groupId)
 	})
 	o.spec("writeIndexUpdate _insertNewIndexEntries ", function () {
@@ -914,32 +913,6 @@ o.spec("IndexerCore", () => {
 			o.check(decryptMetaData(key, transaction.getSync(SearchIndexMetaDataOS, searchIndexMeta.id))).deepEquals(searchIndexMeta)
 		})
 	})
-	o.test("writeIndexUpdate _updateGroupDataBatchId abort in case batch has been indexed already", async function () {
-		let groupId = "my-group"
-
-		let indexUpdate = _createNewIndexUpdate(mailTypeInfo)
-
-		const batchId = "last-batch-id"
-		const deferred = defer<void>()
-		let transaction: any = {
-			get: (os, key) => {
-				o.check(os).equals(GroupDataOS)
-				o.check(key).equals(groupId)
-				let groupData: GroupData = {
-					lastBatchIds: ["1", "last-batch-id", "3"],
-				} as any
-				return Promise.resolve(groupData)
-			},
-			aborted: true,
-			abort: () => {
-				deferred.resolve()
-			},
-		}
-		const core = makeCore()
-
-		core._updateGroupDataBatchId(groupId, batchId, transaction)
-		await deferred.promise
-	})
 	o.test("writeIndexUpdate _updateGroupDataBatchId", async function () {
 		let groupId = "my-group"
 
@@ -952,7 +925,7 @@ o.spec("IndexerCore", () => {
 				o.check(os).equals(GroupDataOS)
 				o.check(key).equals(groupId)
 				let groupData: GroupData = {
-					lastBatchIds: ["4", "3", "1"],
+					lastBatchIds: ["1"],
 				} as any
 				return Promise.resolve(groupData)
 			},
@@ -962,7 +935,7 @@ o.spec("IndexerCore", () => {
 				o.check(key).equals(groupId)
 				o.check(JSON.stringify(value)).equals(
 					JSON.stringify({
-						lastBatchIds: ["4", "3", "2", "1"],
+						lastBatchIds: ["2"],
 					}),
 				)
 				deferred.resolve()
@@ -1041,11 +1014,7 @@ o.spec("IndexerCore", () => {
 		})
 		const encInstanceId = encryptIndexKeyBase64(key, instanceId, iv)
 		const listId = "list-id"
-		const elementData: ElementDataDbRow = [
-			listId,
-			aesEncrypt(key, new Uint8Array([metaRowId, anotherMetaRowId]), random.generateRandomData(IV_BYTE_LENGTH), true),
-			groupId,
-		]
+		const elementData: ElementDataDbRow = [listId, aesEncrypt(key, new Uint8Array([metaRowId, anotherMetaRowId])), groupId]
 		const otherId = new Uint8Array(16).fill(88)
 		indexUpdate.delete.searchMetaRowToEncInstanceIds.set(metaRowId, [
 			{
@@ -1055,7 +1024,7 @@ o.spec("IndexerCore", () => {
 				timestamp: 1,
 			},
 		])
-		await core._processDeleted(MailTypeRef, instanceId, indexUpdate)
+		await core._processDeleted(tutanotaTypeRefs.MailTypeRef, instanceId, indexUpdate)
 		o.check(indexUpdate.delete.encInstanceIds).deepEquals([encInstanceId])
 		o.check(indexUpdate.delete.searchMetaRowToEncInstanceIds.size).equals(2)
 		o.check(JSON.stringify(indexUpdate.delete.searchMetaRowToEncInstanceIds.get(metaRowId))).equals(
@@ -1096,7 +1065,7 @@ o.spec("IndexerCore", () => {
 			transaction,
 		})
 		let encInstanceId = encryptIndexKeyBase64(key, instanceId, iv)
-		await core._processDeleted(MailTypeRef, instanceId, indexUpdate)
+		await core._processDeleted(tutanotaTypeRefs.MailTypeRef, instanceId, indexUpdate)
 		o.check(indexUpdate.delete.searchMetaRowToEncInstanceIds.size).equals(0)
 		o.check(indexUpdate.delete.encInstanceIds.length).equals(0)
 	})
@@ -1109,7 +1078,7 @@ o.spec("IndexerCore", () => {
 		const core = makeCore({
 			encryptionData: {
 				key: aes256RandomKey(),
-				iv: fixedIv,
+				iv: FIXED_IV,
 			},
 			transaction: {
 				createTransaction: () => deferred.promise,

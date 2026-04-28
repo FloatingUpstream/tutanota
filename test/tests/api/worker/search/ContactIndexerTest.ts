@@ -1,24 +1,23 @@
 import o from "@tutao/otest"
-import { Contact, ContactList, ContactListTypeRef, ContactTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { entityUpdateUtils, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { ContactIndexer } from "../../../../../src/mail-app/workerUtils/index/ContactIndexer.js"
-import { OperationType } from "../../../../../src/common/api/common/TutanotaConstants.js"
-import { GroupMembershipTypeRef, User, UserTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
 import { createTestEntity } from "../../../TestUtils.js"
 import { matchers, object, verify, when } from "testdouble"
 import { ContactIndexerBackend } from "../../../../../src/mail-app/workerUtils/index/ContactIndexerBackend"
 import { EntityClient } from "../../../../../src/common/api/common/EntityClient"
 import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
-import { TypeRef } from "@tutao/tutanota-utils"
-import { EntityUpdateData, PrefetchStatus } from "../../../../../src/common/api/common/utils/EntityUpdateUtils"
-import { BlobElementEntity, ListElementEntity } from "../../../../../src/common/api/common/EntityTypes"
+import { TypeRef } from "@tutao/utils"
+
+import { noPatchesAndInstance } from "../EventBusClientTest"
+import { OperationType } from "../../../../../src/app-env"
 
 o.spec("ContactIndexer", () => {
 	let entityClient: EntityClient
 	let userFacade: UserFacade
 	let backend: ContactIndexerBackend
 	let indexer: ContactIndexer
-	let user: User
-	let contactList: ContactList
+	let user: sysTypeRefs.User
+	let contactList: tutanotaTypeRefs.ContactList
 	const group = "my user's group"
 	const contactsListId = "my contact list"
 
@@ -26,14 +25,14 @@ o.spec("ContactIndexer", () => {
 		entityClient = object()
 		userFacade = object()
 		backend = object()
-		user = createTestEntity(UserTypeRef)
-		contactList = createTestEntity(ContactListTypeRef)
+		user = createTestEntity(sysTypeRefs.UserTypeRef)
+		contactList = createTestEntity(tutanotaTypeRefs.ContactListTypeRef)
 		contactList.contacts = contactsListId
 
-		user.userGroup = createTestEntity(GroupMembershipTypeRef, { group })
+		user.userGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, { group })
 
 		when(userFacade.getLoggedInUser()).thenReturn(user)
-		when(entityClient.loadRoot(ContactListTypeRef, group)).thenResolve(contactList)
+		when(entityClient.loadRoot(tutanotaTypeRefs.ContactListTypeRef, group)).thenResolve(contactList)
 
 		indexer = new ContactIndexer(entityClient, userFacade, backend)
 	})
@@ -43,7 +42,7 @@ o.spec("ContactIndexer", () => {
 		await indexer.areContactsIndexed()
 		await indexer.areContactsIndexed()
 		await indexer.areContactsIndexed()
-		verify(entityClient.loadRoot(ContactListTypeRef, group), { times: 1 })
+		verify(entityClient.loadRoot(tutanotaTypeRefs.ContactListTypeRef, group), { times: 1 })
 	})
 
 	o.test("init", async () => {
@@ -65,17 +64,17 @@ o.spec("ContactIndexer", () => {
 
 	o.spec("entityUpdates", () => {
 		const testContactId = "my contact"
-		let testContact: Contact
+		let testContact: tutanotaTypeRefs.Contact
 
 		o.beforeEach(() => {
-			testContact = createTestEntity(ContactTypeRef, { _id: [contactsListId, testContactId] })
-			when(entityClient.load(ContactTypeRef, testContact._id)).thenResolve(testContact)
+			testContact = createTestEntity(tutanotaTypeRefs.ContactTypeRef, { _id: [contactsListId, testContactId] })
+			when(entityClient.load(tutanotaTypeRefs.ContactTypeRef, testContact._id)).thenResolve(testContact)
 		})
 
 		o.test("ignores non contact updates", async () => {
-			const nonContactCreate = createUpdate(OperationType.CREATE, "hello", "world", MailTypeRef)
-			const nonContactDelete = createUpdate(OperationType.DELETE, "hello", "world", MailTypeRef)
-			const nonContactUpdate = createUpdate(OperationType.UPDATE, "hello", "world", MailTypeRef)
+			const nonContactCreate = createUpdate(OperationType.CREATE, "hello", "world", tutanotaTypeRefs.MailTypeRef)
+			const nonContactDelete = createUpdate(OperationType.DELETE, "hello", "world", tutanotaTypeRefs.MailTypeRef)
+			const nonContactUpdate = createUpdate(OperationType.UPDATE, "hello", "world", tutanotaTypeRefs.MailTypeRef)
 			await indexer.processEntityEvents([nonContactUpdate, nonContactCreate, nonContactDelete], "a", "b")
 			verify(entityClient.load(matchers.anything(), matchers.anything(), matchers.anything()), { times: 0 })
 			verify(backend.onContactDeleted(matchers.anything()), { times: 0 })
@@ -83,18 +82,18 @@ o.spec("ContactIndexer", () => {
 			verify(backend.onContactUpdated(matchers.anything()), { times: 0 })
 		})
 		o.test("create", async () => {
-			const contactCreate = createUpdate(OperationType.CREATE, contactsListId, testContactId, ContactTypeRef)
+			const contactCreate = createUpdate(OperationType.CREATE, contactsListId, testContactId, tutanotaTypeRefs.ContactTypeRef)
 			await indexer.processEntityEvents([contactCreate], "a", "b")
 			verify(backend.onContactCreated(testContact))
 		})
 		o.test("delete", async () => {
-			const contactDelete = createUpdate(OperationType.DELETE, contactsListId, testContactId, ContactTypeRef)
+			const contactDelete = createUpdate(OperationType.DELETE, contactsListId, testContactId, tutanotaTypeRefs.ContactTypeRef)
 			await indexer.processEntityEvents([contactDelete], "a", "b")
 			verify(backend.onContactDeleted([contactsListId, testContactId]))
 			verify(entityClient.load(matchers.anything(), matchers.anything(), matchers.anything()), { times: 0 })
 		})
 		o.test("update", async () => {
-			const contactUpdate = createUpdate(OperationType.UPDATE, contactsListId, testContactId, ContactTypeRef)
+			const contactUpdate = createUpdate(OperationType.UPDATE, contactsListId, testContactId, tutanotaTypeRefs.ContactTypeRef)
 			await indexer.processEntityEvents([contactUpdate], "a", "b")
 			verify(backend.onContactUpdated(testContact))
 		})
@@ -105,15 +104,13 @@ function createUpdate(
 	operation: OperationType,
 	instanceListId: NonEmptyString,
 	instanceId: Id,
-	typeRef: TypeRef<any> = ContactTypeRef,
-): EntityUpdateData<ListElementEntity | BlobElementEntity> {
+	typeRef: TypeRef<any> = tutanotaTypeRefs.ContactTypeRef,
+): entityUpdateUtils.EntityUpdateData {
 	return {
 		operation: operation,
 		instanceId: instanceId,
 		instanceListId: instanceListId,
 		typeRef: typeRef,
-		instance: null,
-		patches: null,
-		prefetchStatus: PrefetchStatus.NotPrefetched,
+		...noPatchesAndInstance,
 	}
 }

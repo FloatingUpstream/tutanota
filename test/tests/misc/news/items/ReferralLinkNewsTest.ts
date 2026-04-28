@@ -3,13 +3,13 @@ import { DateProvider } from "../../../../../src/common/api/common/DateProvider.
 import { NewsModel } from "../../../../../src/common/misc/news/NewsModel.js"
 import { object, replace, when } from "testdouble"
 import { ReferralLinkViewer } from "../../../../../src/common/misc/news/items/ReferralLinkViewer.js"
-import { getDayShifted } from "@tutao/tutanota-utils"
+import { getDayShifted } from "@tutao/utils"
 import { ReferralLinkNews } from "../../../../../src/common/misc/news/items/ReferralLinkNews.js"
-import { timestampToGeneratedId } from "../../../../../src/common/api/common/utils/EntityUtils.js"
+import { timestampToGeneratedId } from "@tutao/typerefs"
 import { UserController } from "../../../../../src/common/api/main/UserController.js"
-import { Customer, User } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
 import { initCommonLocator } from "../../../../../src/common/api/main/CommonLocator.js"
 import { IMailLocator } from "../../../../../src/mail-app/mailLocator.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 o.spec("ReferralLinkNews", function () {
 	let dateProvider: DateProvider
@@ -40,13 +40,13 @@ o.spec("ReferralLinkNews", function () {
 		newsModel = object()
 		referralViewModel = object()
 		userController = object()
-		const user: User = object()
-		const customer: Customer = object()
+		const user: sysTypeRefs.User = object()
+		const customer: sysTypeRefs.Customer = object()
 
 		replace(userController, "user", user)
 		replace(user, "customer", timestampToGeneratedId(0))
 		replace(customer, "referralCode", "referralCodeId")
-		when(userController.loadCustomer()).thenResolve(customer)
+		when(userController.reloadCustomer()).thenResolve(customer)
 
 		referralLinkNews = new ReferralLinkNews(newsModel, dateProvider, userController)
 	})

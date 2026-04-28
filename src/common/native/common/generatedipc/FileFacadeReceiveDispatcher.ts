@@ -51,7 +51,12 @@ export class FileFacadeReceiveDispatcher {
 				const targetUrl: string = arg[1]
 				const method: string = arg[2]
 				const headers: Record<string, string> = arg[3]
-				return this.facade.upload(fileUrl, targetUrl, method, headers)
+				const fileId: string = arg[4]
+				return this.facade.upload(fileUrl, targetUrl, method, headers, fileId)
+			}
+			case "abortUpload": {
+				const fileId: string = arg[0]
+				return this.facade.abortUpload(fileId)
 			}
 			case "download": {
 				const sourceUrl: string = arg[0]
@@ -59,6 +64,10 @@ export class FileFacadeReceiveDispatcher {
 				const headers: Record<string, string> = arg[2]
 				const fileId: string = arg[3]
 				return this.facade.download(sourceUrl, filename, headers, fileId)
+			}
+			case "abortDownload": {
+				const fileId: string = arg[0]
+				return this.facade.abortDownload(fileId)
 			}
 			case "hashFile": {
 				const fileUri: string = arg[0]
@@ -89,6 +98,10 @@ export class FileFacadeReceiveDispatcher {
 			case "readFromAppDir": {
 				const path: string = arg[0]
 				return this.facade.readFromAppDir(path)
+			}
+			case "deleteFromAppDir": {
+				const path: string = arg[0]
+				return this.facade.deleteFromAppDir(path)
 			}
 			case "readDataFile": {
 				const filePath: string = arg[0]

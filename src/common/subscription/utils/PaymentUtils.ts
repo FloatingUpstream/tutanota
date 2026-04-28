@@ -1,7 +1,5 @@
-import { AccountingInfo, AccountingInfoTypeRef, Braintree3ds2Request, InvoiceInfoTypeRef } from "../../api/entities/sys/TypeRefs"
 import { lang, TranslationKey } from "../../misc/LanguageViewModel"
-import { getClientType, type InvoiceData, Keys, PaymentData, PaymentDataResultType, PaymentMethodType, PlanType } from "../../api/common/TutanotaConstants"
-import { Country, CountryType } from "../../api/common/CountryList"
+import { countryList, type InvoiceData, Keys, PaymentDataResultType, PaymentMethodType, PlanType } from "@tutao/app-env"
 import { PowSolution } from "../../api/common/pow-worker"
 import { NewAccountData, type UpgradeSubscriptionData } from "../UpgradeSubscriptionWizard"
 import { locator } from "../../api/main/CommonLocator"
@@ -10,32 +8,32 @@ import { client } from "../../misc/ClientDetector"
 import { getPreconditionFailedPaymentMsg, PaymentErrorCode, SubscriptionApp } from "./SubscriptionUtils"
 import { SessionType } from "../../api/common/SessionType"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
-import { InvalidDataError, PreconditionFailedError } from "../../api/common/error/RestError"
-import { assertNotNull, neverNull, newPromise, noOp, ofClass, promiseMap } from "@tutao/tutanota-utils"
+import * as restError from "@tutao/rest-client/error"
+import { assertNotNull, neverNull, newPromise, noOp, ofClass, promiseMap } from "@tutao/utils"
 import { Dialog, DialogType } from "../../gui/base/Dialog"
 import { SignupViewModel } from "../../signup/SignupView"
 import { PaymentInterval } from "./PriceUtils"
 import { DefaultAnimationTime } from "../../gui/animation/Animations"
 import m from "mithril"
 import { Button, ButtonType } from "../../gui/base/Button"
-import { EntityEventsListener } from "../../api/main/EventController"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils"
 
-export function isOnAccountAllowed(country: Country | null, accountingInfo: AccountingInfo, isBusiness: boolean): boolean {
+import { entityUpdateUtils, getClientType, PaymentData, sysTypeRefs } from "@tutao/typerefs"
+
+export function isOnAccountAllowed(country: countryList.Country | null, accountingInfo: sysTypeRefs.AccountingInfo, isBusiness: boolean): boolean {
 	if (!country) {
 		return false
 	} else if (accountingInfo.paymentMethod === PaymentMethodType.Invoice) {
 		return true
 	} else {
-		return isBusiness && country.t !== CountryType.OTHER
+		return isBusiness && country.t !== countryList.CountryType.OTHER
 	}
 }
 
 /**
  * Displays a progress dialog that allows to cancel the verification and opens a new window to do the actual verification with the bank.
  */
-function verifyCreditCard(accountingInfo: AccountingInfo, braintree3ds: Braintree3ds2Request, price: string): Promise<boolean> {
-	return locator.entityClient.load(InvoiceInfoTypeRef, neverNull(accountingInfo.invoiceInfo)).then((invoiceInfo) => {
+function verifyCreditCard(accountingInfo: sysTypeRefs.AccountingInfo, braintree3ds: sysTypeRefs.Braintree3ds2Request, price: string): Promise<boolean> {
+	return locator.entityClient.load(sysTypeRefs.InvoiceInfoTypeRef, neverNull(accountingInfo.invoiceInfo)).then((invoiceInfo) => {
 		let invoiceInfoWrapper = {
 			invoiceInfo,
 		}
@@ -75,52 +73,55 @@ function verifyCreditCard(accountingInfo: AccountingInfo, braintree3ds: Braintre
 				exec: closeAction,
 				help: "close_alt",
 			})
-		let entityEventListener: EntityEventsListener = (updates: ReadonlyArray<EntityUpdateData>, eventOwnerGroupId: Id) => {
-			return promiseMap(updates, (update) => {
-				if (isUpdateForTypeRef(InvoiceInfoTypeRef, update)) {
-					return locator.entityClient.load(InvoiceInfoTypeRef, update.instanceId).then((invoiceInfo) => {
-						invoiceInfoWrapper.invoiceInfo = invoiceInfo
-						if (!invoiceInfo.paymentErrorInfo) {
-							// user successfully verified the card
-							progressDialog.close()
-							resolve(true)
-						} else if (invoiceInfo.paymentErrorInfo && invoiceInfo.paymentErrorInfo.errorCode === "card.3ds2_pending") {
-							// keep waiting. this error code is set before starting the 3DS2 verification and we just received the event very late
-						} else if (invoiceInfo.paymentErrorInfo && invoiceInfo.paymentErrorInfo.errorCode !== null) {
-							// verification error during 3ds verification
-							let error = "3dsFailedOther"
+		let entityEventListener: entityUpdateUtils.EntityEventsListener = {
+			onEntityUpdatesReceived: (updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>, eventOwnerGroupId: Id) => {
+				return promiseMap(updates, (update) => {
+					if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.InvoiceInfoTypeRef, update)) {
+						return locator.entityClient.load(sysTypeRefs.InvoiceInfoTypeRef, update.instanceId).then((invoiceInfo) => {
+							invoiceInfoWrapper.invoiceInfo = invoiceInfo
+							if (!invoiceInfo.paymentErrorInfo) {
+								// user successfully verified the card
+								progressDialog.close()
+								resolve(true)
+							} else if (invoiceInfo.paymentErrorInfo && invoiceInfo.paymentErrorInfo.errorCode === "card.3ds2_pending") {
+								// keep waiting. this error code is set before starting the 3DS2 verification and we just received the event very late
+							} else if (invoiceInfo.paymentErrorInfo && invoiceInfo.paymentErrorInfo.errorCode !== null) {
+								// verification error during 3ds verification
+								let error = "3dsFailedOther"
 
-							switch (invoiceInfo.paymentErrorInfo.errorCode as PaymentErrorCode) {
-								case "card.cvv_invalid":
-									error = "cvvInvalid"
-									break
-								case "card.number_invalid":
-									error = "ccNumberInvalid"
-									break
+								switch (invoiceInfo.paymentErrorInfo.errorCode as PaymentErrorCode) {
+									case "card.cvv_invalid":
+										error = "cvvInvalid"
+										break
+									case "card.number_invalid":
+										error = "ccNumberInvalid"
+										break
 
-								case "card.date_invalid":
-									error = "expirationDate"
-									break
-								case "card.insufficient_funds":
-									error = "insufficientFunds"
-									break
-								case "card.expired_card":
-									error = "cardExpired"
-									break
-								case "card.3ds2_failed":
-									error = "3dsFailed"
-									break
+									case "card.date_invalid":
+										error = "expirationDate"
+										break
+									case "card.insufficient_funds":
+										error = "insufficientFunds"
+										break
+									case "card.expired_card":
+										error = "cardExpired"
+										break
+									case "card.3ds2_failed":
+										error = "3dsFailed"
+										break
+								}
+
+								Dialog.message(getPreconditionFailedPaymentMsg(invoiceInfo.paymentErrorInfo.errorCode))
+								resolve(false)
+								progressDialog.close()
 							}
 
-							Dialog.message(getPreconditionFailedPaymentMsg(invoiceInfo.paymentErrorInfo.errorCode))
-							resolve(false)
-							progressDialog.close()
-						}
-
-						m.redraw()
-					})
-				}
-			}).then(noOp)
+							m.redraw()
+						})
+					}
+				}).then(noOp)
+			},
+			priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
 		}
 
 		locator.eventController.addEntityListener(entityEventListener)
@@ -143,10 +144,10 @@ export async function updatePaymentData(
 	paymentInterval: PaymentInterval,
 	invoiceData: InvoiceData,
 	paymentData: PaymentData | null,
-	confirmedCountry: Country | null,
+	confirmedCountry: countryList.Country | null,
 	isSignup: boolean,
 	price: string | null,
-	accountingInfo: AccountingInfo,
+	accountingInfo: sysTypeRefs.AccountingInfo,
 ): Promise<boolean> {
 	const paymentResult = await locator.customerFacade.updatePaymentData(paymentInterval, invoiceData, paymentData, confirmedCountry)
 	const statusCode = paymentResult.result
@@ -236,8 +237,8 @@ export function validatePaymentData({
 	isBusiness,
 }: {
 	paymentMethod: PaymentMethodType
-	country: Country | null
-	accountingInfo: AccountingInfo
+	country: countryList.Country | null
+	accountingInfo: sysTypeRefs.AccountingInfo
 	isBusiness: boolean
 }): TranslationKey | null {
 	if (!paymentMethod) {
@@ -262,7 +263,7 @@ export function getVisiblePaymentMethods({
 }: {
 	isBusiness: boolean
 	isBankTransferAllowed: boolean
-	accountingInfo: AccountingInfo | null
+	accountingInfo: sysTypeRefs.AccountingInfo | null
 }): Array<{
 	name: string
 	value: PaymentMethodType
@@ -300,8 +301,6 @@ export function getVisiblePaymentMethods({
 export function validateInvoiceData({ address, isBusiness }: { address: string; isBusiness: boolean }): TranslationKey | null {
 	if (isBusiness && (address.trim() === "" || address.split("\n").length > 5)) {
 		return "invoiceAddressInfoBusiness_msg"
-	} else if (address.split("\n").length > 4) {
-		return "invoiceAddressInfoBusiness_msg"
 	}
 	// no error
 	return null
@@ -314,14 +313,14 @@ export function getInvoiceData({
 	vatNumber,
 }: {
 	address: string
-	country: Country
+	country: countryList.Country
 	isBusiness: boolean
 	vatNumber: string
 }): InvoiceData {
 	return {
 		invoiceAddress: address,
 		country: country,
-		vatNumber: country?.t === CountryType.EU && isBusiness ? vatNumber : "",
+		vatNumber: country?.t === countryList.CountryType.EU && isBusiness ? vatNumber : "",
 	}
 }
 
@@ -406,7 +405,7 @@ export async function signup(
 	return showProgressDialog("createAccountRunning_msg", signupActionPromise, operation.progress)
 		.catch(
 			ofClass(
-				InvalidDataError,
+				restError.TooManyRequestsError,
 				() =>
 					({
 						variant: "fatalFailure",
@@ -415,7 +414,7 @@ export async function signup(
 			),
 		)
 		.catch(
-			ofClass(PreconditionFailedError, (e) =>
+			ofClass(restError.PreconditionFailedError, (e) =>
 				e.data === "registration-mail-address-unavailable"
 					? ({
 							variant: "recoverableFailure",
@@ -456,9 +455,9 @@ export async function createAccount(data: UpgradeSubscriptionData | SignupViewMo
 
 	if (!data.customer || !data.accountingInfo) {
 		const userController = locator.logins.getUserController()
-		data.customer = await userController.loadCustomer()
+		data.customer = await userController.reloadCustomer()
 		const customerInfo = await userController.loadCustomerInfo()
-		data.accountingInfo = await locator.entityClient.load(AccountingInfoTypeRef, customerInfo.accountingInfo)
+		data.accountingInfo = await locator.entityClient.load(sysTypeRefs.AccountingInfoTypeRef, customerInfo.accountingInfo)
 	}
 
 	// If the user has selected a paid plan we want to prevent them from selecting a free plan at this point,

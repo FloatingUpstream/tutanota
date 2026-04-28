@@ -6,7 +6,7 @@ import { Icons } from "../../../gui/base/icons/Icons"
 import { LoginButton } from "../../../gui/base/buttons/LoginButton"
 import { theme } from "../../../gui/theme"
 import { QrCodePageErrorType } from "./VerificationByQrCodeInputPage"
-import { IdentityKeyVerificationMethod } from "../../../api/common/TutanotaConstants"
+import { IdentityKeyVerificationMethod } from "@tutao/app-env"
 
 type VerificationErrorPageAttrs = {
 	model: KeyVerificationModel
@@ -49,7 +49,7 @@ export class VerificationErrorPage implements Component<VerificationErrorPageAtt
 			m(TitleSection, {
 				title,
 				subTitle,
-				icon: Icons.CloseCircleOutline,
+				icon: Icons.FailureOutline,
 				iconOptions: { color: theme.error },
 			}),
 			m(LoginButton, {

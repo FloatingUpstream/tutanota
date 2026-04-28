@@ -1,9 +1,9 @@
-import { isIOSApp } from "../api/common/Env.js"
-import { Const } from "../api/common/TutanotaConstants.js"
+import { Const } from "@tutao/app-env"
 import { UserController } from "../api/main/UserController.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { UserManagementFacade } from "../api/worker/facades/lazy/UserManagementFacade.js"
 import { CustomerFacade } from "../api/worker/facades/lazy/CustomerFacade.js"
+import { isIOSApp } from "@tutao/app-env"
 
 // the customer may have been reminded when they were a free account, so we can't use lastUpgradeReminder being null as a marker.
 // we use a date that's shortly before we started issuing reminders for legacy accounts and after we started only allowing new plans as upgrades.
@@ -30,7 +30,7 @@ export async function shouldShowUpgradeReminder(userController: UserController, 
 			customerProperties.lastUpgradeReminder != null &&
 			date.getTime() - customerProperties.lastUpgradeReminder.getTime() > Const.REPEATED_UPGRADE_REMINDER_INTERVAL_MS
 		return isOldEnoughForInitialReminder || wasRemindedLongAgo
-	} else if (!(await userController.loadCustomer()).businessUse) {
+	} else if (!(await userController.reloadCustomer()).businessUse) {
 		// i'm a private legacy paid account. show once.
 		// we don't have to check account age - all legacy accounts are old enough by now.
 		return customerProperties.lastUpgradeReminder == null || customerProperties.lastUpgradeReminder.getTime() < reminderCutoffDate.getTime()

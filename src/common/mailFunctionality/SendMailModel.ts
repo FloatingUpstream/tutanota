@@ -1,33 +1,22 @@
-import { assertMainOrNode } from "../api/common/Env.js"
-import { DataFile } from "../api/common/DataFile.js"
-import { FileReference } from "../api/common/utils/FileUtils.js"
-import {
-	ContactTypeRef,
-	ConversationEntry,
-	ConversationEntryTypeRef,
-	FileTypeRef,
-	Mail,
-	MailboxProperties,
-	MailboxPropertiesTypeRef,
-	MailDetails,
-	MailDetailsDraftTypeRef,
-	MailTypeRef,
-} from "../api/entities/tutanota/TypeRefs.js"
 import {
 	ApprovalStatus,
+	assertMainOrNode,
 	CalendarAttendeeStatus,
 	ConversationType,
+	daysToMillis,
 	MailMethod,
 	MAX_ATTACHMENT_SIZE,
+	minutesToMillis,
 	OperationType,
 	ReplyType,
-} from "../api/common/TutanotaConstants.js"
+} from "@tutao/app-env"
+import { DataFile } from "../api/common/DataFile.js"
+import { FileReference } from "../api/common/utils/FileUtils.js"
 import { PartialRecipient, Recipient, RecipientList, Recipients, RecipientType } from "../api/common/recipients/Recipient.js"
 import {
 	assertNotNull,
 	cleanMatch,
 	contains,
-	daysToMillis,
 	deduplicate,
 	defer,
 	DeferredObject,
@@ -35,17 +24,17 @@ import {
 	findAndRemove,
 	getFromMap,
 	LazyLoaded,
-	minutesToMillis,
 	neverNull,
 	noOp,
 	ofClass,
 	promiseMap,
 	remove,
+	stringToCustomId,
 	typedValues,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
-import type { File as TutanotaFile } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { elementIdPart, entityUpdateUtils, getElementId, isSameId, monitorTypeRefs, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { checkAttachmentSize, getDefaultSender, getTemplateLanguages, isAliasEnabledWithUser, isUserEmail, RecipientField } from "./SharedMailUtils.js"
 import { cloneInlineImages, InlineImages, revokeInlineImages } from "./inlineImagesUtils.js"
 import { RecipientsModel, ResolvableRecipient } from "../api/main/RecipientsModel.js"
@@ -55,30 +44,19 @@ import { EntityClient } from "../api/common/EntityClient.js"
 import { LoginController } from "../api/main/LoginController.js"
 import { EventController } from "../api/main/EventController.js"
 import { DateProvider } from "../api/common/DateProvider.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../api/common/utils/EntityUpdateUtils.js"
+
 import { UserController } from "../api/main/UserController.js"
 import { cleanMailAddress, findRecipientWithAddress } from "../api/common/utils/CommonCalendarUtils.js"
 import { getPasswordStrengthForUser, isSecurePassword, PASSWORD_MIN_SECURE_VALUE } from "../misc/passwords/PasswordUtils.js"
-import {
-	AccessBlockedError,
-	LockedError,
-	NotAuthorizedError,
-	NotFoundError,
-	PayloadTooLargeError,
-	PreconditionFailedError,
-	TooManyRequestsError,
-} from "../api/common/error/RestError.js"
-import { ProgrammingError } from "../api/common/error/ProgrammingError.js"
+import * as restError from "@tutao/rest-client/error"
+import { ProgrammingError } from "@tutao/app-env"
 import { UserError } from "../api/main/UserError.js"
 import { getSenderName } from "../misc/MailboxPropertiesUtils.js"
 import { RecipientNotResolvedError } from "../api/common/error/RecipientNotResolvedError.js"
 import { RecipientsNotFoundError } from "../api/common/error/RecipientsNotFoundError.js"
 import { checkApprovalStatus } from "../misc/LoginUtils.js"
 import { FileNotFoundError } from "../api/common/error/FileNotFoundError.js"
-import { elementIdPart, isSameId, stringToCustomId } from "../api/common/utils/EntityUtils.js"
 import { MailBodyTooLargeError } from "../api/common/error/MailBodyTooLargeError.js"
-import { createApprovalMail } from "../api/entities/monitor/TypeRefs.js"
-import { CustomerPropertiesTypeRef } from "../api/entities/sys/TypeRefs.js"
 import { isMailAddress } from "../misc/FormatValidator.js"
 import { MailboxDetail, MailboxModel } from "./MailboxModel.js"
 import { ContactModel } from "../contactsFunctionality/ContactModel.js"
@@ -89,6 +67,8 @@ import { EventInviteEmailType } from "../../calendar-app/calendar/view/CalendarN
 import { SyncTracker } from "../api/main/SyncTracker"
 import { AutosaveFacade } from "../api/worker/facades/lazy/AutosaveFacade"
 import { Time } from "../calendar/date/Time"
+import { UndoModel } from "../../mail-app/UndoModel"
+import { isAliasEnabledForGroupInfo } from "../api/common/utils/GroupUtils"
 
 assertMainOrNode()
 
@@ -106,14 +86,14 @@ export const enum SendAtStatus {
 	TooFarInTheFuture,
 }
 
-export type Attachment = TutanotaFile | DataFile | FileReference
+export type Attachment = tutanotaTypeRefs.File | DataFile | FileReference
 
 export type InitAsResponseArgs = {
-	previousMail: Mail
+	previousMail: tutanotaTypeRefs.Mail
 	conversationType: ConversationType
 	senderMailAddress: string
 	recipients: Recipients
-	attachments: TutanotaFile[]
+	attachments: tutanotaTypeRefs.File[]
 	subject: string
 	bodyText: string
 	replyTos: RecipientList
@@ -125,11 +105,11 @@ type InitArgs = {
 	bodyText: string
 	recipients: Recipients
 	confidential: boolean | null
-	draft?: Mail | null
+	draft?: tutanotaTypeRefs.Mail | null
 	senderMailAddress?: string
 	attachments?: ReadonlyArray<Attachment>
 	replyTos?: RecipientList
-	previousMail?: Mail | null
+	previousMail?: tutanotaTypeRefs.Mail | null
 	previousMessageId?: string | null
 	initialChangedState: boolean | null
 }
@@ -145,7 +125,7 @@ export class SendMailModel {
 	loadedInlineImages: InlineImages = new Map()
 
 	// Isn't private because used by MinimizedEditorOverlay, refactor?
-	draft: Mail | null = null
+	draft: tutanotaTypeRefs.Mail | null = null
 	private conversationType: ConversationType = ConversationType.NEW
 	private subject: string = ""
 	private body: string = ""
@@ -162,7 +142,7 @@ export class SendMailModel {
 	// only needs to be the correct value if this is a new email. if we are editing a draft, conversationType is not used
 	private previousMessageId: Id | null = null
 
-	private previousMail: Mail | null = null
+	private previousMail: tutanotaTypeRefs.Mail | null = null
 	private selectedNotificationLanguage: string
 	private availableNotificationTemplateLanguages: Array<Language> = []
 	private mailChangedAt: number = 0
@@ -198,10 +178,11 @@ export class SendMailModel {
 		public readonly mailboxDetails: MailboxDetail,
 		private readonly recipientsModel: RecipientsModel,
 		private readonly dateProvider: DateProvider,
-		private mailboxProperties: MailboxProperties,
+		private mailboxProperties: tutanotaTypeRefs.MailboxProperties,
 		private readonly autosaveFacade: AutosaveFacade,
-		private readonly needNewDraft: (mail: Mail) => Promise<boolean>,
+		private readonly needNewDraft: (mail: tutanotaTypeRefs.Mail) => Promise<boolean>,
 		private readonly syncTracker: SyncTracker,
+		readonly undoModel: UndoModel | null,
 	) {
 		const userProps = logins.getUserController().props
 		this.senderAddress = this.getDefaultSender()
@@ -212,10 +193,13 @@ export class SendMailModel {
 		this.eventController.addEntityListener(this.entityEventReceived)
 	}
 
-	private readonly entityEventReceived = async (updates: ReadonlyArray<EntityUpdateData>) => {
-		for (const update of updates) {
-			await this.handleEntityEvent(update)
-		}
+	private readonly entityEventReceived: entityUpdateUtils.EntityEventsListener = {
+		onEntityUpdatesReceived: async (updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>) => {
+			for (const update of updates) {
+				await this.handleEntityEvent(update)
+			}
+		},
+		priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
 	}
 
 	/**
@@ -242,7 +226,7 @@ export class SendMailModel {
 		return !this.mailboxDetails.mailGroup.user
 	}
 
-	getPreviousMail(): Mail | null {
+	getPreviousMail(): tutanotaTypeRefs.Mail | null {
 		return this.previousMail
 	}
 
@@ -459,12 +443,12 @@ export class SendMailModel {
 		const { previousMail, conversationType, senderMailAddress, recipients, attachments, subject, bodyText, replyTos } = args
 		let previousMessageId: string | null = null
 		await this.entity
-			.load(ConversationEntryTypeRef, previousMail.conversationEntry)
+			.load(tutanotaTypeRefs.ConversationEntryTypeRef, previousMail.conversationEntry)
 			.then((ce) => {
 				previousMessageId = ce.messageId
 			})
 			.catch(
-				ofClass(NotFoundError, (e) => {
+				ofClass(restError.NotFoundError, (e) => {
 					console.log("could not load conversation entry", e)
 				}),
 			)
@@ -488,28 +472,28 @@ export class SendMailModel {
 	}
 
 	async initWithDraft(
-		draft: Mail,
-		draftDetails: MailDetails,
-		conversationEntry: ConversationEntry,
-		attachments: TutanotaFile[],
+		draft: tutanotaTypeRefs.Mail,
+		draftDetails: tutanotaTypeRefs.MailDetails,
+		conversationEntry: tutanotaTypeRefs.ConversationEntry,
+		attachments: Attachment[],
 		inlineImages: InlineImages,
 	): Promise<SendMailModel> {
 		this.startInit()
 
 		let previousMessageId: string | null = null
-		let previousMail: Mail | null = null
+		let previousMail: tutanotaTypeRefs.Mail | null = null
 
 		const conversationType = downcast<ConversationType>(conversationEntry.conversationType)
 
 		if (conversationEntry.previous) {
 			try {
-				const previousEntry = await this.entity.load(ConversationEntryTypeRef, conversationEntry.previous)
+				const previousEntry = await this.entity.load(tutanotaTypeRefs.ConversationEntryTypeRef, conversationEntry.previous)
 				previousMessageId = previousEntry.messageId
 				if (previousEntry.mail) {
-					previousMail = await this.entity.load(MailTypeRef, previousEntry.mail)
+					previousMail = await this.entity.load(tutanotaTypeRefs.MailTypeRef, previousEntry.mail)
 				}
 			} catch (e) {
-				if (e instanceof NotFoundError) {
+				if (e instanceof restError.NotFoundError) {
 					// ignore
 				} else {
 					throw e
@@ -746,10 +730,12 @@ export class SendMailModel {
 		return findRecipientWithAddress(this.getRecipientList(type), address)
 	}
 
-	removeRecipientByAddress(address: string, type: RecipientField, notify: boolean = true) {
-		const recipient = findRecipientWithAddress(this.getRecipientList(type), address)
-		if (recipient) {
-			this.removeRecipient(recipient, type, notify)
+	removeRecipientByAddress(address: string, recipientFields: RecipientField[], notify: boolean = true) {
+		for (const recipientField of recipientFields) {
+			const recipient = findRecipientWithAddress(this.getRecipientList(recipientField), address)
+			if (recipient) {
+				this.removeRecipient(recipient, recipientField, notify)
+			}
 		}
 	}
 
@@ -808,11 +794,11 @@ export class SendMailModel {
 		return getSenderName(this.mailboxProperties, this.senderAddress) ?? ""
 	}
 
-	getDraft(): Readonly<Mail> | null {
+	getDraft(): Readonly<tutanotaTypeRefs.Mail> | null {
 		return this.draft
 	}
 
-	private async updateDraft(body: string, attachments: ReadonlyArray<Attachment> | null, draft: Mail): Promise<Mail> {
+	private async updateDraft(body: string, attachments: ReadonlyArray<Attachment> | null, draft: tutanotaTypeRefs.Mail): Promise<tutanotaTypeRefs.Mail> {
 		return this.mailFacade
 			.updateDraft({
 				subject: this.getSubject(),
@@ -827,20 +813,20 @@ export class SendMailModel {
 				draft: draft,
 			})
 			.catch(
-				ofClass(LockedError, (e) => {
+				ofClass(restError.LockedError, (e) => {
 					console.log("updateDraft: operation is still active", e)
 					throw new UserError("operationStillActive_msg")
 				}),
 			)
 			.catch(
-				ofClass(NotFoundError, (e) => {
+				ofClass(restError.NotFoundError, (e) => {
 					console.log("draft has been deleted, creating new one")
 					return this.createDraft(body, attachments, downcast(draft.method))
 				}),
 			)
 	}
 
-	private async createDraft(body: string, attachments: ReadonlyArray<Attachment> | null, mailMethod: MailMethod): Promise<Mail> {
+	private async createDraft(body: string, attachments: ReadonlyArray<Attachment> | null, mailMethod: MailMethod): Promise<tutanotaTypeRefs.Mail> {
 		return this.mailFacade.createDraft({
 			subject: this.getSubject(),
 			bodyText: body,
@@ -962,22 +948,17 @@ export class SendMailModel {
 	async send(
 		mailMethod: MailMethod,
 		getConfirmation: (arg0: MaybeTranslation) => Promise<boolean> = (_) => Promise.resolve(true),
-		waitHandler: (arg0: MaybeTranslation, arg1: Promise<any>) => Promise<any> = (_, p) => p,
+		waitHandler: (arg0: MaybeTranslation, arg1: Promise<SendMailResult>) => Promise<unknown> = (_, p) => p,
 		sendAt: Date | null = null,
 		tooManyRequestsError: TranslationKey = "tooManyMails_msg",
-	): Promise<boolean> {
+		allowUndo: boolean = false,
+	): Promise<SendMailResult> {
 		// To avoid parallel invocations do not do anything async here that would later execute the sending.
 		// It is fine to wait for getConfirmation() because it is modal and will prevent the user from triggering multiple sends.
 		// If you need to do something async here put it into `asyncSend`
 		//
 		// You can't rely on resolved recipients here, only after waitForResolvedRecipients() inside asyncSend()!
 		this.onBeforeSend()
-
-		if (this.allRecipients().length === 1 && this.allRecipients()[0].address.toLowerCase().trim() === "approval@tutao.de") {
-			await this.sendApprovalMail(this.getBody())
-			await this.clearLocalAutosave() // because this approval mail is "sent" in an odd way, it will not clear the local autosave
-			return true
-		}
 
 		if (this.toRecipients().length === 0 && this.ccRecipients().length === 0 && this.bccRecipients().length === 0) {
 			throw new UserError("noRecipients_msg")
@@ -987,12 +968,27 @@ export class SendMailModel {
 
 		// Many recipients is a warning
 		if (numVisibleRecipients >= TOO_MANY_VISIBLE_RECIPIENTS && !(await getConfirmation("manyRecipients_msg"))) {
-			return false
+			return {
+				success: false,
+				sendJob: null,
+			}
 		}
 
 		// Empty subject is a warning
 		if (this.getSubject().length === 0 && !(await getConfirmation("noSubject_msg"))) {
-			return false
+			return {
+				success: false,
+				sendJob: null,
+			}
+		}
+
+		if (this.allRecipients().length === 1 && this.allRecipients()[0].address.toLowerCase().trim() === "approval@tutao.de") {
+			await this.sendApprovalMail(this.getBody())
+			await this.clearLocalAutosave() // because this approval mail is "sent" in an odd way, it will not clear the local autosave
+			return {
+				success: true,
+				sendJob: null,
+			}
 		}
 
 		const asyncSend = async () => {
@@ -1007,25 +1003,46 @@ export class SendMailModel {
 
 			// Weak password is a warning
 			if (this.isConfidentialExternal() && this.hasInsecurePasswords() && !(await getConfirmation("presharedPasswordNotStrongEnough_msg"))) {
-				return false
+				return {
+					success: false,
+					sendJob: null,
+				}
 			}
 
-			// Don't safe unnecessarily.
-			if (this.hasMailChanged() || this.draft == null) {
+			// The draft might have been moved, sent, or scheduled from another client
+			// So load up-to-date mail when checking if a new draft is needed
+			if (
+				this.hasMailChanged() ||
+				this.draft == null ||
+				(await this.needNewDraft(await this.entity.load(tutanotaTypeRefs.MailTypeRef, this.draft._id)))
+			) {
+				// Don't save unnecessarily.
 				await this.saveDraft(true, mailMethod)
 			}
 
 			await this.updateContacts(recipients)
-			await this.mailFacade.sendDraft(assertNotNull(this.draft, "draft was null?"), recipients, this.selectedNotificationLanguage, sendAt)
+			const sendReturn = await this.mailFacade.sendDraft(
+				assertNotNull(this.draft, "draft was null?"),
+				recipients,
+				this.selectedNotificationLanguage,
+				sendAt,
+				allowUndo,
+			)
 			await this.clearLocalAutosave() // no need to keep a local copy of a draft of an email that was sent
 			await this.updatePreviousMail()
-			await this.updateExternalLanguage()
-			return true
+			this.updateExternalLanguage()
+			return {
+				success: true,
+				sendJob: sendReturn.sendJob,
+			}
 		}
 
-		return waitHandler(this.getWaitMessage(), asyncSend())
+		const sendPromise = asyncSend()
+
+		return waitHandler(this.getWaitMessage(), sendPromise)
+			.then(() => sendPromise, undefined)
 			.catch(
-				ofClass(LockedError, () => {
+				ofClass(restError.LockedError, () => {
 					throw new UserError("operationStillActive_msg")
 				}),
 			) // catch all of the badness
@@ -1051,16 +1068,19 @@ export class SendMailModel {
 				}),
 			)
 			.catch(
-				ofClass(TooManyRequestsError, () => {
+				ofClass(restError.TooManyRequestsError, () => {
 					throw new UserError(tooManyRequestsError)
 				}),
 			)
 			.catch(
-				ofClass(AccessBlockedError, (e) => {
+				ofClass(restError.TooManyRequestsError, (e) => {
 					// special case: the approval status is set to SpamSender, but the update has not been received yet, so use SpamSender as default
 					return checkApprovalStatus(this.logins, true, ApprovalStatus.SPAM_SENDER).then(() => {
 						console.log("could not send mail (blocked access)", e)
-						return false
+						return {
+							success: false,
+							sendJob: null,
+						}
 					})
 				}),
 			)
@@ -1070,8 +1090,12 @@ export class SendMailModel {
 				}),
 			)
 			.catch(
-				ofClass(PreconditionFailedError, () => {
-					throw new UserError("operationStillActive_msg")
+				ofClass(restError.PreconditionFailedError, (e) => {
+					if (e.data?.includes("send_mail.too_many_attachments")) {
+						throw new UserError("tooManyAttachments_msg")
+					} else {
+						throw new UserError("operationStillActive_msg")
+					}
 				}),
 			)
 			.catch(
@@ -1089,6 +1113,11 @@ export class SendMailModel {
 					import("../settings/keymanagement/KeyVerificationRecoveryDialog.js").then(({ showMultiRecipientsKeyVerificationRecoveryDialog }) =>
 						showMultiRecipientsKeyVerificationRecoveryDialog(failedRecipients),
 					)
+
+					return {
+						success: false,
+						sendJob: null,
+					}
 				}),
 			)
 	}
@@ -1153,15 +1182,16 @@ export class SendMailModel {
 			this._draftSavedRecently = true
 			this.waitUntilSync = false
 
-			//load the updated mail to check if the draft is already scheduled in another client
-			const upToDateDraft = this.draft && (await this.entity.load(MailTypeRef, this.draft._id))
+			// the draft might have been moved, sent, or scheduled from another client.
+			// Load up-to-date mail when checking if a new draft is needed
+			const upToDateDraft = this.draft && (await this.entity.load(tutanotaTypeRefs.MailTypeRef, this.draft._id))
 			this.draft =
 				upToDateDraft == null || (await this.needNewDraft(upToDateDraft))
 					? await this.createDraft(body, attachments, mailMethod)
 					: await this.updateDraft(body, attachments, upToDateDraft)
 
 			const attachmentIds = await this.mailFacade.getAttachmentIds(this.draft)
-			const newAttachments = await promiseMap(attachmentIds, (fileId) => this.entity.load<TutanotaFile>(FileTypeRef, fileId), {
+			const newAttachments = await promiseMap(attachmentIds, (fileId) => this.entity.load<tutanotaTypeRefs.File>(tutanotaTypeRefs.FileTypeRef, fileId), {
 				concurrency: 5,
 			})
 
@@ -1173,13 +1203,13 @@ export class SendMailModel {
 			this.setMailSavedAt(this.dateProvider.now())
 			this.mailRemotelyUpdatedAt = this.mailSavedAt
 		} catch (e) {
-			if (e instanceof PayloadTooLargeError) {
+			if (e instanceof restError.TooManyRequestsError) {
 				throw new UserError("requestTooLarge_msg")
 			} else if (e instanceof MailBodyTooLargeError) {
 				throw new UserError("mailBodyTooLarge_msg")
 			} else if (e instanceof FileNotFoundError) {
 				throw new UserError("couldNotAttachFile_msg")
-			} else if (e instanceof PreconditionFailedError) {
+			} else if (e instanceof restError.PreconditionFailedError) {
 				throw new UserError("operationStillActive_msg")
 			} else {
 				throw e
@@ -1204,7 +1234,7 @@ export class SendMailModel {
 
 	private sendApprovalMail(body: string): Promise<unknown> {
 		const listId = "---------c--"
-		const m = createApprovalMail({
+		const m = monitorTypeRefs.createApprovalMail({
 			_id: [listId, stringToCustomId(this.senderAddress)],
 			_ownerGroup: this.user().user.userGroup.group,
 			text: `Subject: ${this.getSubject()}<br>${body}`,
@@ -1212,7 +1242,7 @@ export class SendMailModel {
 			range: null,
 			customer: null,
 		})
-		return this.entity.setup(listId, m).catch(ofClass(NotAuthorizedError, (e) => console.log("not authorized for approval message")))
+		return this.entity.setup(listId, m).catch(ofClass(restError.NotAuthorizedError, (e) => console.log("not authorized for approval message")))
 	}
 
 	getAvailableNotificationTemplateLanguages(): Array<Language> {
@@ -1253,7 +1283,7 @@ export class SendMailModel {
 				return Promise.resolve()
 			}
 
-			return this.entity.update(this.previousMail).catch(ofClass(NotFoundError, noOp))
+			return this.entity.update(this.previousMail).catch(ofClass(restError.NotFoundError, noOp))
 		} else {
 			return Promise.resolve()
 		}
@@ -1294,22 +1324,22 @@ export class SendMailModel {
 	async waitForResolvedRecipients(): Promise<Recipient[]> {
 		await this.recipientsResolved.getAsync()
 		return Promise.all(this.allRecipients().map((recipient) => recipient.resolve())).catch(
-			ofClass(TooManyRequestsError, () => {
+			ofClass(restError.TooManyRequestsError, () => {
 				throw new RecipientNotResolvedError("")
 			}),
 		)
 	}
 
-	async handleEntityEvent(update: EntityUpdateData): Promise<void> {
+	async handleEntityEvent(update: entityUpdateUtils.EntityUpdateData): Promise<void> {
 		const { operation, instanceId, instanceListId } = update
 		let contactId: IdTuple = [neverNull(instanceListId), instanceId]
 		let changed = false
 
-		if (isUpdateForTypeRef(ContactTypeRef, update)) {
+		if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactTypeRef, update)) {
 			await this.recipientsResolved.getAsync()
 
 			if (operation === OperationType.UPDATE) {
-				const contact = await this.entity.load(ContactTypeRef, contactId)
+				const contact = await this.entity.load(tutanotaTypeRefs.ContactTypeRef, contactId)
 
 				for (const fieldType of typedValues(RecipientField)) {
 					const matching = this.getRecipientList(fieldType).filter((recipient) => recipient.contact && isSameId(recipient.contact._id, contact._id))
@@ -1336,11 +1366,15 @@ export class SendMailModel {
 					}
 				}
 			}
-		} else if (isUpdateForTypeRef(CustomerPropertiesTypeRef, update)) {
+		} else if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.CustomerPropertiesTypeRef, update)) {
 			await this.updateAvailableNotificationTemplateLanguages()
-		} else if (isUpdateForTypeRef(MailboxPropertiesTypeRef, update) && operation === OperationType.UPDATE) {
-			this.mailboxProperties = await this.entity.load(MailboxPropertiesTypeRef, update.instanceId)
-		} else if (isUpdateForTypeRef(MailDetailsDraftTypeRef, update) && operation === OperationType.UPDATE && this.draft != null) {
+		} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.MailboxPropertiesTypeRef, update) && operation === OperationType.UPDATE) {
+			this.mailboxProperties = await this.entity.load(tutanotaTypeRefs.MailboxPropertiesTypeRef, update.instanceId)
+		} else if (
+			entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.MailDetailsDraftTypeRef, update) &&
+			operation === OperationType.UPDATE &&
+			this.draft != null
+		) {
 			const mailDetailsDraftId = assertNotNull(this.draft.mailDetailsDraft)
 			if (isSameId(update.instanceId, elementIdPart(mailDetailsDraftId))) {
 				if (this._draftSavedRecently) {
@@ -1351,6 +1385,13 @@ export class SendMailModel {
 						this.mailRemotelyUpdatedAt = this.mailSavedAt + 1
 					}
 					await this.makeLocalAutosave()
+				}
+			}
+		} else if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.GroupInfoTypeRef, update) && operation === OperationType.UPDATE) {
+			if (isSameId(getElementId(this.user().userGroupInfo), update.instanceId)) {
+				const groupInfo = await this.entity.load(sysTypeRefs.GroupInfoTypeRef, [update.instanceListId, update.instanceId])
+				if (!isAliasEnabledForGroupInfo(groupInfo, this.senderAddress)) {
+					this.senderAddress = this.getDefaultSender()
 				}
 			}
 		}
@@ -1415,4 +1456,9 @@ function recipientsFilter(recipientList: ReadonlyArray<PartialRecipient>): Array
 			cleaned: cleanMailAddress(a.address),
 		}))
 	return deduplicate(cleanedList, (a, b) => a.cleaned === b.cleaned).map((a) => a.recipient)
+}
+
+export interface SendMailResult {
+	success: boolean
+	sendJob: IdTuple | null
 }

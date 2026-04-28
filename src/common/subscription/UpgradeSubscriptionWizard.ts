@@ -1,25 +1,14 @@
-import type { Hex } from "@tutao/tutanota-utils"
-import { defer } from "@tutao/tutanota-utils"
-import { AccountingInfo, Customer } from "../api/entities/sys/TypeRefs.js"
-import {
-	AvailablePlans,
-	AvailablePlanType,
-	getDefaultPaymentMethod,
-	getPaymentMethodType,
-	InvoiceData,
-	NewPaidPlans,
-	PaymentData,
-	PlanType,
-	SubscriptionType,
-} from "../api/common/TutanotaConstants"
-import { getByAbbreviation } from "../api/common/CountryList"
+import type { Hex } from "@tutao/utils"
+import { defer } from "@tutao/utils"
+import { InvoiceData, NewPaidPlans, UpgradePromptType } from "@tutao/app-env"
+import { countryList } from "@tutao/app-env"
 import stream from "mithril/stream"
 import { InfoLink, lang, MaybeTranslation, Translation, TranslationKey } from "../misc/LanguageViewModel"
 import { createWizardDialog, wizardPageWrapper } from "../gui/base/WizardDialog.js"
 import { InvoiceAndPaymentDataPage, InvoiceAndPaymentDataPageAttrs } from "./InvoiceAndPaymentDataPage"
 import { UpgradeCongratulationsPage, UpgradeCongratulationsPageAttrs } from "./UpgradeCongratulationsPage.js"
 import { SignupPage, SignupPageAttrs } from "./SignupPage"
-import { assertMainOrNode, isIOSApp } from "../api/common/Env"
+import { assertMainOrNode, AvailablePlans, AvailablePlanType, isIOSApp, PlanType, SubscriptionType } from "@tutao/app-env"
 import { locator } from "../api/main/CommonLocator"
 import { StorageBehavior } from "../misc/UsageTestModel"
 import { FeatureListProvider, SelectedSubscriptionOptions } from "./FeatureListProvider"
@@ -37,6 +26,8 @@ import { ReferralType, SignupFlowUsageTestController } from "./usagetest/Upgrade
 import { isPersonalPlanAvailable } from "./utils/PlanSelectorUtils"
 import { PowSolution } from "../api/common/pow-worker"
 import { windowFacade } from "../misc/WindowFacade"
+import type { UsageTest } from "@tutao/usagetests"
+import { getDefaultPaymentMethod, getPaymentMethodType, PaymentData, sysTypeRefs, UpgradePromptTypeByName } from "@tutao/typerefs"
 
 assertMainOrNode()
 export type SubscriptionParameters = {
@@ -59,9 +50,9 @@ export type UpgradeSubscriptionData = {
 	targetPlanType: PlanType
 	price: SubscriptionPrice | null
 	nextYearPrice: SubscriptionPrice | null
-	accountingInfo: AccountingInfo | null
+	accountingInfo: sysTypeRefs.AccountingInfo | null
 	// not initially set for signup but loaded in InvoiceAndPaymentDataPage
-	customer: Customer | null
+	customer: sysTypeRefs.Customer | null
 	// not initially set for signup but loaded in InvoiceAndPaymentDataPage
 	newAccountData: NewAccountData | null
 	registrationDataId: string | null
@@ -81,21 +72,37 @@ export type UpgradeSubscriptionData = {
 	powChallengeSolutionPromise?: Promise<PowSolution>
 	emailInputStore?: string
 	passwordInputStore?: string
+	upgradeUsageTest: UsageTest | null
 }
 
 export async function showUpgradeWizard({
+	upgradePromptType,
 	logins,
 	isCalledBySatisfactionDialog = false,
 	acceptedPlans = NewPaidPlans,
 	msg,
 }: {
+	upgradePromptType: UpgradePromptType | null
 	logins: LoginController
 	isCalledBySatisfactionDialog?: boolean
 	acceptedPlans?: readonly AvailablePlanType[]
 	msg?: Translation
 }): Promise<void> {
 	SignupFlowUsageTestController.invalidateUsageTest() // Invalidates the "signup.flow" usage test, because upgrades and signups should not be mixed in this usage test.
-	const [customer, accountingInfo] = await Promise.all([logins.getUserController().loadCustomer(), logins.getUserController().loadAccountingInfo()])
+
+	let upgradeUsageTest: UsageTest | null = null
+	if (logins.getUserController().isFreeAccount() && upgradePromptType != null) {
+		upgradeUsageTest = locator.usageTestController.getTest("upgrade.paywall.upgradePaywallType")
+
+		const stage = upgradeUsageTest.getStage(0)
+		stage.setMetric({
+			name: "upgradePromptType",
+			value: UpgradePromptTypeByName[upgradePromptType],
+		})
+		await stage.complete()
+	}
+
+	const [customer, accountingInfo] = await Promise.all([logins.getUserController().reloadCustomer(), logins.getUserController().loadAccountingInfo()])
 
 	const priceDataProvider = await PriceAndConfigProvider.getInitializedInstance(null, locator.serviceExecutor, null)
 
@@ -109,7 +116,7 @@ export async function showUpgradeWizard({
 		},
 		invoiceData: {
 			invoiceAddress: formatNameAndAddress(accountingInfo.invoiceName, accountingInfo.invoiceAddress),
-			country: accountingInfo.invoiceCountry ? getByAbbreviation(accountingInfo.invoiceCountry) : null,
+			country: accountingInfo.invoiceCountry ? countryList.getByAbbreviation(accountingInfo.invoiceCountry) : null,
 			vatNumber: accountingInfo.invoiceVatIdNo, // only for EU countries otherwise empty
 		},
 		paymentData: {
@@ -135,9 +142,10 @@ export async function showUpgradeWizard({
 		msg: msg ?? null,
 		firstMonthForFreeOfferActive: prices.firstMonthForFreeForYearlyPlan,
 		isCalledBySatisfactionDialog,
+		upgradeUsageTest,
 	}
 
-	let { pageClass: planPageClass, attrs: planPageAttrs } = initPlansPages(upgradeData)
+	let { pageClass: planPageClass, attrs: planPageAttrs } = { pageClass: SubscriptionPage, attrs: new SubscriptionPageAttrs(upgradeData) }
 	const wizardPages = [
 		wizardPageWrapper(planPageClass, planPageAttrs),
 		wizardPageWrapper(InvoiceAndPaymentDataPage, new InvoiceAndPaymentDataPageAttrs(upgradeData)),
@@ -152,6 +160,18 @@ export async function showUpgradeWizard({
 		data: upgradeData,
 		pages: wizardPages,
 		closeAction: async () => {
+			if (upgradeUsageTest != null) {
+				const stage = upgradeUsageTest.getStage(1)
+
+				if (!stage.isMetricSet("upgradeResult")) {
+					stage.setMetric({
+						name: "upgradeResult",
+						value: "Dismissed",
+					})
+					stage.complete()
+				}
+			}
+
 			deferred.resolve()
 		},
 		dialogType: DialogType.EditLarge,
@@ -233,11 +253,16 @@ export async function loadSignupWizard(
 		msg: message,
 		firstMonthForFreeOfferActive: prices.firstMonthForFreeForYearlyPlan,
 		isCalledBySatisfactionDialog: false,
+		upgradeUsageTest: null,
 	}
 
 	const invoiceAttrs = new InvoiceAndPaymentDataPageAttrs(signupData)
 	const confirmSubscriptionAttrs = new UpgradeConfirmSubscriptionPageAttrs(signupData)
-	const plansPage = initPlansPages(signupData)
+	let referralConversion: ReferralType = "not_referred"
+	if (signupData.referralData && signupData.referralData.isCalledBySatisfactionDialog) referralConversion = "satisfactiondialog_referral"
+	else if (signupData.referralData && !signupData.referralData.isCalledBySatisfactionDialog) referralConversion = "organic_referral"
+	SignupFlowUsageTestController.initSignupFlowUsageTest(referralConversion)
+	const plansPage = { pageClass: SubscriptionPage, attrs: new SubscriptionPageAttrs(signupData) }
 	const loginViewModelFactory = await locator.loginViewModelFactory()
 	const wizardPages = [
 		wizardPageWrapper(plansPage.pageClass, plansPage.attrs),
@@ -276,15 +301,4 @@ export async function loadSignupWizard(
 	confirmSubscriptionAttrs.setEnabledFunction(() => signupData.targetPlanType !== PlanType.Free && wizardBuilder.attrs.currentPage !== wizardPages[0])
 
 	wizardBuilder.dialog.show()
-}
-
-function initPlansPages(signupData: UpgradeSubscriptionData): {
-	pageClass: Class<SubscriptionPage>
-	attrs: SubscriptionPageAttrs
-} {
-	let referralConversion: ReferralType = "not_referred"
-	if (signupData.referralData && signupData.referralData.isCalledBySatisfactionDialog) referralConversion = "satisfactiondialog_referral"
-	else if (signupData.referralData && !signupData.referralData.isCalledBySatisfactionDialog) referralConversion = "organic_referral"
-	SignupFlowUsageTestController.initSignupFlowUsageTest(referralConversion)
-	return { pageClass: SubscriptionPage, attrs: new SubscriptionPageAttrs(signupData) }
 }

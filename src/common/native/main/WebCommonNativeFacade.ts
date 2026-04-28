@@ -1,6 +1,6 @@
 import { CommonNativeFacade } from "../common/generatedipc/CommonNativeFacade.js"
 import { lang, MaybeTranslation, TranslationKey } from "../../misc/LanguageViewModel.js"
-import { decodeBase64, lazyAsync, newPromise, noOp, ofClass } from "@tutao/tutanota-utils"
+import { decodeBase64, lazyAsync, newPromise, noOp, ofClass } from "@tutao/utils"
 import { CancelledError } from "../../api/common/error/CancelledError.js"
 import { UserError } from "../../api/main/UserError.js"
 import m from "mithril"
@@ -9,16 +9,15 @@ import { AttachmentType, getAttachmentType } from "../../gui/AttachmentBubble.js
 import { showRequestPasswordDialog } from "../../misc/passwords/PasswordRequestDialog.js"
 import { LoginController } from "../../api/main/LoginController.js"
 import { MailboxModel } from "../../mailFunctionality/MailboxModel.js"
-import { UsageTestController } from "@tutao/tutanota-usagetests"
+import { UsageTestController } from "@tutao/usagetests"
 import { NativeFileApp } from "../common/FileApp.js"
 import { NativePushServiceApp } from "./NativePushServiceApp.js"
 import { locator } from "../../api/main/CommonLocator.js"
 import { AppType } from "../../misc/ClientConstants.js"
-import { ContactTypeRef } from "../../api/entities/tutanota/TypeRefs.js"
-import { isDesktop } from "../../api/common/Env"
-import { HighestTierPlans } from "../../api/common/TutanotaConstants.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { CalendarOpenAction } from "../common/generatedipc/CalendarOpenAction.js"
 import { BlobFacade } from "../../api/worker/facades/lazy/BlobFacade"
+import { isDesktop, isHighestTierPlan } from "@tutao/app-env"
 
 export class WebCommonNativeFacade implements CommonNativeFacade {
 	constructor(
@@ -52,7 +51,7 @@ export class WebCommonNativeFacade implements CommonNativeFacade {
 		const decodedContactId = decodeBase64("utf-8", contactId)
 		const idParts = decodedContactId.split("/")
 		try {
-			const contact = await locator.entityClient.load(ContactTypeRef, [idParts[0], idParts[1]])
+			const contact = await locator.entityClient.load(tutanotaTypeRefs.ContactTypeRef, [idParts[0], idParts[1]])
 			const editor = new ContactEditor(locator.entityClient, contact)
 
 			return editor.show()
@@ -123,7 +122,6 @@ export class WebCommonNativeFacade implements CommonNativeFacade {
 				} else if (isDesktop() && allFilesAreMail) {
 					// importing mails is currently only allowed on plan LEGEND and UNLIMITED
 					const currentPlanType = await locator.logins.getUserController().getPlanType()
-					const isHighestTierPlan = HighestTierPlans.includes(currentPlanType)
 
 					let importAction: { text: MaybeTranslation; value: boolean } = {
 						text: "import_action",
@@ -133,7 +131,7 @@ export class WebCommonNativeFacade implements CommonNativeFacade {
 						text: "attachFiles_action",
 						value: false,
 					}
-					willImport = isHighestTierPlan && (await Dialog.choice("emlOrMboxInSharingFiles_msg", [importAction, attachFilesAction]))
+					willImport = isHighestTierPlan(currentPlanType) && (await Dialog.choice("emlOrMboxInSharingFiles_msg", [importAction, attachFilesAction]))
 				}
 
 				if (willImport) {
@@ -252,5 +250,9 @@ export class WebCommonNativeFacade implements CommonNativeFacade {
 
 	async downloadProgress(fileId: string, bytes: number): Promise<void> {
 		await this.blobFacade.nativeDownloadProgress(fileId, bytes)
+	}
+
+	async uploadProgress(fileId: string, bytes: number): Promise<void> {
+		await this.blobFacade.nativeUploadProgress(fileId, bytes)
 	}
 }

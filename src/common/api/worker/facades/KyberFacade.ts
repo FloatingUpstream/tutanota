@@ -1,6 +1,6 @@
-import { LazyLoaded } from "@tutao/tutanota-utils"
+import { LazyLoaded } from "@tutao/utils"
 import { NativeCryptoFacade } from "../../../native/common/generatedipc/NativeCryptoFacade.js"
-import { assertWorkerOrNode } from "../../common/Env.js"
+import { assertWorkerOrNode } from "@tutao/app-env"
 import {
 	decapsulateKyber,
 	encapsulateKyber,
@@ -12,7 +12,7 @@ import {
 	KyberPublicKey,
 	LibOQSExports,
 	random,
-} from "@tutao/tutanota-crypto"
+} from "@tutao/crypto"
 import { loadWasm } from "liboqs.wasm"
 
 assertWorkerOrNode()

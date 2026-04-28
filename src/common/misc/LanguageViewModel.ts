@@ -1,7 +1,7 @@
-import { downcast, lazy, typedEntries } from "@tutao/tutanota-utils"
+import { downcast, lazy, typedEntries } from "@tutao/utils"
 import type { TranslationKeyType } from "./TranslationKey"
 import { getWhitelabelCustomizations, WhitelabelCustomizations } from "./WhitelabelCustomizations"
-import { assertMainOrNodeBoot } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 
 /**
  * A translation key is a string that maps to a translation text.

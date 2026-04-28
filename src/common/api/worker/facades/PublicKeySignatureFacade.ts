@@ -1,12 +1,11 @@
-import { assertWorkerOrNode } from "../../common/Env.js"
+import { asPublicKeySignatureType, assertWorkerOrNode, PublicKeySignatureType } from "@tutao/app-env"
 import { Ed25519Facade, EncodedEd25519Signature } from "./Ed25519Facade"
-import { createPublicKeySignature, PublicKeySignature } from "../../entities/sys/TypeRefs"
-import { byteArraysToBytes, bytesToByteArrays, KeyVersion, Versioned } from "@tutao/tutanota-utils"
-import { InvalidDataError } from "../../common/error/RestError"
-import { asPublicKeySignatureType, PublicKeySignatureType } from "../../common/TutanotaConstants"
-import { checkKeyVersionConstraints } from "./KeyLoaderFacade"
+import { byteArraysToBytes, bytesToByteArrays, KeyVersion, Versioned } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
 import {
 	AsymmetricKeyPair,
+	cryptoUtils,
+	CryptoWrapper,
 	Ed25519PrivateKey,
 	Ed25519PublicKey,
 	isPqKeyPairs,
@@ -19,8 +18,8 @@ import {
 	kyberPublicKeyToBytes,
 	PublicKey,
 	rsaPublicKeyToBytes,
-} from "@tutao/tutanota-crypto"
-import { CryptoWrapper } from "../crypto/CryptoWrapper"
+} from "@tutao/crypto"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertWorkerOrNode()
 
@@ -74,13 +73,13 @@ export class PublicKeySignatureFacade {
 		const keyPairVersionAsBytes = new Uint8Array(1)
 		const signatureTypeAsBytes = new Uint8Array(1)
 		if (versionedPublicKey.version > 255) {
-			throw new InvalidDataError("currently not possible to parse key pair versions that do not fit into one byte")
+			throw new restError.TooManyRequestsError("currently not possible to parse key pair versions that do not fit into one byte")
 		}
 		keyPairVersionAsBytes[0] = versionedPublicKey.version
 
 		const signatureTypeEnumValue = parseInt(signatureType)
 		if (signatureTypeEnumValue > 255) {
-			throw new InvalidDataError("currently not possible to parse signature types that do not fit into one byte")
+			throw new restError.TooManyRequestsError("currently not possible to parse signature types that do not fit into one byte")
 		}
 		signatureTypeAsBytes[0] = signatureTypeEnumValue
 
@@ -97,13 +96,13 @@ export class PublicKeySignatureFacade {
 		const byteArrays = bytesToByteArrays(serializedPublicKey, 4)
 
 		if (byteArrays[0].length !== 1) {
-			throw new InvalidDataError("signature types greater than one byte are not yet supported")
+			throw new restError.TooManyRequestsError("signature types greater than one byte are not yet supported")
 		}
 		if (byteArrays[1].length !== 1) {
-			throw new InvalidDataError("key pair versions greater than one byte are not yet supported")
+			throw new restError.TooManyRequestsError("key pair versions greater than one byte are not yet supported")
 		}
 		const signatureType: PublicKeySignatureType = asPublicKeySignatureType(byteArrays[0][0].toString())
-		const encryptionKeyPairVersion = checkKeyVersionConstraints(byteArrays[1][0])
+		const encryptionKeyPairVersion = cryptoUtils.checkKeyVersionConstraints(byteArrays[1][0])
 		const pubEccKey = byteArrays[2]
 		const secondPubKeyComponent = byteArrays[3]
 		switch (signatureType) {
@@ -139,7 +138,7 @@ export class PublicKeySignatureFacade {
 	async signPublicKey(
 		versionedEncryptionKeyPair: Versioned<AsymmetricKeyPair>,
 		privateIdentityKey: Versioned<Ed25519PrivateKey>,
-	): Promise<PublicKeySignature> {
+	): Promise<sysTypeRefs.PublicKeySignature> {
 		const encryptionKeyPair = versionedEncryptionKeyPair.object
 		let publicEncryptionKey = this.extractAndValidatePublicKey(encryptionKeyPair)
 		const { encodedKeyPairForSigning, signatureType } = this.serializePublicKeyForSigning({
@@ -147,7 +146,7 @@ export class PublicKeySignatureFacade {
 			version: versionedEncryptionKeyPair.version,
 		})
 		const signatureBytes = await this.ed25519Facade.sign(privateIdentityKey.object, encodedKeyPairForSigning)
-		return createPublicKeySignature({
+		return sysTypeRefs.createPublicKeySignature({
 			signature: signatureBytes,
 			signingKeyVersion: privateIdentityKey.version.toString(),
 			signatureType,

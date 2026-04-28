@@ -1,7 +1,7 @@
 import m from "mithril"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { AccessBlockedError, AccessDeactivatedError, NotAuthenticatedError, TooManyRequestsError } from "../../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
 import { isMailAddress } from "../../misc/FormatValidator.js"
 import { Autocomplete, TextField, TextFieldType } from "../../gui/base/TextField.js"
@@ -13,7 +13,7 @@ import { client } from "../../misc/ClientDetector.js"
 import { CancelledError } from "../../api/common/error/CancelledError"
 import { locator } from "../../api/main/CommonLocator"
 import { windowFacade } from "../../misc/WindowFacade.js"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { createDropdown, DropdownButtonAttrs } from "../../gui/base/Dropdown.js"
 import { IconButton, IconButtonAttrs } from "../../gui/base/IconButton.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
@@ -43,7 +43,7 @@ export function show(mailAddress?: string | null, resetAction?: ResetAction): Di
 	const resetActionButtonAttrs: IconButtonAttrs = {
 		title: "action_label",
 		click: resetActionClickHandler,
-		icon: Icons.Edit,
+		icon: Icons.PenFilled,
 		size: ButtonSize.Compact,
 	}
 	const selectedValueLabelStream = selectedAction.map((v) => {
@@ -150,14 +150,14 @@ async function deleteCredentialsByMailAddress(cleanMailAddress: string) {
 }
 
 function handleError(e: Error) {
-	if (e instanceof NotAuthenticatedError) {
+	if (e instanceof restError.NotAuthenticatedError) {
 		Dialog.message("loginFailed_msg")
-	} else if (e instanceof AccessBlockedError || e instanceof AccessDeactivatedError) {
+	} else if (e instanceof restError.AccessBlockedError || e instanceof restError.AccessDeactivatedError) {
 		Dialog.message("loginFailedOften_msg")
 	} else if (e instanceof CancelledError) {
 		// Thrown when second factor dialog is cancelled
 		m.redraw()
-	} else if (e instanceof TooManyRequestsError) {
+	} else if (e instanceof restError.TooManyRequestsError) {
 		Dialog.message("tooManyAttempts_msg")
 	} else {
 		throw e

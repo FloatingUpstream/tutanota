@@ -1,7 +1,7 @@
 import o from "@tutao/otest"
 import { lang, languageCodeToTag, languages } from "../../../src/common/misc/LanguageViewModel.js"
 import { formatDate, urlEncodeHtmlTags } from "../../../src/common/misc/Formatter.js"
-import { BirthdayTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { _getNumDaysInMonth, parseBirthday, parseDate } from "../../../src/common/misc/DateParser.js"
 import { createTestEntity } from "../TestUtils.js"
 
@@ -223,7 +223,7 @@ o.spec("Formatter", function () {
 	})
 
 	function _checkparseBirthdayWithFormatter(text: string, expectedDay: number, expectedMonth: number, expectedYear: number | null | undefined) {
-		let expected = createTestEntity(BirthdayTypeRef)
+		let expected = createTestEntity(tutanotaTypeRefs.BirthdayTypeRef)
 		expected._id = ""
 		expected.day = String(expectedDay)
 		expected.month = String(expectedMonth)

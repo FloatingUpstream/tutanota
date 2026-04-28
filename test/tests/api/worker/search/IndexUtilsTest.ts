@@ -7,14 +7,11 @@ import {
 	typeRefToTypeInfo,
 	userIsGlobalAdmin,
 } from "../../../../../src/common/api/common/utils/IndexUtils.js"
-import { base64ToUint8Array, byteLength, concat, utf8Uint8ArrayToString } from "@tutao/tutanota-utils"
+import { base64ToUint8Array, byteLength, concat, utf8Uint8ArrayToString } from "@tutao/utils"
 import type { SearchIndexEntry, SearchIndexMetaDataRow } from "../../../../../src/common/api/worker/search/SearchTypes.js"
-import { GroupMembershipTypeRef, UserTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
-import { ContactTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { GroupType } from "../../../../../src/common/api/common/TutanotaConstants.js"
-import { aes256RandomKey, fixedIv, unauthenticatedAesDecrypt } from "@tutao/tutanota-crypto"
+import { ClientModelInfo, tutanotaTypeRefs, sysTypeRefs } from "@tutao/typerefs"
+import { aes256RandomKey, aesDecryptUnauthenticated, FIXED_IV } from "@tutao/crypto"
 import { createTestEntity } from "../../../TestUtils.js"
-import { ClientModelInfo } from "../../../../../src/common/api/common/EntityFunctions"
 import {
 	decryptMetaData,
 	decryptSearchIndexEntry,
@@ -23,12 +20,13 @@ import {
 	encryptMetaData,
 	encryptSearchIndexEntry,
 } from "../../../../../src/common/api/worker/search/IndexEncryptionUtils"
+import { GroupType } from "../../../../../src/app-env"
 
 o.spec("Index Utils", () => {
 	o("encryptIndexKey", function () {
 		let key = aes256RandomKey()
-		let encryptedKey = encryptIndexKeyBase64(key, "blubb", fixedIv)
-		let decrypted = unauthenticatedAesDecrypt(key, concat(fixedIv, base64ToUint8Array(encryptedKey)), true)
+		let encryptedKey = encryptIndexKeyBase64(key, "blubb", FIXED_IV)
+		let decrypted = aesDecryptUnauthenticated(key, concat(FIXED_IV, base64ToUint8Array(encryptedKey)))
 		o(utf8Uint8ArrayToString(decrypted)).equals("blubb")
 	})
 	o("encryptSearchIndexEntry + decryptSearchIndexEntry", function () {
@@ -38,16 +36,16 @@ o.spec("Index Utils", () => {
 			attribute: 84,
 			positions: [12, 536, 3],
 		}
-		let encId = encryptIndexKeyUint8Array(key, entry.id, fixedIv)
+		let encId = encryptIndexKeyUint8Array(key, entry.id, FIXED_IV)
 		let encryptedEntry = encryptSearchIndexEntry(key, entry, encId)
 		// attribute 84 => 0x54,
 		// position[0] 12 => 0xC
 		// position[1] 536 = 0x218 => length of number = 2 | 0x80 = 0x82 numbers: 0x02, 0x18
 		// position[2] 3 => 0x03
 		const encodedIndexEntry = [0x54, 0xc, 0x82, 0x02, 0x18, 0x03]
-		const result = unauthenticatedAesDecrypt(key, encryptedEntry.slice(16), true)
+		const result = aesDecryptUnauthenticated(key, encryptedEntry.slice(16))
 		o(Array.from(result)).deepEquals(Array.from(encodedIndexEntry))
-		let decrypted = decryptSearchIndexEntry(key, encryptedEntry, fixedIv)
+		let decrypted = decryptSearchIndexEntry(key, encryptedEntry, FIXED_IV)
 		o(JSON.stringify(decrypted.encId)).equals(JSON.stringify(encId))
 		const withoutEncId: any = decrypted
 		delete withoutEncId.encId
@@ -78,7 +76,7 @@ o.spec("Index Utils", () => {
 		const encryptedMeta = encryptMetaData(key, meta)
 		o(encryptedMeta.id).equals(meta.id)
 		o(encryptedMeta.word).equals(meta.word)
-		o(Array.from(unauthenticatedAesDecrypt(key, encryptedMeta.rows, true))).deepEquals([
+		o(Array.from(aesDecryptUnauthenticated(key, encryptedMeta.rows))).deepEquals([
 			// First row
 			1,
 			64,
@@ -110,7 +108,7 @@ o.spec("Index Utils", () => {
 		let thrown = false
 
 		try {
-			typeRefToTypeInfo(UserTypeRef)
+			typeRefToTypeInfo(sysTypeRefs.UserTypeRef)
 		} catch (e) {
 			thrown = true
 		}
@@ -118,13 +116,13 @@ o.spec("Index Utils", () => {
 		o(thrown).equals(true)
 		// o(typeRefToTypeInfo(UserTypeRef).appId).equals(0)
 		// o(typeRefToTypeInfo(UserTypeRef).typeId).equals(UserTypeModel.id)
-		o(typeRefToTypeInfo(ContactTypeRef).appId).equals(1)
-		const ContactTypeModel = await ClientModelInfo.getNewInstanceForTestsOnly().resolveClientTypeReference(ContactTypeRef)
-		o(typeRefToTypeInfo(ContactTypeRef).typeId).equals(ContactTypeModel.id)
+		o(typeRefToTypeInfo(tutanotaTypeRefs.ContactTypeRef).appId).equals(1)
+		const ContactTypeModel = await ClientModelInfo.getNewInstanceForTestsOnly().resolveClientTypeReference(tutanotaTypeRefs.ContactTypeRef)
+		o(typeRefToTypeInfo(tutanotaTypeRefs.ContactTypeRef).typeId).equals(ContactTypeModel.id)
 	})
 	o("userIsGlobalAdmin", function () {
-		let user = createTestEntity(UserTypeRef)
-		user.memberships.push(createTestEntity(GroupMembershipTypeRef))
+		let user = createTestEntity(sysTypeRefs.UserTypeRef)
+		user.memberships.push(createTestEntity(sysTypeRefs.GroupMembershipTypeRef))
 		user.memberships[0].groupType = GroupType.Admin
 		o(userIsGlobalAdmin(user)).equals(true)
 		user.memberships[0].groupType = GroupType.Deprecated_LocalAdmin
@@ -133,64 +131,65 @@ o.spec("Index Utils", () => {
 		o(userIsGlobalAdmin(user)).equals(false)
 	})
 	o("filterIndexMemberships", function () {
-		const adminGroup = createTestEntity(GroupMembershipTypeRef, {
+		const adminGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Admin,
 		})
-		const contactGroup = createTestEntity(GroupMembershipTypeRef, {
+		const contactGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Contact,
 		})
-		const customerGroup = createTestEntity(GroupMembershipTypeRef, {
+		const customerGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Customer,
 		})
-		const externalGroup = createTestEntity(GroupMembershipTypeRef, {
+		const externalGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.External,
 		})
-		const fileGroup = createTestEntity(GroupMembershipTypeRef, {
+		const fileGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.File,
 		})
-		const mailGroup = createTestEntity(GroupMembershipTypeRef, {
+		const mailGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Mail,
 		})
-		const mailingListGroup = createTestEntity(GroupMembershipTypeRef, {
+		const mailingListGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.MailingList,
 		})
-		const userGroup = createTestEntity(GroupMembershipTypeRef, {
+		const userGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.User,
 		})
-		const user = createTestEntity(UserTypeRef, {
-			memberships: [adminGroup, contactGroup, customerGroup, externalGroup, fileGroup, mailGroup, mailingListGroup, userGroup],
+		const user = createTestEntity(sysTypeRefs.UserTypeRef, {
+			memberships: [adminGroup, contactGroup, customerGroup, externalGroup, fileGroup, mailGroup, mailingListGroup],
+			userGroup: userGroup,
 		})
 		o(filterIndexMemberships(user)).deepEquals([contactGroup, mailGroup])
 	})
 	o("filterMailMemberships", function () {
-		const adminGroup = createTestEntity(GroupMembershipTypeRef, {
+		const adminGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Admin,
 		})
-		const contactGroup = createTestEntity(GroupMembershipTypeRef, {
+		const contactGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Contact,
 		})
-		const customerGroup = createTestEntity(GroupMembershipTypeRef, {
+		const customerGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Customer,
 		})
-		const externalGroup = createTestEntity(GroupMembershipTypeRef, {
+		const externalGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.External,
 		})
-		const fileGroup = createTestEntity(GroupMembershipTypeRef, {
+		const fileGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.File,
 		})
-		const mailGroup1 = createTestEntity(GroupMembershipTypeRef, {
+		const mailGroup1 = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Mail,
 		})
-		const mailingListGroup = createTestEntity(GroupMembershipTypeRef, {
+		const mailingListGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.MailingList,
 		})
-		const userGroup = createTestEntity(GroupMembershipTypeRef, {
+		const userGroup = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.User,
 		})
-		const mailGroup2 = createTestEntity(GroupMembershipTypeRef, {
+		const mailGroup2 = createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			groupType: GroupType.Mail,
 		})
-		const user = createTestEntity(UserTypeRef, {
+		const user = createTestEntity(sysTypeRefs.UserTypeRef, {
 			memberships: [adminGroup, contactGroup, customerGroup, externalGroup, fileGroup, mailGroup1, mailGroup2, mailingListGroup, userGroup],
 		})
 
@@ -205,7 +204,7 @@ o.spec("Index Utils", () => {
 		o(byteLength("💩")).equals(4)
 	})
 	o("new index update", function () {
-		let indexUpdate = _createNewIndexUpdate(typeRefToTypeInfo(MailTypeRef))
+		let indexUpdate = _createNewIndexUpdate(typeRefToTypeInfo(tutanotaTypeRefs.MailTypeRef))
 
 		o(indexUpdate.create.encInstanceIdToElementData instanceof Map).equals(true)
 		o(indexUpdate.create.indexMap instanceof Map).equals(true)

@@ -1,4 +1,4 @@
-import { assertMainOrNodeBoot } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import { isColorLight } from "./base/Color"
 
 assertMainOrNodeBoot()
@@ -77,6 +77,9 @@ export type Theme = {
 	il_outline: string
 	il_ne_outline: string
 	il_highlight: string
+	il_sign_up_flow_switch: string
+	il_sign_up_flow_switch_2: string
+	il_sign_up_flow_switch_4: string
 	/**
 	 * @deprecated Use not experimental color tokens instead.
 	 */
@@ -91,6 +94,12 @@ export type Theme = {
 	experimental_tertiary: string
 	go_european: string
 	on_go_european: string
+	// Drive icon colors
+	drive_folder: string
+	drive_document: string
+	drive_image: string
+	drive_video: string
+	drive_audio: string
 }
 
 const themeSingleton = {}

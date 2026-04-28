@@ -1,6 +1,6 @@
 import m, { Children, Vnode, VnodeDOM } from "mithril"
 import stream from "mithril/stream"
-import { mapNullable, neverNull, noOp, ofClass } from "@tutao/tutanota-utils"
+import { mapNullable, neverNull, noOp, ofClass } from "@tutao/utils"
 import type { WizardPageAttrs, WizardPageN } from "../../gui/base/WizardDialog.js"
 import { createWizardDialog, emitWizardEvent, WizardEventType, wizardPageWrapper } from "../../gui/base/WizardDialog.js"
 import { LoginController } from "../../api/main/LoginController"
@@ -12,8 +12,7 @@ import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
 import { SignupForm } from "../SignupForm"
 import { UserError } from "../../api/main/UserError"
 import { showUserError } from "../../misc/ErrorHandlerImpl"
-import type { AccountingInfo, GiftCardRedeemGetReturn } from "../../api/entities/sys/TypeRefs.js"
-import { AccountingInfoTypeRef, CustomerInfoTypeRef } from "../../api/entities/sys/TypeRefs.js"
+import { elementIdPart, isSameId, sysTypeRefs } from "@tutao/typerefs"
 import { locator } from "../../api/main/CommonLocator"
 import { getTokenFromUrl, renderAcceptGiftCardTermsCheckbox, renderGiftCardSvg } from "./GiftCardUtils"
 import { CancelledError } from "../../api/common/error/CancelledError"
@@ -21,22 +20,22 @@ import { lang } from "../../misc/LanguageViewModel"
 import { getLoginErrorMessage, handleExpectedLoginError } from "../../misc/LoginUtils"
 import { RecoverCodeField } from "../../settings/login/RecoverCodeDialog.js"
 import { HabReminderImage } from "../../gui/base/icons/Icons"
-import { PaymentMethodType, PlanType } from "../../api/common/TutanotaConstants"
 import { formatPrice, getPaymentMethodName, PaymentInterval, PriceAndConfigProvider } from "../utils/PriceUtils"
 import { TextField } from "../../gui/base/TextField.js"
-import { elementIdPart, isSameId } from "../../api/common/utils/EntityUtils"
 import { CredentialsProvider } from "../../misc/credentials/CredentialsProvider.js"
 import { SessionType } from "../../api/common/SessionType.js"
-import { NotAuthorizedError, NotFoundError } from "../../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { GiftCardFacade } from "../../api/worker/facades/lazy/GiftCardFacade.js"
 import { EntityClient } from "../../api/common/EntityClient.js"
-import { Country, getByAbbreviation } from "../../api/common/CountryList.js"
+import { countryList } from "@tutao/app-env"
 import { renderCountryDropdown } from "../../gui/base/GuiUtils.js"
 import { UpgradePriceType } from "../FeatureListProvider"
 import { SecondFactorHandler } from "../../misc/2fa/SecondFactorHandler.js"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { CredentialsInfo } from "../../native/common/generatedipc/CredentialsInfo.js"
 import { signup } from "../utils/PaymentUtils"
+import { MessageBanner } from "../../gui/base/MessageBanner"
+import { PaymentMethodType, PlanType } from "@tutao/app-env"
 
 const enum GetCredentialsMethod {
 	Login,
@@ -49,15 +48,16 @@ class RedeemGiftCardModel {
 	credentialsMethod = GetCredentialsMethod.Signup
 
 	// accountingInfo is loaded after the user logs in, before redeeming the gift card
-	accountingInfo: AccountingInfo | null = null
+	accountingInfo: sysTypeRefs.AccountingInfo | null = null
 
 	constructor(
 		private readonly config: {
-			giftCardInfo: GiftCardRedeemGetReturn
+			giftCardInfo: sysTypeRefs.GiftCardRedeemGetReturn
 			key: string
 			premiumPrice: number
 			storedCredentials: ReadonlyArray<CredentialsInfo>
 			hashFromUrl: string
+			hasActiveCampaign: boolean
 		},
 		private readonly giftCardFacade: GiftCardFacade,
 		private readonly credentialsProvider: CredentialsProvider,
@@ -66,7 +66,7 @@ class RedeemGiftCardModel {
 		private readonly entityClient: EntityClient,
 	) {}
 
-	get giftCardInfo(): GiftCardRedeemGetReturn {
+	get giftCardInfo(): sysTypeRefs.GiftCardRedeemGetReturn {
 		return this.config.giftCardInfo
 	}
 
@@ -96,6 +96,9 @@ class RedeemGiftCardModel {
 
 	get storedCredentials(): ReadonlyArray<CredentialsInfo> {
 		return this.config.storedCredentials
+	}
+	get hasActivecampaign(): boolean {
+		return this.config.hasActiveCampaign
 	}
 
 	async loginWithStoredCredentials(encryptedCredentials: CredentialsInfo) {
@@ -139,7 +142,7 @@ class RedeemGiftCardModel {
 		}
 	}
 
-	async redeemGiftCard(country: Country | null): Promise<void> {
+	async redeemGiftCard(country: countryList.Country | null): Promise<void> {
 		if (country == null) {
 			throw new UserError("invoiceCountryInfoBusiness_msg")
 		}
@@ -147,12 +150,12 @@ class RedeemGiftCardModel {
 		return this.giftCardFacade
 			.redeemGiftCard(this.giftCardId, this.key, country?.a ?? null)
 			.catch(
-				ofClass(NotFoundError, () => {
+				ofClass(restError.NotFoundError, () => {
 					throw new UserError("invalidGiftCard_msg")
 				}),
 			)
 			.catch(
-				ofClass(NotAuthorizedError, (e) => {
+				ofClass(restError.NotAuthorizedError, (e) => {
 					throw new UserError(lang.makeTranslation("error_msg", e.message))
 				}),
 			)
@@ -164,9 +167,9 @@ class RedeemGiftCardModel {
 		}
 
 		await this.secondFactorHandler.closeWaitingForSecondFactorDialog()
-		const customer = await this.logins.getUserController().loadCustomer()
-		const customerInfo = await this.entityClient.load(CustomerInfoTypeRef, customer.customerInfo)
-		this.accountingInfo = await this.entityClient.load(AccountingInfoTypeRef, customerInfo.accountingInfo)
+		const customer = await this.logins.getUserController().reloadCustomer()
+		const customerInfo = await this.entityClient.load(sysTypeRefs.CustomerInfoTypeRef, customer.customerInfo)
+		this.accountingInfo = await this.entityClient.load(sysTypeRefs.AccountingInfoTypeRef, customerInfo.accountingInfo)
 
 		if (PaymentMethodType.AppStore === this.accountingInfo.paymentMethod) {
 			throw new UserError("redeemGiftCardWithAppStoreSubscription_msg")
@@ -193,7 +196,7 @@ class GiftCardWelcomePage implements WizardPageN<RedeemGiftCardModel> {
 
 	view(vnode: Vnode<GiftCardRedeemAttrs>): Children {
 		const a = vnode.attrs
-
+		const hasActiveCampaign = a.data.hasActivecampaign
 		const nextPage = (method: GetCredentialsMethod) => {
 			locator.logins.logout(false).then(() => {
 				a.data.credentialsMethod = method
@@ -203,6 +206,7 @@ class GiftCardWelcomePage implements WizardPageN<RedeemGiftCardModel> {
 		}
 
 		return [
+			hasActiveCampaign ? m(MessageBanner, { type: "warning", translation: lang.getTranslation("buyGiftcardWhileCampaignActive_msg") }) : null,
 			m(
 				".flex-center.full-width.pt-32",
 				m(
@@ -380,13 +384,13 @@ class GiftCardCredentialsPage implements WizardPageN<RedeemGiftCardModel> {
 class RedeemGiftCardPage implements WizardPageN<RedeemGiftCardModel> {
 	private confirmed = false
 	private showCountryDropdown: boolean
-	private country: Country | null
+	private country: countryList.Country | null
 	private dom!: HTMLElement
 
 	constructor({ attrs }: Vnode<GiftCardRedeemAttrs>) {
 		// we expect that the accounting info is actually available by now,
 		// but we optional chain because invoiceCountry is nullable anyway
-		this.country = mapNullable(attrs.data.accountingInfo?.invoiceCountry, getByAbbreviation)
+		this.country = mapNullable(attrs.data.accountingInfo?.invoiceCountry, countryList.getByAbbreviation)
 
 		// if a country is already set, then we don't need to ask for one
 		this.showCountryDropdown = this.country == null
@@ -574,7 +578,7 @@ async function loadModel(hashFromUrl: string): Promise<RedeemGiftCardModel> {
 
 	const storedCredentials = await locator.credentialsProvider.getInternalCredentialsInfos()
 	const pricesDataProvider = await PriceAndConfigProvider.getInitializedInstance(null, locator.serviceExecutor, null)
-
+	const hasActiveCampaign = pricesDataProvider.getRawPricingData().hasGlobalFirstYearDiscount
 	return new RedeemGiftCardModel(
 		{
 			giftCardInfo,
@@ -582,6 +586,7 @@ async function loadModel(hashFromUrl: string): Promise<RedeemGiftCardModel> {
 			premiumPrice: pricesDataProvider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.PlanActualPrice),
 			storedCredentials,
 			hashFromUrl,
+			hasActiveCampaign,
 		},
 		locator.giftCardFacade,
 		locator.credentialsProvider,

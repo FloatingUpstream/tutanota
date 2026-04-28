@@ -4,13 +4,12 @@ import { CalendarSearchViewModel, PaidFunctionResult } from "./CalendarSearchVie
 import { BaseTopLevelView } from "../../../../common/gui/BaseTopLevelView.js"
 import { ColumnType, ViewColumn } from "../../../../common/gui/base/ViewColumn.js"
 import { ViewSlider } from "../../../../common/gui/nav/ViewSlider.js"
-import { CalendarEvent, Contact } from "../../../../common/api/entities/tutanota/TypeRefs.js"
-import { assertNotNull, isSameDayOfDate, last, LazyLoaded, lazyMemoized, memoized, stringToBase64 } from "@tutao/tutanota-utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { assertNotNull, isSameDayOfDate, last, LazyLoaded, lazyMemoized, memoized, stringToBase64 } from "@tutao/utils"
 import { CalendarEventPreviewViewModel } from "../../gui/eventpopup/CalendarEventPreviewViewModel.js"
 import m, { Children, Vnode } from "mithril"
 import { NavButton } from "../../../../common/gui/base/NavButton.js"
-import { BootIcons } from "../../../../common/gui/base/icons/BootIcons.js"
-import { layout_size, size } from "../../../../common/gui/size.js"
+import { layout_size } from "../../../../common/gui/size.js"
 import { lang, type MaybeTranslation } from "../../../../common/misc/LanguageViewModel.js"
 import { BackgroundColumnLayout } from "../../../../common/gui/BackgroundColumnLayout.js"
 import { theme } from "../../../../common/gui/theme.js"
@@ -31,7 +30,7 @@ import {
 	handleSendUpdatesClick,
 } from "../../view/EventDetailsView.js"
 import { Icons } from "../../../../common/gui/base/icons/Icons.js"
-import { FeatureType, Keys } from "../../../../common/api/common/TutanotaConstants.js"
+import { FeatureType, Keys, UpgradePromptType } from "@tutao/app-env"
 import { IconButton } from "../../../../common/gui/base/IconButton.js"
 import { showNotAvailableForFreeDialog } from "../../../../common/misc/SubscriptionDialogs.js"
 import { listSelectionKeyboardShortcuts } from "../../../../common/gui/base/ListUtils.js"
@@ -39,9 +38,8 @@ import { MultiselectMode } from "../../../../common/gui/base/List.js"
 import { showProgressDialog } from "../../../../common/gui/dialogs/ProgressDialog.js"
 import { CalendarOperation } from "../../gui/eventeditor-model/CalendarEventModel.js"
 import { getEventWithDefaultTimes, setNextHalfHour } from "../../../../common/api/common/utils/CommonCalendarUtils.js"
-import { Checkbox, CheckboxAttrs } from "../../../../common/gui/base/Checkbox.js"
 import { MobileActionAttrs, MobileActionBar } from "../../../../common/gui/MobileActionBar.js"
-import { assertMainOrNode } from "../../../../common/api/common/Env.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { calendarLocator } from "../../../calendarLocator.js"
 import { client } from "../../../../common/misc/ClientDetector.js"
 import { CALENDAR_PREFIX } from "../../../../common/misc/RouteChange.js"
@@ -56,9 +54,9 @@ import { EventEditorDialog } from "../../gui/eventeditor-view/CalendarEventEditD
 import { FilterChip } from "../../../../common/gui/base/FilterChip"
 import { formatDate } from "../../../../common/misc/Formatter"
 import { createDropdown } from "../../../../common/gui/base/Dropdown"
-import { ProgrammingError } from "../../../../common/api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import { showDateRangeSelectionDialog } from "../../gui/pickers/DatePickerDialog"
-import { isSameId } from "../../../../common/api/common/utils/EntityUtils"
+import { isSameId } from "@tutao/typerefs"
 import { CalendarInfo } from "../../model/CalendarModel"
 
 assertMainOrNode()
@@ -77,14 +75,15 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 	private readonly contactModel: ContactModel
 	private readonly startOfTheWeekOffset: number
 
-	private getSanitizedPreviewData: (event: CalendarEvent) => LazyLoaded<CalendarEventPreviewViewModel> = memoized((event: CalendarEvent) =>
-		new LazyLoaded(async () => {
-			const calendars = await this.searchViewModel.getAvailableCalendars(false)
-			const calendarInfosMap = new Map(calendars.map((calendarInfo) => [calendarInfo.id, calendarInfo as CalendarInfo]))
-			const eventPreviewModel = await calendarLocator.calendarEventPreviewModel(event, calendarInfosMap, [])
-			eventPreviewModel.sanitizeDescription().then(() => m.redraw())
-			return eventPreviewModel
-		}).load(),
+	private getSanitizedPreviewData: (event: tutanotaTypeRefs.CalendarEvent) => LazyLoaded<CalendarEventPreviewViewModel> = memoized(
+		(event: tutanotaTypeRefs.CalendarEvent) =>
+			new LazyLoaded(async () => {
+				const calendars = await this.searchViewModel.getAvailableCalendars(false)
+				const calendarInfosMap = new Map(calendars.map((calendarInfo) => [calendarInfo.id, calendarInfo as CalendarInfo]))
+				const eventPreviewModel = await calendarLocator.calendarEventPreviewModel(event, calendarInfosMap, [])
+				eventPreviewModel.sanitizeDescription().then(() => m.redraw())
+				return eventPreviewModel
+			}).load(),
 	)
 
 	private getContactPreviewData = memoized((id: string) =>
@@ -182,7 +181,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 				m(NavButton, {
 					label: "back_action",
 					hideLabel: true,
-					icon: () => BootIcons.Back,
+					icon: () => Icons.ChevronLeft,
 					href: CALENDAR_PREFIX,
 					centred: true,
 					fillSpaceAround: false,
@@ -227,7 +226,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 				selectedEvent == null
 					? m(ColumnEmptyMessageBox, {
 							message: "noEventSelect_msg",
-							icon: BootIcons.Calendar,
+							icon: Icons.CalendarFilled,
 							color: theme.on_surface_variant,
 							backgroundColor: theme.surface_container,
 						})
@@ -237,7 +236,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 		})
 	}
 
-	private renderEventPreview(event: CalendarEvent) {
+	private renderEventPreview(event: tutanotaTypeRefs.CalendarEvent) {
 		if (isBirthdayEvent(event.uid)) {
 			const idParts = event._id[1].split("#")
 
@@ -254,7 +253,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 		return null
 	}
 
-	private renderContactPreview(contact: Contact) {
+	private renderContactPreview(contact: tutanotaTypeRefs.Contact) {
 		return m(
 			".fill-absolute.flex.col.overflow-y-scroll",
 			m(ContactCardViewer, {
@@ -271,7 +270,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 		)
 	}
 
-	private renderEventDetails(selectedEvent: CalendarEvent) {
+	private renderEventDetails(selectedEvent: tutanotaTypeRefs.CalendarEvent) {
 		return m(
 			".height-100p.overflow-y-scroll.mb-32.fill-absolute.pb-32",
 			m(
@@ -299,21 +298,21 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 		if (previewModel) {
 			if (previewModel.canSendUpdates) {
 				actions.push({
-					icon: BootIcons.Mail,
+					icon: Icons.MailFilled,
 					title: "sendUpdates_label",
 					action: () => handleSendUpdatesClick(previewModel),
 				})
 			}
 			if (previewModel.canEdit) {
 				actions.push({
-					icon: Icons.Edit,
+					icon: Icons.PenFilled,
 					title: "edit_action",
 					action: (ev: MouseEvent, receiver: HTMLElement) => handleEventEditButtonClick(previewModel, ev, receiver),
 				})
 			}
 			if (previewModel.canDelete) {
 				actions.push({
-					icon: Icons.Trash,
+					icon: Icons.TrashFilled,
 					title: "delete_action",
 					action: (ev: MouseEvent, receiver: HTMLElement) => handleEventDeleteButtonClick(previewModel, ev, receiver),
 				})
@@ -344,7 +343,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 			return m(IconButton, {
 				click: () => this.createNewEventDialog(),
 				title: "newEvent_action",
-				icon: Icons.Add,
+				icon: Icons.Plus,
 			})
 		} else if (client.isCalendarApp()) {
 			return m.fragment({}, [this.renderSearchResultActions()])
@@ -368,7 +367,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 					date: this.searchViewModel.startDate ?? undefined,
 					onDateSelected: (date) => {
 						if (this.searchViewModel.selectStartDate(date) !== PaidFunctionResult.Success) {
-							showNotAvailableForFreeDialog()
+							showNotAvailableForFreeDialog(UpgradePromptType.CALENDAR_SEARCH)
 						}
 					},
 					startOfTheWeekOffset: this.startOfTheWeekOffset,
@@ -383,7 +382,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 					date: this.searchViewModel.endDate,
 					onDateSelected: (date) => {
 						if (this.searchViewModel.selectEndDate(date) !== PaidFunctionResult.Success) {
-							showNotAvailableForFreeDialog()
+							showNotAvailableForFreeDialog(UpgradePromptType.CALENDAR_SEARCH)
 						}
 					},
 					startOfTheWeekOffset: this.startOfTheWeekOffset,
@@ -478,7 +477,7 @@ export class CalendarSearchView extends BaseTopLevelView implements TopLevelView
 
 	private async onCalendarDateRangeSelect() {
 		if (!this.searchViewModel.canSelectTimePeriod()) {
-			showNotAvailableForFreeDialog()
+			showNotAvailableForFreeDialog(UpgradePromptType.CALENDAR_SEARCH)
 		} else {
 			const { start, end } = await showDateRangeSelectionDialog({
 				start: this.searchViewModel.startDate,

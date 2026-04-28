@@ -1,9 +1,9 @@
 import { CredentialEncryptionMode } from "../../misc/credentials/CredentialEncryptionMode.js"
 import { DesktopConfigKey } from "../config/ConfigKeys.js"
-import { Aes256Key, Argon2IDExports, generateKeyFromPassphraseArgon2id, KEY_LENGTH_BYTES_AES_256 } from "@tutao/tutanota-crypto"
-import { base64ToUint8Array, newPromise, Thunk, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
+import { Aes256Key, AesKeyLength, Argon2IDExports, generateKeyFromPassphraseArgon2id, getKeyLengthInBytes } from "@tutao/crypto"
+import { base64ToUint8Array, newPromise, Thunk, uint8ArrayToBase64 } from "@tutao/utils"
 import { KeyPermanentlyInvalidatedError } from "../../api/common/error/KeyPermanentlyInvalidatedError.js"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
+import { CryptoError } from "@tutao/crypto/error"
 import { CancelledError } from "../../api/common/error/CancelledError.js"
 import { DesktopNativeCryptoFacade } from "../DesktopNativeCryptoFacade.js"
 import { DesktopConfig } from "../config/DesktopConfig.js"
@@ -66,7 +66,7 @@ export class AppPassHandler {
 	}
 
 	private async enrollForAppPass(): Promise<Aes256Key> {
-		const newSalt = this.crypto.randomBytes(KEY_LENGTH_BYTES_AES_256)
+		const newSalt = this.crypto.randomBytes(getKeyLengthInBytes(AesKeyLength.Aes256))
 		const commonNativeFacade = await this.getCurrentCommonNativeFacade()
 		const newPw = await this.tryWhileSaltNotChanged(
 			commonNativeFacade.promptForNewPassword(this.lang.get("credentialsEncryptionModeAppPassword_label"), null),

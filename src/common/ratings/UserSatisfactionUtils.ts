@@ -1,11 +1,21 @@
 import { deviceConfig, DeviceConfig } from "../misc/DeviceConfig.js"
 import { DateTime } from "luxon"
 import { locator } from "../api/main/CommonLocator.js"
-import { isAndroidApp, isApp, isBrowser, isDesktop } from "../api/common/Env.js"
-import { Stage } from "@tutao/tutanota-usagetests"
-import { AvailablePlanType, LegacyBusinessPlans, NewBusinessPlans, PlanType, PlanTypeToName } from "../api/common/TutanotaConstants.js"
-import { isEmpty } from "@tutao/tutanota-utils"
+import { Stage } from "@tutao/usagetests"
+import { isEmpty } from "@tutao/utils"
 import { showUserSatisfactionDialog } from "./UserSatisfactionDialog.js"
+import {
+	AvailablePlanType,
+	isAndroidApp,
+	isApp,
+	isBrowser,
+	isDesktop,
+	LegacyBusinessPlans,
+	LegacyPrivatePlans,
+	NewBusinessPlans,
+	PlanType,
+} from "@tutao/app-env"
+import { PlanTypeToName } from "@tutao/typerefs"
 
 export function createEvent(deviceConfig: DeviceConfig): void {
 	const retentionPeriod: number = 30

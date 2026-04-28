@@ -1,13 +1,13 @@
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import type { SearchRestriction, SearchResult } from "../../../../common/api/worker/search/SearchTypes"
-import { arrayEquals, assertNonNull, assertNotNull, incrementMonth, isEmpty, isSameTypeRef, lazyAsync, tokenize } from "@tutao/tutanota-utils"
-import { assertMainOrNode } from "../../../../common/api/common/Env"
-import { listIdPart } from "../../../../common/api/common/utils/EntityUtils.js"
+import { arrayEquals, assertNonNull, assertNotNull, incrementMonth, isEmpty, isSameTypeRef, lazyAsync, tokenize } from "@tutao/utils"
+import { assertMainOrNode } from "@tutao/app-env"
+import { listIdPart } from "@tutao/typerefs"
 import { IProgressMonitor } from "../../../../common/api/common/utils/ProgressMonitor.js"
 import { ProgressTracker } from "../../../../common/api/main/ProgressTracker.js"
 import { CalendarEventsRepository } from "../../../../common/calendar/date/CalendarEventsRepository.js"
-import { CalendarEvent } from "../../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { EventWrapper } from "../../view/CalendarViewModel.js"
 
 assertMainOrNode()
@@ -125,7 +125,7 @@ export class CalendarSearchModel {
 				return this.lastSearchPromise
 			}
 
-			const followCommonRestrictions = (key: string, event: CalendarEvent) => {
+			const followCommonRestrictions = (key: string, event: tutanotaTypeRefs.CalendarEvent) => {
 				if (alreadyAdded.has(key)) {
 					// we only need the first event in the series, the view will load & then generate
 					// the series for the searched time range.

@@ -1,18 +1,16 @@
 import { UpdatableSettingsViewer } from "../../common/settings/Interfaces"
 import m, { Children } from "mithril"
-import { EntityUpdateData } from "../../common/api/common/utils/EntityUpdateUtils"
 import { IconButton, IconButtonAttrs } from "../../common/gui/base/IconButton"
 import { ButtonSize } from "../../common/gui/base/ButtonSize"
-import { assertNotNull, lazy } from "@tutao/tutanota-utils"
+import { assertNotNull, lazy } from "@tutao/utils"
 import { getFolderName, getIndentedFolderNameForDropdown, getPathToFolderString } from "../mail/model/MailUtils"
-import { AvailablePlanType, HighestTierPlans, ImportStatus, MailSetKind } from "../../common/api/common/TutanotaConstants"
+import { ImportStatus, UpgradePromptType } from "@tutao/app-env"
 import { IndentedFolder } from "../../common/api/common/mail/FolderSystem"
 import { lang, TranslationKey } from "../../common/misc/LanguageViewModel"
 import { MailImporter, UiImportStatus } from "../mail/import/MailImporter.js"
-import { MailSet } from "../../common/api/entities/tutanota/TypeRefs"
-import { elementIdPart, generatedIdToTimestamp, isSameId, sortCompareByReverseId } from "../../common/api/common/utils/EntityUtils"
+import { elementIdPart, entityUpdateUtils, generatedIdToTimestamp, isSameId, sortCompareByReverseId, tutanotaTypeRefs } from "@tutao/typerefs"
 import { Icons } from "../../common/gui/base/icons/Icons.js"
-import { DropDownSelector, SelectorItemList } from "../../common/gui/base/DropDownSelector.js"
+import { DropDownSelector, type DropDownSelectorAttrs, SelectorItemList } from "../../common/gui/base/DropDownSelector.js"
 import { showUpgradeWizardOrSwitchSubscriptionDialog } from "../../common/misc/SubscriptionDialogs.js"
 import { ProgressBar, ProgressBarType } from "../../common/gui/base/ProgressBar.js"
 import { ExpanderButton, ExpanderPanel } from "../../common/gui/base/Expander.js"
@@ -21,19 +19,30 @@ import { mailLocator } from "../mailLocator.js"
 import { formatDate } from "../../common/misc/Formatter.js"
 import { LoginButton } from "../../common/gui/base/buttons/LoginButton"
 import { client } from "../../common/misc/ClientDetector"
+import { getMailboxName } from "../../common/mailFunctionality/SharedMailUtils"
+import { MailboxDetail } from "../../common/mailFunctionality/MailboxModel"
+import { AvailablePlanType, isHighestTierPlan, LegacyPrivatePlans, MailSetKind } from "@tutao/app-env"
 
 /**
  * Settings viewer for mail import rendered only in the Desktop client.
  * See {@link WebMailImportSettingsViewer} for other views.
  */
 export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer {
-	private isImportHistoryExpanded: boolean = true
+	private mailboxIdToImportHistoryExpanded: Map<Id, boolean> = new Map<Id, boolean>()
 	private importStatePoolHandle: TimeoutID
 
 	constructor(private readonly mailImporter: lazy<MailImporter>) {}
 
 	async oninit(): Promise<void> {
 		await this.mailImporter().initImportMailStates()
+
+		const mailboxDetails = this.mailImporter().mailboxDetails
+		if (mailboxDetails) {
+			const isSingleMailbox = mailboxDetails.length === 1
+			for (const detail of mailboxDetails) {
+				this.mailboxIdToImportHistoryExpanded.set(detail.mailbox._id, isSingleMailbox)
+			}
+		}
 	}
 
 	onbeforeremove(): void {
@@ -43,19 +52,19 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 	view(): Children {
 		return m(".fill-absolute.scroll.plr-24.pb-48", [
 			m(".h4.mt-32", lang.get("mailImportSettings_label")),
+			this.renderMailboxSelectionControls(),
 			this.renderTargetFolderControls(),
 			!this.mailImporter().shouldRenderImportStatus() ? this.renderStartNewImportControls() : null,
 			this.mailImporter().shouldRenderImportStatus() ? this.renderImportStatus() : null,
-			this.renderImportHistory(),
+			this.renderImportHistories(),
 		])
 	}
 
 	private async onImportButtonClick(dom: HTMLElement) {
 		const userController = mailLocator.logins.getUserController()
 		const currentPlanType = await userController.getPlanType()
-		const isHighestTierPlan = HighestTierPlans.includes(currentPlanType)
-		if (!isHighestTierPlan) {
-			await showUpgradeWizardOrSwitchSubscriptionDialog(userController, HighestTierPlans as readonly AvailablePlanType[])
+		if (!isHighestTierPlan(currentPlanType)) {
+			await showUpgradeWizardOrSwitchSubscriptionDialog(UpgradePromptType.IMPORT, userController, LegacyPrivatePlans as readonly AvailablePlanType[])
 			return
 		}
 
@@ -66,45 +75,74 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 		await this.mailImporter().onStartBtnClick(filePaths.map((fp) => fp.location))
 	}
 
-	private renderTargetFolderControls() {
-		let folders = this.mailImporter().foldersForMailbox
-		if (folders) {
-			const loadingMsg = lang.get("loading_msg")
-			const emptyLabel = m("br")
-			const selectedTargetFolder = this.mailImporter().selectedTargetFolder
-			const selectedTargetFolderPath = selectedTargetFolder ? getPathToFolderString(folders!, selectedTargetFolder) : ""
-			const isNotSubfolder = selectedTargetFolder ? selectedTargetFolderPath === getFolderName(selectedTargetFolder) : false
-			const helpLabel = selectedTargetFolder ? (isNotSubfolder ? emptyLabel : selectedTargetFolderPath) : emptyLabel
-
-			// do not allow importing to inbox folder,
-			// problem:
-			// if a folder receives/imports a very large amount of mails (hundreds of thousands) that all get moved/deleted at once,
-			// the backend will not be able to read any live data from that list for a while.
-			// if that happens, user will not see incoming mails in their inbox folder for that time,
-			// this problem can still happen on other mailSets,
-			// but at least we won't block inbox ( incoming new mails )
-			const selectableFolders = folders
-				.getIndentedList()
-				.filter((folderInfo) => folderInfo.folder.folderType !== MailSetKind.INBOX && folderInfo.folder.folderType !== MailSetKind.SCHEDULED)
-
-			let targetFolders: SelectorItemList<MailSet | null> = selectableFolders.map((folderInfo: IndentedFolder) => {
-				return {
-					name: getIndentedFolderNameForDropdown(folderInfo),
-					value: folderInfo.folder,
-				}
-			})
+	private renderMailboxSelectionControls() {
+		const mailboxesDetails = this.mailImporter().mailboxDetails
+		if (mailboxesDetails && mailboxesDetails.length > 1) {
 			return m(DropDownSelector, {
-				label: "mailImportTargetFolder_label",
-				items: targetFolders,
+				label: "mailboxToImport_label",
+				items: mailboxesDetails.map((mailboxDetail) => {
+					return { name: getMailboxName(mailLocator.logins, mailboxDetail), value: mailboxDetail }
+				}),
+				selectedValue: this.mailImporter().selectedMailBoxDetail,
+				selectionChangedHandler: (selectedMailboxDetail) => {
+					this.mailImporter().onNewMailboxSelected(selectedMailboxDetail)
+				},
+				dropdownWidth: 300,
 				disabled: this.mailImporter().shouldRenderImportStatus(),
-				selectedValue: selectedTargetFolder,
-				selectedValueDisplay: selectedTargetFolder ? getFolderName(selectedTargetFolder) : loadingMsg,
-				selectionChangedHandler: (newFolder: MailSet | null) => (this.mailImporter().selectedTargetFolder = newFolder),
-				helpLabel: () => helpLabel,
-			})
-		} else {
+				helpLabel: () => null,
+			} satisfies DropDownSelectorAttrs<MailboxDetail>)
+		}
+		return null
+	}
+
+	private renderTargetFolderControls() {
+		let selectedMailboxDetail = this.mailImporter().selectedMailBoxDetail
+		if (!selectedMailboxDetail) {
 			return null
 		}
+
+		const mailboxId = selectedMailboxDetail?.mailbox._id
+		let folders = this.mailImporter().mailboxToFolders.get(mailboxId)
+		if (!folders) {
+			return null
+		}
+
+		const loadingMsg = lang.get("loading_msg")
+		const emptyLabel = m("br")
+		const selectedTargetFolder = this.mailImporter().selectedTargetFolder
+		const selectedTargetFolderPath = selectedTargetFolder ? getPathToFolderString(folders, selectedTargetFolder) : ""
+		const isNotSubfolder = selectedTargetFolder ? selectedTargetFolderPath === getFolderName(selectedTargetFolder) : true
+		let helpLabel = selectedTargetFolder ? (isNotSubfolder ? emptyLabel : selectedTargetFolderPath) : emptyLabel
+		if (helpLabel === "") {
+			helpLabel = emptyLabel
+		}
+
+		// do not allow importing to inbox folder,
+		// problem:
+		// if a folder receives/imports a very large amount of mails (hundreds of thousands) that all get moved/deleted at once,
+		// the backend will not be able to read any live data from that list for a while.
+		// if that happens, user will not see incoming mails in their inbox folder for that time,
+		// this problem can still happen on other mailSets,
+		// but at least we won't block inbox ( incoming new mails )
+		const selectableFolders = folders
+			.getIndentedList()
+			.filter((folderInfo) => folderInfo.folder.folderType !== MailSetKind.INBOX && folderInfo.folder.folderType !== MailSetKind.SCHEDULED)
+
+		let targetFolders: SelectorItemList<tutanotaTypeRefs.MailSet | null> = selectableFolders.map((folderInfo: IndentedFolder) => {
+			return {
+				name: getIndentedFolderNameForDropdown(folderInfo),
+				value: folderInfo.folder,
+			}
+		})
+		return m(DropDownSelector, {
+			label: "mailImportTargetFolder_label",
+			items: targetFolders,
+			disabled: this.mailImporter().shouldRenderImportStatus(),
+			selectedValue: selectedTargetFolder,
+			selectedValueDisplay: selectedTargetFolder ? getFolderName(selectedTargetFolder) : loadingMsg,
+			selectionChangedHandler: (newFolder: tutanotaTypeRefs.MailSet | null) => (this.mailImporter().selectedTargetFolder = newFolder),
+			helpLabel: () => helpLabel,
+		})
 	}
 
 	private renderStartNewImportControls() {
@@ -135,14 +173,14 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 		)
 		const resumeMailImportIconButtonAttrs: IconButtonAttrs = {
 			title: "resumeMailImport_action",
-			icon: Icons.Play,
+			icon: Icons.PlayOutline,
 			click: () => this.mailImporter().onResumeBtnClick(),
 			size: ButtonSize.Normal,
 			hidden: this.mailImporter().shouldDisableResumeButton(),
 		}
 		const pauseMailImportIconButtonAttrs: IconButtonAttrs = {
 			title: "pauseMailImport_action",
-			icon: Icons.Pause,
+			icon: Icons.PauseOutline,
 			click: () => {
 				this.mailImporter().onPauseBtnClick()
 			},
@@ -151,7 +189,7 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 		}
 		const cancelMailImportIconButtonAttrs: IconButtonAttrs = {
 			title: "cancelMailImport_action",
-			icon: Icons.Cancel,
+			icon: Icons.X,
 			click: () => {
 				this.mailImporter().onCancelBtnClick()
 			},
@@ -193,28 +231,41 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 		)
 	}
 
-	private renderImportHistory() {
+	private renderImportHistories() {
+		const mailboxDetails = this.mailImporter().mailboxDetails
+		if (mailboxDetails) {
+			return m(
+				".mt-32.mb-16",
+				mailboxDetails.map((details) => this.renderImportHistory(details, mailboxDetails.length <= 1)),
+			)
+		}
+		return null
+	}
+
+	private renderImportHistory(mailboxDetail: MailboxDetail, isSingleMailbox: boolean) {
+		const mailboxLabel = isSingleMailbox ? "" : " · " + getMailboxName(mailLocator.logins, mailboxDetail)
+		const mailboxId = mailboxDetail.mailbox._id
 		return [
-			m(".flex-space-between.items-center.mt-32.mb-8", [
-				m(".h4", lang.get("mailImportHistory_label")),
+			m(".flex-space-between.items-center.mt-4.mb-4", [
+				m(".h5", lang.getTranslation("mailImportHistory_label").text + mailboxLabel),
 				m(ExpanderButton, {
 					label: "show_action",
-					expanded: this.isImportHistoryExpanded,
+					expanded: this.mailboxIdToImportHistoryExpanded.get(mailboxId) || false,
 					onExpandedChange: () => {
-						this.isImportHistoryExpanded = !this.isImportHistoryExpanded
+						this.mailboxIdToImportHistoryExpanded.set(mailboxId, !this.mailboxIdToImportHistoryExpanded.get(mailboxId))
 					},
 				}),
 			]),
 			m(
 				ExpanderPanel,
 				{
-					expanded: this.isImportHistoryExpanded,
+					expanded: this.mailboxIdToImportHistoryExpanded.get(mailboxId) || false,
 				},
 				m(Table, {
 					columnHeading: ["mailImportHistoryTableHeading_label"],
 					columnWidths: [ColumnWidth.Small, ColumnWidth.Largest],
 					showActionButtonColumn: true,
-					lines: this.makeMailImportHistoryTableLines(),
+					lines: this.makeMailImportHistoryTableLines(mailboxId),
 				}),
 			),
 		]
@@ -224,11 +275,11 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 	 * Parses the importMailStates into displayable table lines.
 	 * @returns array of the parsed table lines.
 	 */
-	private makeMailImportHistoryTableLines(): Array<TableLineAttrs> {
-		let folders = this.mailImporter().foldersForMailbox?.getIndentedList()
+	private makeMailImportHistoryTableLines(mailboxId: Id): Array<TableLineAttrs> {
+		let folders = this.mailImporter().mailboxToFolders?.get(mailboxId)?.getIndentedList()
 		if (folders) {
 			return this.mailImporter()
-				.getFinalisedImports()
+				.getFinalisedImports(mailboxId)
 				.sort(sortCompareByReverseId)
 				.map((im) => {
 					const targetFolderId = im.targetFolder
@@ -259,7 +310,7 @@ export class DesktopMailImportSettingsViewer implements UpdatableSettingsViewer 
 		}
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {}
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {}
 }
 
 export function getReadableUiImportStatus(uiStatus: UiImportStatus): string {

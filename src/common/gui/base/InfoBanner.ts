@@ -6,8 +6,8 @@ import { lang } from "../../misc/LanguageViewModel.js"
 import type { ButtonAttrs } from "./Button.js"
 import { Button, ButtonType } from "./Button.js"
 import { NavButton } from "./NavButton.js"
-import type { lazy } from "@tutao/tutanota-utils"
-import { isNotNull } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
+import { isNotNull } from "@tutao/utils"
 import { Icons } from "./icons/Icons.js"
 import { px, size } from "../size.js"
 
@@ -97,7 +97,7 @@ export class InfoBanner implements Component<InfoBannerAttrs> {
 					},
 				},
 				m(NavButton, {
-					icon: () => Icons.QuestionMark,
+					icon: () => Icons.QuestionmarkFilled,
 					href: helpLink,
 					small: true,
 					hideLabel: true,

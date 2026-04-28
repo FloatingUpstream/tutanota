@@ -1,10 +1,8 @@
-import type { Mail, MailDetails } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { FileTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import type { EntityClient } from "../../../common/api/common/EntityClient"
-import { MailState } from "../../../common/api/common/TutanotaConstants"
-import { getLetId } from "../../../common/api/common/utils/EntityUtils"
+import { getLetId } from "@tutao/typerefs"
 import type { HtmlSanitizer } from "../../../common/misc/HtmlSanitizer"
-import { promiseMap } from "@tutao/tutanota-utils"
+import { promiseMap } from "@tutao/utils"
 import { FileController } from "../../../common/file/FileController"
 import { MailFacade } from "../../../common/api/worker/facades/lazy/MailFacade.js"
 import { CryptoFacade } from "../../../common/api/worker/crypto/CryptoFacade.js"
@@ -12,8 +10,14 @@ import { getDisplayedSender, getMailBodyText, MailAddressAndName } from "../../.
 import { loadMailDetails } from "../view/MailViewerUtils.js"
 import { MailBundle } from "../../../common/mailFunctionality/SharedMailUtils.js"
 import { DataFile } from "../../../common/api/common/DataFile.js"
+import { isDraft } from "../model/MailChecks.js"
 
-export function makeMailBundle(sanitizer: HtmlSanitizer, mail: Mail, mailDetails: MailDetails, attachments: Array<DataFile>): MailBundle {
+export function makeMailBundle(
+	sanitizer: HtmlSanitizer,
+	mail: tutanotaTypeRefs.Mail,
+	mailDetails: tutanotaTypeRefs.MailDetails,
+	attachments: Array<DataFile>,
+): MailBundle {
 	const recipientMapper = ({ address, name }: MailAddressAndName) => ({ address, name })
 	const body = sanitizer.sanitizeHTML(getMailBodyText(mailDetails.body), {
 		blockExternalContent: false,
@@ -30,7 +34,7 @@ export function makeMailBundle(sanitizer: HtmlSanitizer, mail: Mail, mailDetails
 		cc: mailDetails.recipients.ccRecipients.map(recipientMapper),
 		bcc: mailDetails.recipients.bccRecipients.map(recipientMapper),
 		replyTo: mailDetails.replyTos.map(recipientMapper),
-		isDraft: mail.state === MailState.DRAFT,
+		isDraft: isDraft(mail),
 		isRead: !mail.unread,
 		sentOn: mailDetails.sentDate.getTime(),
 		receivedOn: mail.receivedDate.getTime(),
@@ -43,7 +47,7 @@ export function makeMailBundle(sanitizer: HtmlSanitizer, mail: Mail, mailDetails
  * Downloads the mail body and the attachments for an email, to prepare for exporting
  */
 export async function downloadMailBundle(
-	mail: Mail,
+	mail: tutanotaTypeRefs.Mail,
 	mailFacade: MailFacade,
 	entityClient: EntityClient,
 	fileController: FileController,
@@ -52,7 +56,7 @@ export async function downloadMailBundle(
 ): Promise<MailBundle> {
 	const mailDetails = await loadMailDetails(mailFacade, mail)
 
-	const files = await promiseMap(mail.attachments, async (fileId) => await entityClient.load(FileTypeRef, fileId))
+	const files = await promiseMap(mail.attachments, async (fileId) => await entityClient.load(tutanotaTypeRefs.FileTypeRef, fileId))
 	const attachments = await promiseMap(
 		await cryptoFacade.enforceSessionKeyUpdateIfNeeded(mail, files),
 		async (file) => await fileController.getAsDataFile(file),

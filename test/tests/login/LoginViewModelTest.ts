@@ -1,17 +1,15 @@
-import o from "@tutao/otest"
+import o, { assertThrows } from "@tutao/otest"
 import { DisplayMode, LoginState, LoginViewModel } from "../../../src/common/login/LoginViewModel.js"
 import type { LoginController } from "../../../src/common/api/main/LoginController.js"
-import { GroupInfoTypeRef, UserTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
 import type { UserController } from "../../../src/common/api/main/UserController.js"
 import { KeyPermanentlyInvalidatedError } from "../../../src/common/api/common/error/KeyPermanentlyInvalidatedError.js"
 import { CredentialAuthenticationError } from "../../../src/common/api/common/error/CredentialAuthenticationError.js"
 import { Credentials, credentialsToUnencrypted } from "../../../src/common/misc/credentials/Credentials.js"
 import { SecondFactorHandler } from "../../../src/common/misc/2fa/SecondFactorHandler"
-import { assertThrows } from "@tutao/tutanota-test-utils"
 import { CredentialsProvider } from "../../../src/common/misc/credentials/CredentialsProvider.js"
 import { SessionType } from "../../../src/common/api/common/SessionType.js"
 import { instance, matchers, object, replace, verify, when } from "testdouble"
-import { AccessExpiredError, ConnectionError, NotAuthenticatedError } from "../../../src/common/api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { DeviceConfig } from "../../../src/common/misc/DeviceConfig"
 import { ResumeSessionErrorReason } from "../../../src/common/api/worker/facades/LoginFacade"
 import { createTestEntity, domainConfigStub, textIncludes } from "../TestUtils.js"
@@ -20,9 +18,10 @@ import { NativePushServiceApp } from "../../../src/common/native/main/NativePush
 import { PersistedCredentials } from "../../../src/common/native/common/generatedipc/PersistedCredentials.js"
 import { CredentialType } from "../../../src/common/misc/credentials/CredentialType.js"
 import { UnencryptedCredentials } from "../../../src/common/native/common/generatedipc/UnencryptedCredentials.js"
-import { stringToUtf8Uint8Array, utf8Uint8ArrayToString } from "@tutao/tutanota-utils"
+import { stringToUtf8Uint8Array, utf8Uint8ArrayToString } from "@tutao/utils"
 import { AppLock } from "../../../src/common/login/AppLock.js"
 import { lang } from "../../../src/common/misc/LanguageViewModel.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 const { anything } = matchers
 
@@ -126,11 +125,11 @@ o.spec("LoginViewModelTest", () => {
 		loginControllerMock = object<LoginController>()
 		const userControllerMock = object<UserController>()
 
-		replace(userControllerMock, "user", createTestEntity(UserTypeRef))
+		replace(userControllerMock, "user", createTestEntity(sysTypeRefs.UserTypeRef))
 		replace(
 			userControllerMock,
 			"userGroupInfo",
-			createTestEntity(GroupInfoTypeRef, {
+			createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddress: "test@example.com",
 			}),
 		)
@@ -262,7 +261,7 @@ o.spec("LoginViewModelTest", () => {
 			viewModel.displayMode = DisplayMode.DeleteCredentials
 			const credentialsAndKey = credentialsToUnencrypted(testCredentials, null)
 			await credentialsProviderMock.store(credentialsAndKey)
-			when(loginControllerMock.deleteOldSession(credentialsAndKey, null)).thenReject(new ConnectionError("testmessage"))
+			when(loginControllerMock.deleteOldSession(credentialsAndKey, null)).thenReject(new restError.ConnectionError("testmessage"))
 
 			const result = await viewModel.deleteCredentials(encryptedTestCredentials.credentialInfo)
 
@@ -302,7 +301,7 @@ o.spec("LoginViewModelTest", () => {
 		o("login should fail with invalid stored credentials", async function () {
 			const credentialsAndKey = credentialsToUnencrypted(testCredentials, null)
 			await credentialsProviderMock.store(credentialsAndKey)
-			when(loginControllerMock.resumeSession(anything(), null, offlineTimeRangeDate)).thenReject(new NotAuthenticatedError("test"))
+			when(loginControllerMock.resumeSession(anything(), null, offlineTimeRangeDate)).thenReject(new restError.NotAuthenticatedError("test"))
 			const viewModel = await getViewModel()
 
 			await viewModel.useCredentials(encryptedTestCredentials.credentialInfo)
@@ -317,7 +316,7 @@ o.spec("LoginViewModelTest", () => {
 		})
 		o("login should fail for expired stored credentials", async function () {
 			await credentialsProviderMock.store(credentialsToUnencrypted(testCredentials, null))
-			when(loginControllerMock.resumeSession(anything(), null, offlineTimeRangeDate)).thenReject(new AccessExpiredError("test"))
+			when(loginControllerMock.resumeSession(anything(), null, offlineTimeRangeDate)).thenReject(new restError.AccessExpiredError("test"))
 			const viewModel = await getViewModel()
 
 			await viewModel.useCredentials(encryptedTestCredentials.credentialInfo)

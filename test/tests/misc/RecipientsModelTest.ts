@@ -1,21 +1,20 @@
-import o from "@tutao/otest"
+import o, { assertThrows, verify } from "@tutao/otest"
 import { RecipientsModel } from "../../../src/common/api/main/RecipientsModel.js"
 import { LoginController } from "../../../src/common/api/main/LoginController.js"
 import { MailFacade } from "../../../src/common/api/worker/facades/lazy/MailFacade.js"
 import { EntityClient } from "../../../src/common/api/common/EntityClient.js"
 import { func, instance, object, when } from "testdouble"
-import { GroupInfoTypeRef, GroupMembershipTypeRef, UserTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
 import { Recipient, RecipientType } from "../../../src/common/api/common/recipients/Recipient.js"
-import { ContactMailAddressTypeRef, ContactTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { UserController } from "../../../src/common/api/main/UserController.js"
-import { EncryptionKeyVerificationState, GroupType, PresentableKeyVerificationState } from "../../../src/common/api/common/TutanotaConstants.js"
-import { assertThrows, verify } from "@tutao/tutanota-test-utils"
-import { defer, delay } from "@tutao/tutanota-utils"
+import { EncryptionKeyVerificationState, PresentableKeyVerificationState } from "../../../src/app-env"
+import { defer, delay } from "@tutao/utils"
 import { createTestEntity } from "../TestUtils.js"
 import { ContactModel } from "../../../src/common/contactsFunctionality/ContactModel.js"
 import { KeyVerificationFacade, VerifiedPublicEncryptionKey } from "../../../src/common/api/worker/facades/lazy/KeyVerificationFacade"
-import { ProgrammingError } from "../../../src/common/api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import { KeyVerificationMismatchError } from "../../../src/common/api/common/error/KeyVerificationMismatchError"
+import { sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
+import { GroupType } from "../../../src/app-env"
 
 o.spec("RecipientsModelTest", function () {
 	const contactListId = "contactListId"
@@ -38,14 +37,14 @@ o.spec("RecipientsModelTest", function () {
 		contactModelMock = object()
 
 		userControllerMock = {
-			user: createTestEntity(UserTypeRef, {
+			user: createTestEntity(sysTypeRefs.UserTypeRef, {
 				memberships: [
-					createTestEntity(GroupMembershipTypeRef, {
+					createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 						groupType: GroupType.Contact,
 					}),
 				],
 			}),
-			userGroupInfo: createTestEntity(GroupInfoTypeRef, {
+			userGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddress: "test@example.com",
 			}),
 		} satisfies Partial<UserController> as UserController
@@ -69,14 +68,14 @@ o.spec("RecipientsModelTest", function () {
 		const contact = makeContactStub(contactId, otherAddress)
 		const recipient = await model.initialize({ address: otherAddress, contact }).resolve()
 		o(recipient.contact).deepEquals(contact)
-		verify(entityClientMock.load(ContactTypeRef, contactId), { times: 0 })
+		verify(entityClientMock.load(tutanotaTypeRefs.ContactTypeRef, contactId), { times: 0 })
 		verify(contactModelMock.searchForContact(otherAddress), { times: 0 })
 	})
 
 	o("loads contact with id", async function () {
 		const contact = makeContactStub(contactId, otherAddress)
 		when(contactModelMock.getContactListId()).thenResolve("contactListId")
-		when(entityClientMock.load(ContactTypeRef, contactId)).thenResolve(contact)
+		when(entityClientMock.load(tutanotaTypeRefs.ContactTypeRef, contactId)).thenResolve(contact)
 		const recipient = await model.initialize({ address: otherAddress, contact: contactId }).resolve()
 		o(recipient.contact).deepEquals(contact)
 	})
@@ -266,9 +265,9 @@ o.spec("RecipientsModelTest", function () {
 })
 
 function makeContactStub(id: IdTuple, mailAddress: string, firstName?: string, lastName?: string) {
-	return createTestEntity(ContactTypeRef, {
+	return createTestEntity(tutanotaTypeRefs.ContactTypeRef, {
 		_id: id,
-		mailAddresses: [createTestEntity(ContactMailAddressTypeRef, { address: mailAddress })],
+		mailAddresses: [createTestEntity(tutanotaTypeRefs.ContactMailAddressTypeRef, { address: mailAddress })],
 		firstName: firstName ?? "",
 		lastName: lastName ?? "",
 	})

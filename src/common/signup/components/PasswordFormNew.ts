@@ -1,11 +1,11 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { PasswordFieldAttrs, PasswordFieldNew } from "./PasswordFieldNew"
 import { font_size, px } from "../../gui/size"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { lang, TranslationKey } from "../../misc/LanguageViewModel"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
-import { UsageTestController } from "@tutao/tutanota-usagetests"
+import { UsageTestController } from "@tutao/usagetests"
 import { LoginController } from "../../api/main/LoginController"
 import { Status } from "../../gui/base/StatusField"
 import { getPasswordStrength, isSecurePassword } from "../../misc/passwords/PasswordUtils"
@@ -15,7 +15,7 @@ import { theme } from "../../gui/theme"
 import { PasswordGenerator } from "../../misc/passwords/PasswordGenerator"
 import { locator } from "../../api/main/CommonLocator"
 import { copyToClipboard } from "../../misc/ClipboardUtils"
-import { delay } from "@tutao/tutanota-utils"
+import { delay } from "@tutao/utils"
 import { showSnackBar } from "../../gui/base/SnackBar"
 import { Icons } from "../../gui/base/icons/Icons"
 import { styles } from "../../gui/styles"
@@ -318,7 +318,7 @@ export class PasswordFormNew implements Component<PasswordFormAttrs> {
 								void showSnackBar({
 									message: "copied_msg",
 									showingTime: 3000,
-									leadingIcon: Icons.Clipboard,
+									leadingIcon: Icons.ClipboardFilled,
 								})
 							},
 						},

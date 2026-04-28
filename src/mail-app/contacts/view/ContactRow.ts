@@ -1,4 +1,4 @@
-import { Contact } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import {
 	checkboxOpacity,
 	scaleXHide,
@@ -8,7 +8,7 @@ import {
 	SelectableRowSelectedSetter,
 } from "../../../common/gui/SelectableRowContainer.js"
 import { getContactListName } from "../../../common/contactsFunctionality/ContactUtils.js"
-import { NBSP, noOp } from "@tutao/tutanota-utils"
+import { NBSP, noOp } from "@tutao/utils"
 import m, { Children } from "mithril"
 import { component_size, px, size } from "../../../common/gui/size.js"
 import { setHTMLElementTextWithHighlighting, VirtualRow } from "../../../common/gui/base/ListUtils.js"
@@ -18,11 +18,11 @@ export const shiftByForCheckbox = px(component_size.checkbox_size + size.spacing
 export const translateXShow = `translateX(${shiftByForCheckbox})`
 export const translateXHide = "translateX(0)"
 
-export class ContactRow implements VirtualRow<Contact> {
+export class ContactRow implements VirtualRow<tutanotaTypeRefs.Contact> {
 	top: number
 	domElement: HTMLElement | null = null // set from List
 
-	entity: Contact | null
+	entity: tutanotaTypeRefs.Contact | null
 	private selectionUpdater!: SelectableRowSelectedSetter
 	private domName!: HTMLElement
 	private domAddress!: HTMLElement
@@ -31,7 +31,7 @@ export class ContactRow implements VirtualRow<Contact> {
 	private highlightedStrings?: readonly SearchToken[]
 
 	constructor(
-		private readonly onSelected: (entity: Contact, selected: boolean) => unknown,
+		private readonly onSelected: (entity: tutanotaTypeRefs.Contact, selected: boolean) => unknown,
 		private readonly shouldShowCheckbox: () => boolean,
 		private readonly getHighlightedStrings?: () => readonly SearchToken[],
 	) {
@@ -40,7 +40,7 @@ export class ContactRow implements VirtualRow<Contact> {
 		this.checkboxWasVisible = this.shouldShowCheckbox()
 	}
 
-	update(contact: Contact, selected: boolean, isInMultiSelect: boolean): void {
+	update(contact: tutanotaTypeRefs.Contact, selected: boolean, isInMultiSelect: boolean): void {
 		const oldEntity = this.entity
 		this.entity = contact
 		const oldHighlightedStrings = this.highlightedStrings
@@ -65,6 +65,7 @@ export class ContactRow implements VirtualRow<Contact> {
 		return m(
 			SelectableRowContainer,
 			{
+				class: "pt-12 pb-12 pl-12 pr-12",
 				oncreate: (vnode) => {
 					Promise.resolve().then(() => this.showCheckbox(this.shouldShowCheckbox()))
 				},

@@ -1,7 +1,7 @@
-import { assertMainOrNode, isWebClient } from "../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { LoginController } from "../api/main/LoginController.js"
 import Stream from "mithril/stream"
-import { SupportCategory, SupportData, SupportDataTypeRef, SupportTopic } from "../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { locator } from "../api/main/CommonLocator.js"
 import { DataFile } from "../api/common/DataFile.js"
 import { client } from "../misc/ClientDetector"
@@ -9,7 +9,7 @@ import { SupportVisibilityMask } from "./SupportVisibilityMask"
 import { MultiPageDialog } from "../gui/dialogs/MultiPageDialog"
 import m from "mithril"
 import { SupportLandingPage } from "./pages/SupportLandingPage.js"
-import { lang } from "../misc/LanguageViewModel.js"
+import { lang, TranslationKey } from "../misc/LanguageViewModel.js"
 import { CacheMode } from "../api/worker/rest/EntityRestClient.js"
 import { ButtonType } from "../gui/base/Button.js"
 import { SupportCategoryPage } from "./pages/SupportCategoryPage.js"
@@ -18,11 +18,24 @@ import { ContactSupportPage } from "./pages/ContactSupportPage.js"
 import { SupportSuccessPage } from "./pages/SupportSuccessPage.js"
 import { SupportRequestSentPage } from "./pages/SupportRequestSentPage.js"
 import { EmailSupportUnavailablePage } from "./pages/EmailSupportUnavailablePage.js"
-import { Keys } from "../api/common/TutanotaConstants.js"
+import { Keys } from "@tutao/app-env"
 import { getSupportUsageTestStage } from "./SupportUsageTestUtils.js"
 import { Dialog } from "../gui/base/Dialog.js"
+import { Thunk } from "@tutao/utils"
+import { Mode } from "@tutao/app-env"
 
 assertMainOrNode()
+
+type SupportCategory = tutanotaTypeRefs.SupportCategory
+type SupportTopic = tutanotaTypeRefs.SupportTopic
+type SupportDialogPageName =
+	| "home"
+	| "categoryDetail"
+	| "topicDetail"
+	| "contactSupport"
+	| "solutionWasHelpful"
+	| "supportRequestSent"
+	| "emailSupportBehindPaywall"
 
 export interface SupportDialogState {
 	canHaveEmailSupport: boolean
@@ -51,9 +64,20 @@ export async function showSupportDialog(logins: LoginController) {
 		logs: Stream([]),
 	}
 
-	const dialog = new MultiPageDialog<
-		"home" | "categoryDetail" | "topicDetail" | "contactSupport" | "solutionWasHelpful" | "supportRequestSent" | "emailSupportBehindPaywall"
-	>("home", (dialog, navigateToPage, goBack) => ({
+	const withConfirmation = (action: Thunk, message: TranslationKey): Thunk => {
+		return async () => {
+			if (data.isSupportRequestEmpty) {
+				action()
+			} else {
+				const yes = await Dialog.confirm(message)
+				if (yes) {
+					action()
+				}
+			}
+		}
+	}
+
+	const dialog = new MultiPageDialog<SupportDialogPageName>("home", (dialog, navigateToPage, goBack) => ({
 		home: {
 			title: lang.get("supportMenu_label"),
 			content: m(SupportLandingPage, {
@@ -65,11 +89,15 @@ export async function showSupportDialog(logins: LoginController) {
 						data.contactTemplate(getCategoryContactTemplate(selectedCategory, lang.languageTag))
 						data.helpText(getCategoryHelpText(selectedCategory, lang.languageTag))
 					}
-
 					navigateToPage("categoryDetail")
 				},
+				countFaqLinkTrigger: () => {
+					const topicStage = getSupportUsageTestStage(1)
+					topicStage.setMetric({ name: "Topic", value: "clickedFaqLink" })
+					topicStage.complete()
+				},
 			}),
-			leftAction: { type: ButtonType.Secondary, click: () => dialog.onClose(), label: "close_alt", title: "close_alt" },
+			rightAction: { type: ButtonType.Secondary, click: () => dialog.onClose(), label: "done_action", title: "done_action" },
 		},
 		categoryDetail: {
 			content: m(SupportCategoryPage, {
@@ -96,11 +124,14 @@ export async function showSupportDialog(logins: LoginController) {
 				},
 			}),
 			title: lang.get("supportMenu_label"),
-			leftAction: {
+			leftAction: { type: ButtonType.Secondary, click: () => goBack(), label: "back_action", title: "back_action" },
+			rightAction: {
 				type: ButtonType.Secondary,
-				click: () => goBack(),
-				label: "back_action",
-				title: "back_action",
+				label: "done_action",
+				title: "done_action",
+				click: () => {
+					dialog.onClose()
+				},
 			},
 		},
 		topicDetail: {
@@ -119,20 +150,14 @@ export async function showSupportDialog(logins: LoginController) {
 				},
 			}),
 			title: lang.get("supportMenu_label"),
-			leftAction: {
+			leftAction: { type: ButtonType.Secondary, click: () => goBack(), label: "back_action", title: "back_action" },
+			rightAction: {
 				type: ButtonType.Secondary,
+				label: "done_action",
+				title: "done_action",
 				click: () => {
-					goBack()
-
-					// going back from topic -> use category template
-					const selectedCategory = data.selectedCategory()
-					if (selectedCategory != null) {
-						data.contactTemplate(getCategoryContactTemplate(selectedCategory, lang.languageTag))
-						data.helpText(getCategoryHelpText(selectedCategory, lang.languageTag))
-					}
+					dialog.onClose()
 				},
-				label: "back_action",
-				title: "back_action",
 			},
 		},
 		contactSupport: {
@@ -140,24 +165,21 @@ export async function showSupportDialog(logins: LoginController) {
 			title: lang.get("supportMenu_label"),
 			leftAction: {
 				type: ButtonType.Secondary,
-				click: async () => {
-					if (data.isSupportRequestEmpty) {
-						goBack()
-					} else {
-						const yes = await Dialog.confirm("supportBackLostRequest_msg")
-						if (yes) {
-							goBack()
-						}
-					}
-				},
+				click: withConfirmation(() => goBack(), "supportBackLostRequest_msg"),
 				label: "back_action",
 				title: "back_action",
+			},
+			rightAction: {
+				type: ButtonType.Secondary,
+				label: "done_action",
+				title: "done_action",
+				click: withConfirmation(() => dialog.onClose(), "supportCloseLostRequest_msg"),
 			},
 		},
 		solutionWasHelpful: {
 			content: m(SupportSuccessPage, { dialog }),
 			title: lang.get("supportMenu_label"),
-			leftAction: {
+			rightAction: {
 				type: ButtonType.Secondary,
 				click: () => {
 					const stage = locator.usageTestController.getTest("support.rating").getStage(0)
@@ -166,14 +188,21 @@ export async function showSupportDialog(logins: LoginController) {
 
 					dialog.onClose()
 				},
-				label: "close_alt",
-				title: "close_alt",
+				label: "done_action",
+				title: "done_action",
 			},
 		},
 		supportRequestSent: {
 			content: m(SupportRequestSentPage, { data }),
 			title: lang.get("supportMenu_label"),
-			leftAction: { type: ButtonType.Secondary, click: () => dialog.onClose(), label: "close_alt", title: "close_alt" },
+			rightAction: {
+				type: ButtonType.Secondary,
+				label: "done_action",
+				title: "done_action",
+				click: () => {
+					dialog.onClose()
+				},
+			},
 		},
 		emailSupportBehindPaywall: {
 			content: m(EmailSupportUnavailablePage, {
@@ -183,16 +212,11 @@ export async function showSupportDialog(logins: LoginController) {
 				},
 			}),
 			title: lang.get("supportMenu_label"),
-			leftAction: {
-				type: ButtonType.Secondary,
-				click: () => goBack(),
-				label: "back_action",
-				title: "back_action",
-			},
+			leftAction: { type: ButtonType.Secondary, click: () => goBack(), label: "back_action", title: "back_action" },
 			rightAction: {
 				type: ButtonType.Secondary,
-				label: "close_alt",
-				title: "close_alt",
+				label: "done_action",
+				title: "done_action",
 				click: () => {
 					dialog.onClose()
 				},
@@ -205,18 +229,16 @@ export async function showSupportDialog(logins: LoginController) {
 			help: "close_alt",
 			key: Keys.ESC,
 			exec: () => {
-				console.info("Closing from ESC key")
 				dialog.onClose()
 			},
 		})
 		.show()
 
-	const supportData = await locator.entityClient.load(SupportDataTypeRef, "--------1---", { cacheMode: CacheMode.WriteOnly })
+	const supportData = await locator.entityClient.load(tutanotaTypeRefs.SupportDataTypeRef, "--------1---", { cacheMode: CacheMode.WriteOnly })
 	data.categories = filterCategories(supportData)
 	// redraw is needed to tell the SupportLandingPage to change the progress icon to the actual data
 	m.redraw()
 }
-
 /**
  * Gets the button text showed to direct users to the contact form based on the users' current language.
  * Some topics require contacting the support directly.
@@ -224,7 +246,6 @@ export async function showSupportDialog(logins: LoginController) {
 export function getContactSupportText(topic: SupportTopic, languageTag: string): string | null {
 	return languageTag.includes("de") ? topic.contactSupportTextDE : topic.contactSupportTextEN
 }
-
 /**
  * Gets the contact form default value for the provided category, based on the users' current language.
  * It is being used when the user cannot fully identify an issue from the list, so they click on "Other" in the list of issues within one category.
@@ -273,7 +294,7 @@ export function getCategoryIntroduction(category: SupportCategory, languageTag: 
 	return languageTag.includes("de") ? category.introductionDE : category.introductionEN
 }
 
-function filterCategories(supportData: SupportData) {
+function filterCategories(supportData: tutanotaTypeRefs.SupportData) {
 	const categories = supportData.categories
 
 	for (const key in supportData.categories) {
@@ -285,7 +306,7 @@ function filterCategories(supportData: SupportData) {
 			const meetsPlatform =
 				(isEnabled(visibility, SupportVisibilityMask.TutaCalendarMobile) && client.isCalendarApp()) ||
 				(isEnabled(visibility, SupportVisibilityMask.TutaMailMobile) && client.isMailApp()) ||
-				(isEnabled(visibility, SupportVisibilityMask.DesktopOrWebApp) && (client.isDesktopDevice() || isWebClient()))
+				(isEnabled(visibility, SupportVisibilityMask.DesktopOrWebApp) && (client.isDesktopDevice() || env.mode === Mode.Browser))
 
 			const isFreeAccount = !locator.logins.getUserController().isPaidAccount()
 			const meetsCustomerStatus =

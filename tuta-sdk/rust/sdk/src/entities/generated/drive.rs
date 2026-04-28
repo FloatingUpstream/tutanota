@@ -28,6 +28,9 @@ pub struct DriveFolder {
 	pub createdDate: DateTime,
 	#[serde(rename = "11")]
 	pub updatedDate: DateTime,
+	#[serde(rename = "121")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "12")]
 	pub parent: Option<IdTupleGenerated>,
 	#[serde(rename = "13")]
@@ -74,6 +77,9 @@ pub struct DriveFile {
 	pub createdDate: DateTime,
 	#[serde(rename = "26")]
 	pub updatedDate: DateTime,
+	#[serde(rename = "122")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "27")]
 	pub folder: IdTupleGenerated,
 	#[serde(rename = "28")]
@@ -455,6 +461,42 @@ impl Entity for DriveCopyServicePostIn {
 		TypeRef {
 			app: AppName::Drive,
 			type_id: TypeId::from(107),
+		}
+	}
+}
+
+#[derive(uniffi::Record, Clone, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(PartialEq, Debug))]
+pub struct DriveCopyServicePostOut {
+	#[serde(rename = "116")]
+	pub _format: i64,
+	#[serde(rename = "117")]
+	pub operationId: GeneratedId,
+}
+
+impl Entity for DriveCopyServicePostOut {
+	fn type_ref() -> TypeRef {
+		TypeRef {
+			app: AppName::Drive,
+			type_id: TypeId::from(115),
+		}
+	}
+}
+
+#[derive(uniffi::Record, Clone, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(PartialEq, Debug))]
+pub struct DriveItemServiceDeleteOut {
+	#[serde(rename = "119")]
+	pub _format: i64,
+	#[serde(rename = "120")]
+	pub operationId: GeneratedId,
+}
+
+impl Entity for DriveItemServiceDeleteOut {
+	fn type_ref() -> TypeRef {
+		TypeRef {
+			app: AppName::Drive,
+			type_id: TypeId::from(118),
 		}
 	}
 }

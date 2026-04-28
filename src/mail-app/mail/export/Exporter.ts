@@ -1,8 +1,7 @@
-import { noOp, promiseMap, sortableTimestamp } from "@tutao/tutanota-utils"
+import { noOp, promiseMap, sortableTimestamp, splitInChunks } from "@tutao/utils"
 import { DataFile } from "../../../common/api/common/DataFile"
 import { downloadMailBundle } from "./Bundler"
-import { isDesktop } from "../../../common/api/common/Env"
-import type { Mail } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { elementIdPart, tutanotaTypeRefs } from "@tutao/typerefs"
 import type { EntityClient } from "../../../common/api/common/EntityClient"
 import { locator } from "../../../common/api/main/CommonLocator"
 import { FileController, zipDataFiles } from "../../../common/file/FileController"
@@ -12,7 +11,9 @@ import { CancelledError } from "../../../common/api/common/error/CancelledError.
 import { CryptoFacade } from "../../../common/api/worker/crypto/CryptoFacade.js"
 import { MailBundle, MailExportMode } from "../../../common/mailFunctionality/SharedMailUtils.js"
 import { generateExportFileName, mailToEmlFile } from "./emlUtils.js"
-import { elementIdPart } from "../../../common/api/common/utils/EntityUtils"
+import { isDesktop } from "@tutao/app-env"
+
+const EXPORT_CHUNK_SIZE = 10000
 
 export async function generateMailFile(bundle: MailBundle, fileName: string, mode: MailExportMode): Promise<DataFile> {
 	return mode === "eml" ? mailToEmlFile(bundle, fileName) : locator.fileApp.mailToMsg(bundle, fileName)
@@ -37,14 +38,14 @@ export async function getMailExportMode(): Promise<MailExportMode> {
  * was instructed to open the new zip File containing the exported files
  */
 export async function exportMails(
-	mails: ReadonlyArray<Mail>,
+	mails: ReadonlyArray<tutanotaTypeRefs.Mail>,
 	mailFacade: MailFacade,
 	entityClient: EntityClient,
 	fileController: FileController,
 	cryptoFacade: CryptoFacade,
 	operationId?: OperationId,
 	signal?: AbortSignal,
-): Promise<{ failed: Mail[] }> {
+): Promise<{ failed: tutanotaTypeRefs.Mail[] }> {
 	let cancelled = false
 
 	const onAbort = () => {
@@ -57,7 +58,7 @@ export async function exportMails(
 		// total effort would be (mailsToBundle * 2) + filesToGenerate
 		const totalMails = mails.length * 3
 		let doneMails = 0
-		const errorMails: Mail[] = []
+		const errorMails: tutanotaTypeRefs.Mail[] = []
 
 		signal?.addEventListener("abort", onAbort)
 		const updateProgress =
@@ -74,36 +75,39 @@ export async function exportMails(
 
 		const { getHtmlSanitizer } = await import("../../../common/misc/HtmlSanitizer")
 		const htmlSanitizer = getHtmlSanitizer()
-		const downloadPromise = promiseMap(mails, async (mail) => {
-			checkAbortSignal()
-			try {
-				return await downloadMailBundle(mail, mailFacade, entityClient, fileController, htmlSanitizer, cryptoFacade)
-			} catch (e) {
-				errorMails.push(mail)
-			} finally {
-				updateProgress()
+		const mailChunks = splitInChunks<tutanotaTypeRefs.Mail>(EXPORT_CHUNK_SIZE, mails)
+		for (const [index, mailsChunk] of mailChunks.entries()) {
+			const downloadPromise = promiseMap(mailsChunk, async (mail) => {
+				checkAbortSignal()
+				try {
+					return await downloadMailBundle(mail, mailFacade, entityClient, fileController, htmlSanitizer, cryptoFacade)
+				} catch (e) {
+					errorMails.push(mail)
+				} finally {
+					updateProgress()
+					updateProgress()
+				}
+			})
+
+			const [mode, bundles] = await Promise.all([getMailExportMode(), downloadPromise])
+			const dataFiles: DataFile[] = []
+			for (const bundle of bundles) {
+				if (!bundle) continue
+
+				checkAbortSignal()
+				const mailFile = await generateMailFile(
+					bundle,
+					generateExportFileName(elementIdPart(bundle.mailId), bundle.subject, new Date(bundle.receivedOn), mode),
+					mode,
+				)
+				dataFiles.push(mailFile)
 				updateProgress()
 			}
-		})
 
-		const [mode, bundles] = await Promise.all([getMailExportMode(), downloadPromise])
-		const dataFiles: DataFile[] = []
-		for (const bundle of bundles) {
-			if (!bundle) continue
-
-			checkAbortSignal()
-			const mailFile = await generateMailFile(
-				bundle,
-				generateExportFileName(elementIdPart(bundle.mailId), bundle.subject, new Date(bundle.receivedOn), mode),
-				mode,
-			)
-			dataFiles.push(mailFile)
-			updateProgress()
+			const zipName = `${sortableTimestamp()}-${mode}-mail-export-${index + 1}.zip`
+			const outputFile = await (dataFiles.length === 1 ? dataFiles[0] : zipDataFiles(dataFiles, zipName))
+			await fileController.saveDataFile(outputFile)
 		}
-
-		const zipName = `${sortableTimestamp()}-${mode}-mail-export.zip`
-		const outputFile = await (dataFiles.length === 1 ? dataFiles[0] : zipDataFiles(dataFiles, zipName))
-		await fileController.saveDataFile(outputFile)
 
 		return {
 			failed: errorMails,

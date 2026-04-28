@@ -1,8 +1,8 @@
+use crypto_primitives::aes::Iv;
+use crypto_primitives::key::GenericAesKey;
 use crypto_primitives::randomizer_facade::RandomizerFacade;
 use std::sync::Arc;
 use tutasdk::bindings::test_file_client::TestFileClient;
-use tutasdk::crypto::aes::Iv;
-use tutasdk::crypto::key::GenericAesKey;
 use tutasdk::crypto::{Aes256Key, IV_BYTE_SIZE};
 use tutasdk::date::DateTime;
 use tutasdk::entities::generated::sys::PushIdentifier;
@@ -55,6 +55,7 @@ async fn can_create_remote_instance() {
 		_ownerGroup: Some(user_group_id),
 		_ownerEncSessionKey: Some(_owner_enc_session_key.object),
 		_ownerKeyVersion: Some(_owner_enc_session_key.version as i64),
+		_kdfNonce: None,
 		_id: Some(IdTupleGenerated {
 			list_id: user_push_identifier_list_id.clone(),
 			element_id: Default::default(),

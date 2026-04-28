@@ -1,7 +1,7 @@
 import type { LoginController } from "../../main/LoginController"
-import { isWebClient } from "../Env"
-import { FeatureType } from "../TutanotaConstants"
+import { FeatureType } from "@tutao/app-env"
+import { Mode } from "@tutao/app-env"
 
 export function isDriveEnabled(loginController: LoginController): boolean {
-	return isWebClient() && loginController.isInternalUserLoggedIn() && loginController.isEnabled(FeatureType.DriveInternalBeta)
+	return env.mode === Mode.Browser && loginController.isInternalUserLoggedIn() && loginController.isEnabled(FeatureType.DriveInternalBeta)
 }

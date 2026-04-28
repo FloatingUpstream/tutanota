@@ -1,10 +1,10 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { AriaLandmarks, landmarkAttrs } from "../AriaUtils"
 import { LayerType } from "../../../RootView"
-import { lazy, MaybeLazy, resolveMaybeLazy } from "@tutao/tutanota-utils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { lazy, MaybeLazy, resolveMaybeLazy } from "@tutao/utils"
+import { assertMainOrNode } from "@tutao/app-env"
 import { lang, MaybeTranslation } from "../../misc/LanguageViewModel.js"
-import { TabIndex } from "../../api/common/TutanotaConstants"
+import { TabIndex } from "@tutao/app-env"
 import { layout_size, px, size } from "../size"
 import { styles } from "../styles"
 

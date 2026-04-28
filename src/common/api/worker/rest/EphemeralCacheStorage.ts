@@ -1,15 +1,14 @@
-import { BlobElementEntity, Entity, ListElementEntity, ServerModelParsedInstance, SomeEntity, TypeModel } from "../../common/EntityTypes.js"
-import { customIdToBase64Url, ensureBase64Ext, firstBiggerThanSecond, GENERATED_MIN_ID } from "../../common/utils/EntityUtils.js"
+import { BlobElementEntity, Entity, ListElementEntity, ServerModelParsedInstance, SomeEntity, TypeModel } from "@tutao/typerefs"
+import { customIdToBase64Url, ensureBase64Ext, firstBiggerThanSecond, GENERATED_MIN_ID } from "@tutao/typerefs"
 import { CacheStorage, LastUpdateTime } from "./DefaultEntityRestCache.js"
-import { assertNotNull, clone, filterNull, getFromMap, getTypeString, newPromise, Nullable, parseTypeString, remove, TypeRef } from "@tutao/tutanota-utils"
+import { assertNotNull, clone, filterNull, getFromMap, getTypeString, newPromise, Nullable, parseTypeString, remove, TypeRef } from "@tutao/utils"
 import { CustomCacheHandlerMap } from "./cacheHandler/CustomCacheHandler.js"
-import { Type as TypeId } from "../../common/EntityConstants.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError.js"
-import { AttributeModel } from "../../common/AttributeModel"
-import { ModelMapper } from "../crypto/ModelMapper"
-import { ServerTypeModelResolver } from "../../common/EntityFunctions"
+import { Type as TypeId, hasError } from "@tutao/typerefs"
+import { ProgrammingError } from "@tutao/app-env"
+import { AttributeModel } from "@tutao/typerefs"
+import { ModelMapper } from "@tutao/instance-pipeline"
+import { ServerTypeModelResolver } from "@tutao/typerefs"
 import { expandId } from "./RestClientIdUtils"
-import { hasError } from "../../common/utils/ErrorUtils"
 import type { SpamClassificationModel } from "../../../../mail-app/workerUtils/spamClassification/SpamClassifier"
 
 /** Cache for a single list. */
@@ -48,12 +47,15 @@ export class EphemeralCacheStorage implements CacheStorage {
 	private lastTrainedFromScratchTime: number | null = null
 	private userId: Id | null = null
 	private lastBatchIdPerGroup = new Map<Id, Id>()
-
 	constructor(
 		private readonly modelMapper: ModelMapper,
 		private readonly typeModelResolver: ServerTypeModelResolver,
 		private readonly customCacheHandlerMap: CustomCacheHandlerMap,
 	) {}
+
+	isInitialized(): boolean {
+		return this.userId != null
+	}
 
 	init({ userId }: EphemeralStorageInitArgs) {
 		this.userId = userId
@@ -199,6 +201,14 @@ export class EphemeralCacheStorage implements CacheStorage {
 				break
 			default:
 				throw new ProgrammingError("must be a persistent type")
+		}
+	}
+
+	async deleteRange<T extends ListElementEntity>(typeRef: TypeRef<T>, listId: string): Promise<void> {
+		const typeId = getTypeString(typeRef)
+		const cache = this.lists.get(typeId)
+		if (cache) {
+			cache.delete(listId)
 		}
 	}
 
@@ -419,14 +429,6 @@ export class EphemeralCacheStorage implements CacheStorage {
 
 	async putLastUpdateTime(value: number): Promise<void> {
 		this.lastUpdateTime = value
-	}
-
-	async getLastTrainingDataIndexId(): Promise<Id> {
-		return this.lastTrainingDataId
-	}
-
-	async setLastTrainingDataIndexId(id: Id): Promise<void> {
-		this.lastTrainingDataId = id
 	}
 
 	async getLastTrainedFromScratchTime(): Promise<number> {

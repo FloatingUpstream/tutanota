@@ -1,4 +1,4 @@
-import { assertEnumValue, CustomDomainType, CustomDomainTypeCount, CustomDomainValidationResult } from "../../../common/api/common/TutanotaConstants"
+import { assertMainOrNode, CustomDomainType, CustomDomainTypeCount, CustomDomainValidationResult, UpgradePromptType } from "@tutao/app-env"
 import m, { Children, Vnode, VnodeDOM } from "mithril"
 import type { AddDomainData } from "./AddDomainWizard"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog"
@@ -6,15 +6,15 @@ import { lang, TranslationKey } from "../../../common/misc/LanguageViewModel"
 import { Dialog } from "../../../common/gui/base/Dialog"
 import type { WizardPageAttrs, WizardPageN } from "../../../common/gui/base/WizardDialog.js"
 import { emitWizardEvent, WizardEventType } from "../../../common/gui/base/WizardDialog.js"
-import { PreconditionFailedError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { showPlanUpgradeRequiredDialog } from "../../../common/misc/SubscriptionDialogs.js"
-import { downcast, isEmpty, ofClass } from "@tutao/tutanota-utils"
+import { isEmpty, ofClass } from "@tutao/utils"
 import { locator } from "../../../common/api/main/CommonLocator"
-import { assertMainOrNode } from "../../../common/api/common/Env"
 import { createDnsRecordTable } from "./DnsRecordTable.js"
 import { getAvailableMatchingPlans } from "../../../common/subscription/utils/SubscriptionUtils.js"
 import { getCustomMailDomains } from "../../../common/api/common/utils/CustomerUtils.js"
 import { LoginButton } from "../../../common/gui/base/buttons/LoginButton.js"
+import { assertEnumValue } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -114,7 +114,7 @@ export class VerifyOwnershipPageAttrs implements WizardPageAttrs<AddDomainData> 
 				return true
 			})
 			.catch(
-				ofClass(PreconditionFailedError, async (e) => {
+				ofClass(restError.PreconditionFailedError, async (e) => {
 					if (e.data === CustomDomainFailureReasons.LIMIT_REACHED) {
 						const nbrOfCustomDomains = this.data.customerInfo.domainInfos.filter((domainInfo) => domainInfo.whitelabelConfig == null).length
 						const plans = await getAvailableMatchingPlans(locator.serviceExecutor, (config) => {
@@ -130,7 +130,7 @@ export class VerifyOwnershipPageAttrs implements WizardPageAttrs<AddDomainData> 
 							Dialog.message("tooManyCustomDomains_msg")
 						} else {
 							// ignore promise. always return false to not switch to next page.
-							showPlanUpgradeRequiredDialog(plans, "moreCustomDomainsRequired_msg")
+							showPlanUpgradeRequiredDialog(UpgradePromptType.MORE_CUSTOM_DOMAINS_NEEDED, plans, "moreCustomDomainsRequired_msg")
 						}
 					} else {
 						Dialog.message(lang.makeTranslation("error_msg", e.toString()))

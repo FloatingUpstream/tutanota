@@ -12,6 +12,7 @@ import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
+import de.tutao.tutasdk.IdTupleCustom as IdTupleCustomSDK
 
 @Serializable
 enum class OperationType {
@@ -30,6 +31,13 @@ class IdTuple(
 	val listId: String,
 	val elementId: String
 ) {
+	// The name is to avoid confusion between `tutasdk.IdTupleCustom` and `tutanota.IdTupleCustom`
+	fun toSdkIdTupleCustom(): IdTupleCustomSDK {
+		return IdTupleCustomSDK(
+			this.listId,
+			this.elementId
+		)
+	}
 
 	@OptIn(ExperimentalSerializationApi::class)
 	companion object IdTupleSerializer : KSerializer<IdTuple> {

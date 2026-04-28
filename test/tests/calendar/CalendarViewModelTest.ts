@@ -1,25 +1,21 @@
-import o from "@tutao/otest"
+import o, { assertThrows, spy } from "@tutao/otest"
 import { getDateInZone, makeEvent, makeUserController, zone } from "./CalendarTestUtils.js"
 import type { LoginController } from "../../../src/common/api/main/LoginController.js"
-import { assertThrows, spy } from "@tutao/tutanota-test-utils"
-import { assertNotNull, downcast, getStartOfDay, neverNull, noOp } from "@tutao/tutanota-utils"
-import { CalendarEvent, CalendarEventTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { assertNotNull, downcast, getStartOfDay, neverNull, noOp } from "@tutao/utils"
+import { ClientModelInfo, entityUpdateUtils, getElementId, getListId, tutanotaTypeRefs } from "@tutao/typerefs"
 import { EntityClient } from "../../../src/common/api/common/EntityClient.js"
 import { EventController } from "../../../src/common/api/main/EventController.js"
 import { ProgressTracker } from "../../../src/common/api/main/ProgressTracker.js"
 import { DeviceConfig } from "../../../src/common/misc/DeviceConfig.js"
-import { GroupType, OperationType } from "../../../src/common/api/common/TutanotaConstants.js"
-import { getElementId, getListId } from "../../../src/common/api/common/utils/EntityUtils.js"
 import { EntityRestClientMock } from "../api/worker/rest/EntityRestClientMock.js"
 import { ReceivedGroupInvitationsModel } from "../../../src/common/sharing/model/ReceivedGroupInvitationsModel.js"
 import { ProgressMonitor } from "../../../src/common/api/common/utils/ProgressMonitor.js"
 import { object, when } from "testdouble"
-import { EntityUpdateData, PrefetchStatus } from "../../../src/common/api/common/utils/EntityUpdateUtils.js"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import {
 	CalendarContactPreviewModelFactory,
-	CalendarEventEditModelsFactory,
+	CalendarEventModelFactory,
 	CalendarEventPreviewModelFactory,
 	CalendarViewModel,
 	EventWrapper,
@@ -30,7 +26,9 @@ import { MailboxModel } from "../../../src/common/mailFunctionality/MailboxModel
 import { addDaysForEventInstance, getMonthRange } from "../../../src/common/calendar/date/CalendarUtils.js"
 import { CalendarEventModel, CalendarOperation, EventSaveResult } from "../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventModel.js"
 import { ContactModel } from "../../../src/common/contactsFunctionality/ContactModel.js"
-import { ClientModelInfo } from "../../../src/common/api/common/EntityFunctions"
+
+import { noPatchesAndInstance } from "../api/worker/EventBusClientTest"
+import { GroupType, OperationType } from "../../../src/app-env"
 
 let saveAndSendMock
 let rescheduleEventMock
@@ -38,7 +36,7 @@ o.spec("CalendarViewModel", function () {
 	let entityClientMock: EntityRestClientMock
 
 	function initCalendarViewModel(
-		makeViewModelCallback: CalendarEventEditModelsFactory,
+		makeViewModelCallback: CalendarEventModelFactory,
 		eventController?,
 	): {
 		viewModel: CalendarViewModel
@@ -389,7 +387,7 @@ o.spec("CalendarViewModel", function () {
 	})
 	o.spec("entityEventsReceived", function () {
 		o("transient event is removed on update", async function () {
-			const entityListeners: any[] = []
+			const entityListeners: entityUpdateUtils.EntityEventsListener[] = []
 			const eventController: EventController = downcast({
 				addEntityListener(listener) {
 					entityListeners.push(listener)
@@ -414,14 +412,12 @@ o.spec("CalendarViewModel", function () {
 			await simulateEndDrag(originalDateForDraggedEvent, newData, viewModel)
 			o(viewModel.temporaryEvents.some((eventWrapper) => eventWrapper.event.uid === wrapperToDrag.event.uid)).equals(true)("Has transient event")
 			o(entityListeners.length).equals(1)("Listener was added")
-			const entityUpdate: EntityUpdateData = {
-				typeRef: CalendarEventTypeRef,
+			const entityUpdate: entityUpdateUtils.EntityUpdateData = {
+				typeRef: tutanotaTypeRefs.CalendarEventTypeRef,
 				instanceListId: getListId(wrapperToDrag.event) as NonEmptyString,
 				instanceId: getElementId(wrapperToDrag.event),
 				operation: OperationType.CREATE,
-				instance: null,
-				patches: null,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
+				...noPatchesAndInstance,
 			}
 			const updatedEventFromServer = makeEvent(
 				getElementId(wrapperToDrag.event),
@@ -430,7 +426,7 @@ o.spec("CalendarViewModel", function () {
 				assertNotNull(wrapperToDrag.event.uid),
 			)
 			entityClientMock.addListInstances(updatedEventFromServer.event)
-			await entityListeners[0]([entityUpdate], wrapperToDrag.event._ownerGroup)
+			await entityListeners[0].onEntityUpdatesReceived([entityUpdate], assertNotNull(wrapperToDrag.event._ownerGroup), true)
 			o(viewModel.temporaryEvents.some((eventWrapper) => eventWrapper.event.uid === wrapperToDrag.event.uid)).equals(false)("Transient event removed")
 		})
 	})
@@ -447,19 +443,22 @@ async function simulateEndDrag(originalDate: Date, newDate: Date, viewModel: Cal
 	await viewModel.onDragEnd(diff, CalendarOperation.EditAll)
 }
 
-async function makeCalendarEventModel(mode: CalendarOperation, existingEvent: CalendarEvent): Promise<CalendarEventModel> {
+async function makeCalendarEventModel(mode: CalendarOperation, existingEvent: tutanotaTypeRefs.CalendarEvent): Promise<CalendarEventModel> {
 	const eventModel: CalendarEventModel = object()
 	when(eventModel.apply()).thenResolve(EventSaveResult.Saved)
 	return eventModel
 }
 
-async function makeCalendarEventEditModelThatFailsSaving(mode: CalendarOperation, existingEvent: CalendarEvent): Promise<CalendarEventModel> {
+async function makeCalendarEventEditModelThatFailsSaving(mode: CalendarOperation, existingEvent: tutanotaTypeRefs.CalendarEvent): Promise<CalendarEventModel> {
 	const eventModel: CalendarEventModel = object()
 	when(eventModel.apply()).thenResolve(EventSaveResult.Failed)
 	return eventModel
 }
 
-async function makeCalendarEventEditModelThatThrowsOnSaving(mode: CalendarOperation, existingEvent: CalendarEvent): Promise<CalendarEventModel> {
+async function makeCalendarEventEditModelThatThrowsOnSaving(
+	mode: CalendarOperation,
+	existingEvent: tutanotaTypeRefs.CalendarEvent,
+): Promise<CalendarEventModel> {
 	const eventModel: CalendarEventModel = object()
 	when(eventModel.apply()).thenReject(new Error("whoopsie"))
 	return eventModel

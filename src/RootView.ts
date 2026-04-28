@@ -2,9 +2,10 @@ import m, { Children, ClassComponent, Vnode } from "mithril"
 import { modal } from "./common/gui/base/Modal"
 import { overlay } from "./common/gui/base/Overlay"
 import { styles } from "./common/gui/styles"
-import { assertMainOrNodeBoot, isApp } from "./common/api/common/Env"
-import { Keys } from "./common/api/common/TutanotaConstants.js"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
+import { Keys } from "@tutao/app-env"
 import { isKeyPressed } from "./common/misc/KeyManager.js"
+import { isApp } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 

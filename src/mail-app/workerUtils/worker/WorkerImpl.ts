@@ -1,10 +1,9 @@
 import type { Commands } from "../../../common/api/common/threading/MessageDispatcher.js"
 import { errorToObj, MessageDispatcher, Request } from "../../../common/api/common/threading/MessageDispatcher.js"
 import { BookingFacade } from "../../../common/api/worker/facades/lazy/BookingFacade.js"
-import { NotAuthenticatedError } from "../../../common/api/common/error/RestError.js"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError.js"
+import { RestClient, restError } from "@tutao/rest-client"
+import { assertWorkerOrNode, isMainOrNode, ProgrammingError } from "@tutao/app-env"
 import { initLocator, locator, resetLocator } from "./WorkerLocator.js"
-import { assertWorkerOrNode, isMainOrNode } from "../../../common/api/common/Env.js"
 import type { BrowserData } from "../../../common/misc/ClientConstants.js"
 import { CryptoFacade } from "../../../common/api/worker/crypto/CryptoFacade.js"
 import type { GiftCardFacade } from "../../../common/api/worker/facades/lazy/GiftCardFacade.js"
@@ -19,10 +18,9 @@ import { CounterFacade } from "../../../common/api/worker/facades/lazy/CounterFa
 import { MailAddressFacade } from "../../../common/api/worker/facades/lazy/MailAddressFacade.js"
 import { UserManagementFacade } from "../../../common/api/worker/facades/lazy/UserManagementFacade.js"
 import { DelayedImpls, exposeLocalDelayed, exposeRemote } from "../../../common/api/common/WorkerProxy.js"
-import { random } from "@tutao/tutanota-crypto"
+import { CryptoWrapper, random } from "@tutao/crypto"
 import type { NativeInterface } from "../../../common/native/common/NativeInterface.js"
 import type { EntityRestInterface } from "../../../common/api/worker/rest/EntityRestClient.js"
-import { RestClient } from "../../../common/api/worker/rest/RestClient.js"
 import { IServiceExecutor } from "../../../common/api/common/ServiceRequest.js"
 import { BlobFacade } from "../../../common/api/worker/facades/lazy/BlobFacade.js"
 import { ExposedCacheStorage } from "../../../common/api/worker/rest/DefaultEntityRestCache.js"
@@ -35,8 +33,7 @@ import { ContactFacade } from "../../../common/api/worker/facades/lazy/ContactFa
 import { RecoverCodeFacade } from "../../../common/api/worker/facades/lazy/RecoverCodeFacade.js"
 import { CacheManagementFacade } from "../../../common/api/worker/facades/lazy/CacheManagementFacade.js"
 import { ExposedEventBus, MainInterface, WorkerRandomizer } from "../../../common/api/worker/workerInterfaces.js"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
-import { CryptoWrapper } from "../../../common/api/worker/crypto/CryptoWrapper.js"
+import { CryptoError } from "@tutao/crypto/error"
 import { AsymmetricCryptoFacade } from "../../../common/api/worker/crypto/AsymmetricCryptoFacade.js"
 import { KeyVerificationFacade } from "../../../common/api/worker/facades/lazy/KeyVerificationFacade"
 import { PublicEncryptionKeyProvider } from "../../../common/api/worker/facades/PublicEncryptionKeyProvider.js"
@@ -331,7 +328,7 @@ export class WorkerImpl implements NativeInterface {
 				const errorTypes = {
 					ProgrammingError,
 					CryptoError,
-					NotAuthenticatedError,
+					NotAuthenticatedError: restError.NotAuthenticatedError,
 				}
 				// @ts-ignore
 				let ErrorType = errorTypes[message.args[0].errorType]

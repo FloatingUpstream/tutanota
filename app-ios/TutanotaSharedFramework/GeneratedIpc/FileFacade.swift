@@ -6,14 +6,14 @@ import Foundation
 /**
  * filesystem-related operations. none of the methods writing files to disk guarantee a fixed file name or location, except for putFileIntoDownloadsFolder.
  */
-public protocol FileFacade {
+public protocol FileFacade : Sendable {
 	/**
 	 * Opens the file with the built-in viewer or external program.
 	 */
 	func open(
 		_ location: String,
 		_ mimeType: String
-	) async throws
+	) async throws -> Void
 	/**
 	 * Opens OS file picker. Returns the list of URIs for the selected files. add a list of extensions (without dot) to filter the options.
 	 */
@@ -34,7 +34,7 @@ public protocol FileFacade {
 	) async throws -> [String]
 	func deleteFile(
 		_ file: String
-	) async throws
+	) async throws -> Void
 	func getName(
 		_ file: String
 	) async throws -> String
@@ -58,8 +58,15 @@ public protocol FileFacade {
 		_ fileUrl: String,
 		_ targetUrl: String,
 		_ method: String,
-		_ headers: [String : String]
+		_ headers: [String : String],
+		_ fileId: String
 	) async throws -> UploadTaskResponse
+	/**
+	 * abort a transfer started by FileFacade#upload
+	 */
+	func abortUpload(
+		_ fileId: String
+	) async throws -> Void
 	/**
 	 * download an encrypted file to the file system and return the location of the data
 	 */
@@ -70,13 +77,19 @@ public protocol FileFacade {
 		_ fileId: String
 	) async throws -> DownloadTaskResponse
 	/**
+	 * abort a transfer started by FileFacade#download
+	 */
+	func abortDownload(
+		_ fileId: String
+	) async throws -> Void
+	/**
 	 * Calculates specified file hash (with SHA-256). Returns first 6 bytes of it as Base64.
 	 */
 	func hashFile(
 		_ fileUri: String
 	) async throws -> String
 	func clearFileData(
-	) async throws
+	) async throws -> Void
 	/**
 	 * given a list of chunk file locations, will re-join them in order to reconstruct a single file and returns the location of that file on disk.
 	 */
@@ -103,13 +116,19 @@ public protocol FileFacade {
 	func writeToAppDir(
 		_ content: DataWrapper,
 		_ path: String
-	) async throws
+	) async throws -> Void
 	/**
 	 * Read file from given path relative to app data folder
 	 */
 	func readFromAppDir(
 		_ path: String
 	) async throws -> DataWrapper
+	/**
+	 * Delete file from given path relative to app data folder
+	 */
+	func deleteFromAppDir(
+		_ path: String
+	) async throws -> Void
 	/**
 	 * read the file at the given location into a DataFile. Returns null if reading fails for any reason.
 	 */

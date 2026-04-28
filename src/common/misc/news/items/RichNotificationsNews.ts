@@ -1,14 +1,14 @@
 import { NewsListItem } from "../NewsListItem.js"
-import { NewsId } from "../../../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import m, { Children } from "mithril"
 import { NewsModel } from "../NewsModel.js"
 import { NativePushServiceApp } from "../../../native/main/NativePushServiceApp.js"
 import { ExtendedNotificationMode } from "../../../native/common/generatedipc/ExtendedNotificationMode.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { Button, ButtonType } from "../../../gui/base/Button.js"
 import { lang } from "../../LanguageViewModel.js"
 import { NotificationContentSelector } from "../../../../mail-app/settings/NotificationContentSelector.js"
-import { isApp } from "../../../api/common/Env.js"
+import { isApp } from "@tutao/app-env"
 
 export class RichNotificationsNews implements NewsListItem {
 	private notificationMode: ExtendedNotificationMode | null = null
@@ -18,7 +18,7 @@ export class RichNotificationsNews implements NewsListItem {
 		private readonly pushApp: NativePushServiceApp | null,
 	) {}
 
-	async isShown(_newsId: NewsId): Promise<boolean> {
+	async isShown(_newsId: tutanotaTypeRefs.NewsId): Promise<boolean> {
 		return (
 			isApp() &&
 			this.pushApp != null &&
@@ -26,7 +26,7 @@ export class RichNotificationsNews implements NewsListItem {
 		)
 	}
 
-	render(newsId: NewsId): Children {
+	render(newsId: tutanotaTypeRefs.NewsId): Children {
 		// if we got here then we must have it
 		const pushApp = assertNotNull(this.pushApp)
 		return m(".full-width", [
@@ -53,7 +53,7 @@ export class RichNotificationsNews implements NewsListItem {
 		])
 	}
 
-	private async acknowledge(newsId: NewsId) {
+	private async acknowledge(newsId: tutanotaTypeRefs.NewsId) {
 		await this.newsModel.acknowledgeNews(newsId.newsItemId)
 		m.redraw()
 	}

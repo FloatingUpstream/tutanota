@@ -1,4 +1,4 @@
-import type { CalendarEvent } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import m, { Children, VnodeDOM } from "mithril"
 
 import { SelectableRowContainer, SelectableRowContainerAttrs, SelectableRowSelectedSetter } from "../../../common/gui/SelectableRowContainer.js"
@@ -12,6 +12,8 @@ import { formatEventDuration, getEventColor } from "./CalendarGuiUtils.js"
 import { GroupColors } from "../view/CalendarView.js"
 import { SearchToken } from "../../../common/api/common/utils/QueryTokenUtils"
 import { CalendarInfoBase } from "../model/CalendarModel"
+
+type CalendarEvent = tutanotaTypeRefs.CalendarEvent
 
 export class CalendarRow implements VirtualRow<CalendarEvent> {
 	top: number
@@ -61,6 +63,7 @@ export class CalendarRow implements VirtualRow<CalendarEvent> {
 		return m(
 			SelectableRowContainer,
 			{
+				class: "pt-12 pb-12 pl-12 pr-12",
 				onSelectedChangeRef: (changer) => {
 					this.selectionSetter = changer
 				},

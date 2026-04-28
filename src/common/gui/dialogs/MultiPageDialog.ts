@@ -1,4 +1,4 @@
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
 import { Dialog } from "../base/Dialog.js"
 import { ButtonAttrs } from "../base/Button.js"
 import stream from "mithril/stream"
@@ -6,7 +6,7 @@ import { theme } from "../theme.js"
 import m, { Children, Component, Vnode, VnodeDOM } from "mithril"
 import { client } from "../../misc/ClientDetector.js"
 import { px, size } from "../size.js"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { windowFacade, windowSizeListener } from "../../misc/WindowFacade.js"
 import { DialogHeaderBarAttrs } from "../base/DialogHeaderBar.js"
 import { lang } from "../../misc/LanguageViewModel.js"
@@ -276,8 +276,7 @@ class MultiPageDialogViewWrapper implements Component<Props> {
 
 		vnode.dom.addEventListener("transitionend", (e) => {
 			// transitionend event is fired in the children, so that we need to filter them to only apply to the dialog
-			const targetEl = e.target as HTMLElement
-			if (targetEl.id !== "multi-page-dialog") return
+			if (e.target !== vnode.dom) return
 
 			this.transitionClass = ""
 			vnode.attrs.isAnimating(false)
@@ -330,13 +329,23 @@ class MultiPageDialogViewWrapper implements Component<Props> {
 		this.tryScrollToTop()
 
 		const target = vnode.attrs.currentPageStream()
-		this.translate = -(this.pageWidth + size.spacing_64)
-		m.redraw.sync()
-
 		vnode.attrs.isAnimating(true)
 		this.transitionPage(target)
-		this.transitionClass = "transition-transform"
-		this.translate = 0
+		this.transitionClass = ""
+		this.translate = -(this.pageWidth + size.spacing_64)
+
+		m.redraw.sync()
+
+		// Flush the starting transform before enabling the CSS transition. Without this frame split,
+		// the browser may skip the animation entirely and never emit `transitionend`.
+		// We just need the browser to evaluate this statement, we don't care about the output, hence the `void` operator
+		// This works, because evaluating the statement forces the browser to check the state of the dom, preventing it from batching the transform operations
+		void this.pagesWrapperDomElement.offsetWidth
+		requestAnimationFrame(() => {
+			this.transitionClass = "transition-transform"
+			this.translate = 0
+			m.redraw()
+		})
 	}
 
 	/**
@@ -353,12 +362,20 @@ class MultiPageDialogViewWrapper implements Component<Props> {
 
 	private transitionTo(vnode: Vnode<Props>, target: string) {
 		this.tryScrollToTop()
-		this.translate = 0
 
 		vnode.attrs.isAnimating(true)
 		this.transitionPage(target)
-		this.transitionClass = "transition-transform"
-		this.translate = -(this.pageWidth + size.spacing_64)
+		this.transitionClass = ""
+		this.translate = 0
+
+		m.redraw.sync()
+
+		void this.pagesWrapperDomElement.offsetWidth
+		requestAnimationFrame(() => {
+			this.transitionClass = "transition-transform"
+			this.translate = -(this.pageWidth + size.spacing_64)
+			m.redraw()
+		})
 	}
 
 	view(vnode: Vnode<Props>): Children {

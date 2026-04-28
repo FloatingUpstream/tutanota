@@ -1,0 +1,64 @@
+import o from "@tutao/otest"
+import { generateEd25519KeyPair, initEd25519, signWithEd25519, verifyEd25519Signature } from "@tutao/crypto"
+import { matchers, object, verify } from "testdouble"
+import { loadWasmFromFileOrNetwork } from "./WebAssemblyTestUtils"
+import { assertNotNull } from "@tutao/utils"
+
+o.spec("Ed25519Test", function () {
+	o.before(async function () {
+		await initEd25519(await loadWasmFromFileOrNetwork("crypto_primitives_bg.wasm"))
+	})
+
+	o("valid Ed25519 round trip", function () {
+		const ed25519keypair = generateEd25519KeyPair()
+		o(ed25519keypair.private_key.length).equals(32)
+		o(ed25519keypair.public_key.length).equals(32)
+		const message = "my cute message <3"
+
+		const encodedMessage = new TextEncoder().encode(message)
+		const signature = signWithEd25519(ed25519keypair.private_key, encodedMessage)
+		const verification = verifyEd25519Signature(ed25519keypair.public_key, encodedMessage, signature)
+		o(verification)
+	})
+
+	o("report fake signatures", function () {
+		const ed25519keypair = generateEd25519KeyPair()
+		const message = "my cute message <3"
+		const encodedMessage = new TextEncoder().encode(message)
+
+		const fakeMessage = new TextEncoder().encode("I falsify message for a living")
+		const fakeSignature = signWithEd25519(ed25519keypair.private_key, fakeMessage)
+
+		const verified = verifyEd25519Signature(ed25519keypair.public_key, encodedMessage, fakeSignature)
+		o(verified).equals(false)
+	})
+
+	o("report fake messages", function () {
+		const ed25519keypair = generateEd25519KeyPair()
+		const message = "my cute message <3"
+		const encodedMessage = new TextEncoder().encode(message)
+		const signature = signWithEd25519(ed25519keypair.private_key, encodedMessage)
+
+		const fakeMessage = new TextEncoder().encode("I falsify message for a living")
+
+		const verified = verifyEd25519Signature(ed25519keypair.public_key, fakeMessage, signature)
+		o(verified).equals(false)
+	})
+
+	o("verify generateKeyPair invokes Crypto.getRandom - browserLike", () => {
+		const originalGetRandom = window.crypto.getRandomValues
+
+		const cryptoSpy = object(window.crypto)
+		try {
+			// browser will have .window object in global scope
+			// in browser globalThis points to window object
+			assertNotNull(window)
+			window.crypto.getRandomValues = cryptoSpy.getRandomValues
+
+			assertNotNull(generateEd25519KeyPair())
+			verify(cryptoSpy.getRandomValues(matchers.anything()))
+		} finally {
+			window.crypto.getRandomValues = originalGetRandom
+		}
+	})
+})

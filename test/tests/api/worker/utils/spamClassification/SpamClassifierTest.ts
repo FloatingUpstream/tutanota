@@ -1,15 +1,20 @@
 import o from "@tutao/otest"
 import fs from "node:fs"
 import { parseCsv } from "../../../../../../src/common/misc/parsing/CsvParser"
-import { Classifier, DEFAULT_PREDICTION_THRESHOLD, SpamClassifier } from "../../../../../../src/mail-app/workerUtils/spamClassification/SpamClassifier"
+import {
+	Classifier,
+	DEFAULT_PREDICTION_THRESHOLD,
+	SpamClassificationModelMetaData,
+	SpamClassifier,
+} from "../../../../../../src/mail-app/workerUtils/spamClassification/SpamClassifier"
 import { matchers, object, when } from "testdouble"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { SpamClassifierDataDealer, TrainingDataset } from "../../../../../../src/mail-app/workerUtils/spamClassification/SpamClassifierDataDealer"
-import { mockAttribute } from "@tutao/tutanota-test-utils"
+import { mockAttribute } from "@tutao/otest"
 import "@tensorflow/tfjs-backend-cpu"
 import { LayersModel, tensor1d } from "../../../../../../src/mail-app/workerUtils/spamClassification/tensorflow-custom"
 import { createTestEntity } from "../../../../TestUtils"
-import { ClientSpamTrainingDatum, ClientSpamTrainingDatumTypeRef, MailTypeRef } from "../../../../../../src/common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { Sequential } from "@tensorflow/tfjs-layers"
 import { SparseVectorCompressor } from "../../../../../../src/common/api/common/utils/spamClassificationUtils/SparseVectorCompressor"
 import {
@@ -18,13 +23,15 @@ import {
 	SpamMailDatum,
 	SpamMailProcessor,
 } from "../../../../../../src/common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
-import { SpamDecision } from "../../../../../../src/common/api/common/TutanotaConstants"
-import { GENERATED_MIN_ID } from "../../../../../../src/common/api/common/utils/EntityUtils"
+import { SpamDecision } from "../../../../../../src/app-env"
+import { GENERATED_MIN_ID } from "@tutao/typerefs"
 import { SpamClassifierStorageFacade } from "../../../../../../src/common/api/worker/facades/lazy/SpamClassifierStorageFacade"
 
 const { anything } = matchers
 export const DATASET_FILE_PATH: string = "./tests/api/worker/utils/spamClassification/spam_classification_test_mails.csv"
 const TEST_OWNER_GROUP = "owner"
+const TEST_CLIENT_VECTOR_SIZE = 512
+const TEST_SERVER_VECTOR_SIZE = 8
 
 export async function readMailDataFromCSV(filePath: string): Promise<{
 	spamData: SpamMailDatum[]
@@ -56,7 +63,8 @@ export async function readMailDataFromCSV(filePath: string): Promise<{
 			ccRecipients: cc,
 			bccRecipients: bcc,
 			authStatus: authStatus,
-		} as SpamMailDatum
+			serverClassificationData: "1,0",
+		} satisfies SpamMailDatum
 
 		const targetData = isSpam ? spamData : hamData
 		targetData.push(spamMailDatum)
@@ -65,13 +73,19 @@ export async function readMailDataFromCSV(filePath: string): Promise<{
 	return { spamData, hamData }
 }
 
-async function convertToClientTrainingDatum(spamData: SpamMailDatum[], spamProcessor: SpamMailProcessor, isSpam: boolean): Promise<ClientSpamTrainingDatum[]> {
-	let result: ClientSpamTrainingDatum[] = []
+async function convertToClientTrainingDatum(
+	spamData: SpamMailDatum[],
+	spamProcessor: SpamMailProcessor,
+	isSpam: boolean,
+): Promise<tutanotaTypeRefs.ClientSpamTrainingDatum[]> {
+	let result: tutanotaTypeRefs.ClientSpamTrainingDatum[] = []
 	for (const spamDatum of spamData) {
-		const clientSpamTrainingDatum = createTestEntity(ClientSpamTrainingDatumTypeRef, {
+		const { uploadableVectorLegacy, uploadableVector } = await spamProcessor.makeUploadableVectors(spamDatum, TEST_SERVER_VECTOR_SIZE)
+		const clientSpamTrainingDatum = createTestEntity(tutanotaTypeRefs.ClientSpamTrainingDatumTypeRef, {
 			confidence: DEFAULT_IS_SPAM_CONFIDENCE.toString(),
 			spamDecision: isSpam ? SpamDecision.BLACKLIST : SpamDecision.WHITELIST,
-			vector: await spamProcessor.vectorizeAndCompress(spamDatum),
+			vectorLegacy: uploadableVectorLegacy,
+			vectorWithServerClassifiers: uploadableVector,
 		})
 
 		result.push(clientSpamTrainingDatum)
@@ -80,7 +94,7 @@ async function convertToClientTrainingDatum(spamData: SpamMailDatum[], spamProce
 	return result
 }
 
-function getTrainingDataset(trainSet: ClientSpamTrainingDatum[]) {
+function getTrainingDataset(trainSet: tutanotaTypeRefs.ClientSpamTrainingDatum[]) {
 	return {
 		trainingData: trainSet,
 		hamCount: trainSet.filter((item) => item.spamDecision === SpamDecision.WHITELIST).length,
@@ -95,33 +109,40 @@ o.spec("SpamClassifierTest", () => {
 	const mockSpamClassifierStorageFacade = object<SpamClassifierStorageFacade>()
 	let spamClassifier: SpamClassifier
 	let spamProcessor: SpamMailProcessor
-	let compressor: SparseVectorCompressor
+	let metaData: SpamClassificationModelMetaData
 
-	let spamData: ClientSpamTrainingDatum[]
-	let hamData: ClientSpamTrainingDatum[]
-	let dataSlice: ClientSpamTrainingDatum[]
+	let compressor: SparseVectorCompressor
+	let spamData: tutanotaTypeRefs.ClientSpamTrainingDatum[]
+	let hamData: tutanotaTypeRefs.ClientSpamTrainingDatum[]
+	let dataSlice: tutanotaTypeRefs.ClientSpamTrainingDatum[]
 
 	o.beforeEach(async () => {
 		const spamHamData = await readMailDataFromCSV(DATASET_FILE_PATH)
-
 		mockSpamClassificationDataDealer.fetchAllTrainingData = async () => {
 			return getTrainingDataset(dataSlice)
 		}
-		const vectorLength = 512
+		compressor = new SparseVectorCompressor(TEST_CLIENT_VECTOR_SIZE)
 
-		compressor = new SparseVectorCompressor(vectorLength)
-		spamProcessor = new SpamMailProcessor(DEFAULT_PREPROCESS_CONFIGURATION, compressor)
+		spamProcessor = new SpamMailProcessor(DEFAULT_PREPROCESS_CONFIGURATION, compressor, 8)
 		spamClassifier = new SpamClassifier(mockSpamClassifierStorageFacade, mockSpamClassificationDataDealer, true)
 		spamClassifier.spamMailProcessor = spamProcessor
 		spamClassifier.sparseVectorCompressor = compressor
+
+		// Default serverVectorSize is 8
 		spamData = await convertToClientTrainingDatum(spamHamData.spamData, spamProcessor, true)
 		hamData = await convertToClientTrainingDatum(spamHamData.hamData, spamProcessor, false)
 		dataSlice = spamData.concat(hamData)
+		metaData = {
+			spamCount: spamData.length,
+			hamCount: hamData.length,
+			lastTrainingDataIndexId: "someId",
+			lastTrainedFromScratchTime: Date.now(),
+		}
 		seededShuffle(dataSlice, 42)
 	})
 
 	o("processSpam respects the classifier threshold", async function () {
-		const mail = createTestEntity(MailTypeRef, {
+		const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 			_id: ["mailListId", "mailId"],
 			sets: [["folderList", "serverFolder"]],
 		})
@@ -134,17 +155,15 @@ o.spec("SpamClassifierTest", () => {
 			ccRecipients: "",
 			bccRecipients: "",
 			authStatus: "0",
+			serverClassificationData: "0,0",
 		}
 
 		const layersModel = object<Sequential>()
 		when(layersModel.predict(anything())).thenReturn(tensor1d([0.7]))
-		const classifier = object<Classifier>()
-		classifier.layersModel = layersModel
-		classifier.threshold = 0.9
-		spamClassifier.classifierByMailGroup.set(spamMailDatum.ownerGroup, classifier)
+		spamClassifier.classifierByMailGroup.set(spamMailDatum.ownerGroup, { layersModel, threshold: 0.9, metaData })
 
-		const vector = await spamProcessor.vectorize(spamMailDatum)
-		const predictedSpam = await spamClassifier.predict(vector, spamMailDatum.ownerGroup)
+		const modelInput = await makeModelInput(spamMailDatum)
+		const predictedSpam = await spamClassifier.predict(modelInput, spamMailDatum.ownerGroup)
 		o(predictedSpam).equals(false)
 	})
 
@@ -156,7 +175,7 @@ o.spec("SpamClassifierTest", () => {
 		const testSet = dataSlice.slice(trainTestSplit)
 		const trainingDataset: TrainingDataset = getTrainingDataset(trainSet)
 		await spamClassifier.initialTraining(TEST_OWNER_GROUP, trainingDataset)
-		await testClassifier(spamClassifier, testSet, compressor)
+		await testClassifier(spamClassifier, testSet, spamProcessor)
 
 		const classifier = spamClassifier.classifierByMailGroup.get(TEST_OWNER_GROUP)
 		o(classifier?.metaData.hamCount).equals(trainingDataset.hamCount)
@@ -179,13 +198,13 @@ o.spec("SpamClassifierTest", () => {
 		const initialTrainingDataset = getTrainingDataset(dataSlice)
 		await spamClassifier.initialTraining(TEST_OWNER_GROUP, initialTrainingDataset)
 		console.log(`==> Result when testing with mails in two steps (first step).`)
-		await testClassifier(spamClassifier, testSet, compressor)
+		await testClassifier(spamClassifier, testSet, spamProcessor)
 
 		const trainingDatasetSecondHalf = getTrainingDataset(trainSetSecondHalf)
 		trainingDatasetSecondHalf.lastTrainingDataIndexId = "some new index id"
 		await spamClassifier.updateModel(TEST_OWNER_GROUP, trainingDatasetSecondHalf)
 		console.log(`==> Result when testing with mails in two steps (second step).`)
-		await testClassifier(spamClassifier, testSet, compressor)
+		await testClassifier(spamClassifier, testSet, spamProcessor)
 
 		const classifier = spamClassifier.classifierByMailGroup.get(TEST_OWNER_GROUP)
 		const finalHamCount = initialTrainingDataset.hamCount + trainingDatasetSecondHalf.hamCount
@@ -358,7 +377,7 @@ Hello TSPECIALCHAR  these are my MAC Address
 \t\t\t\t§
 \t\t\t\tNumber Sequences TSPECIALCHAR
 \t\t\t\t TNUMBER
-\t\t\t\tIBAN TSPECIALCHAR  DE91  TCREDITCARD  TNUMBER
+\t\t\t\tIBAN TSPECIALCHAR  DE91  TCREDITCARD   TNUMBER
 \t\t\t\tNot Number Sequences
 \t\t\t\tSHLT116
 \t\t\t\tgb TSPECIALCHAR 67ca4b
@@ -379,12 +398,16 @@ authStatus`
 	})
 
 	o("predict uses different models for different owner groups", async () => {
-		const firstGroupClassifier = object<Classifier>()
-		firstGroupClassifier.layersModel = object<LayersModel>()
-		firstGroupClassifier.threshold = DEFAULT_PREDICTION_THRESHOLD
-		const secondGroupClassifier = object<Classifier>()
-		secondGroupClassifier.threshold = DEFAULT_PREDICTION_THRESHOLD
-		secondGroupClassifier.layersModel = object<LayersModel>()
+		const firstGroupClassifier = {
+			layersModel: object<LayersModel>(),
+			threshold: DEFAULT_PREDICTION_THRESHOLD,
+			metaData,
+		} satisfies Classifier
+		const secondGroupClassifier = {
+			layersModel: object<LayersModel>(),
+			threshold: DEFAULT_PREDICTION_THRESHOLD,
+			metaData,
+		} satisfies Classifier
 		mockAttribute(spamClassifier, spamClassifier.loadClassifier, (ownerGroup) => {
 			if (ownerGroup === "firstGroup") {
 				return Promise.resolve(firstGroupClassifier)
@@ -414,14 +437,14 @@ authStatus`
 			ccRecipients: "string",
 			bccRecipients: "string",
 			authStatus: "",
+			serverClassificationData: "1,0",
 		}
-
-		const firstMailVector = await spamProcessor.vectorize({
+		const firstMailVector = await makeModelInput({
 			ownerGroup: "firstGroup",
 			...commonSpamFields,
 		})
 		const isSpamFirstMail = await spamClassifier.predict(firstMailVector, "firstGroup")
-		const secondMailVector = await spamProcessor.vectorize({
+		const secondMailVector = await makeModelInput({
 			ownerGroup: "secondGroup",
 			...commonSpamFields,
 		})
@@ -434,6 +457,11 @@ authStatus`
 		firstGroupReturnTensor.dispose()
 		secondGroupReturnTensor.dispose()
 	})
+
+	async function makeModelInput(spamDatum: SpamMailDatum) {
+		const vectorizedMail = await spamProcessor.makeVectorizedMail(spamDatum)
+		return await spamProcessor.processSpamMailDatum(spamDatum, TEST_SERVER_VECTOR_SIZE)
+	}
 })
 
 // These are rather analysis instead of test
@@ -445,14 +473,16 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 	async function filterForMisclassifiedClientSpamTrainingData(
 		classifier: SpamClassifier,
 		compressor: SparseVectorCompressor,
-		dataSlice: ClientSpamTrainingDatum[],
+		spamMailProcessor: SpamMailProcessor,
+		dataSlice: tutanotaTypeRefs.ClientSpamTrainingDatum[],
 		desiredSlice: number,
 	) {
 		return dataSlice
 			.slice(desiredSlice)
 			.filter(async (datum) => {
 				const currentClassificationIsSpam = datum.spamDecision === SpamDecision.BLACKLIST
-				const actualPrediction = await classifier.predict(compressor.binaryToVector(datum.vector), datum._ownerGroup || TEST_OWNER_GROUP)
+				const modelInput = compressor.decompress(datum.vectorWithServerClassifiers!, await spamMailProcessor.getModelInputSize())
+				const actualPrediction = await classifier.predict(modelInput, datum._ownerGroup || TEST_OWNER_GROUP)
 				return currentClassificationIsSpam !== actualPrediction
 			})
 			.sort()
@@ -462,7 +492,7 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 	o.spec("SpamClassifier - Performance Analysis", () => {
 		const compressor = new SparseVectorCompressor()
 		let spamClassifier = object<SpamClassifier>()
-		let dataSlice: ClientSpamTrainingDatum[]
+		let dataSlice: tutanotaTypeRefs.ClientSpamTrainingDatum[]
 		let spamProcessor: SpamMailProcessor
 
 		o.beforeEach(async () => {
@@ -523,7 +553,7 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 			seededShuffle(dataSlice, 42)
 
 			await spamClassifier.initialTraining(TEST_OWNER_GROUP, getTrainingDataset(dataSlice))
-			const falseNegatives = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, spamSlice, 10)
+			const falseNegatives = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, spamProcessor, spamSlice, 10)
 
 			let retrainingNeeded = new Array<number>(falseNegatives.length).fill(0)
 			for (let i = 0; i < falseNegatives.length; i++) {
@@ -543,7 +573,9 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 							},
 						]),
 					)
-					predictedSpam = assertNotNull(await copiedClassifier.predict(compressor.binaryToVector(sample.vector), TEST_OWNER_GROUP))
+					predictedSpam = assertNotNull(
+						await copiedClassifier.predict(compressor.decompress(sample.vectorLegacy, await spamProcessor.getModelInputSize()), TEST_OWNER_GROUP),
+					)
 				}
 				retrainingNeeded[i] = retrainCount
 			}
@@ -564,7 +596,7 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 
 			await spamClassifier.initialTraining(TEST_OWNER_GROUP, getTrainingDataset(dataSlice))
 
-			const falsePositive = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, hamSlice, 10)
+			const falsePositive = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, spamProcessor, hamSlice, 10)
 			let retrainingNeeded = new Array<number>(falsePositive.length).fill(0)
 			for (let i = 0; i < falsePositive.length; i++) {
 				const sample = falsePositive[i]
@@ -577,7 +609,9 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 						TEST_OWNER_GROUP,
 						getTrainingDataset([{ ...sample, spamDecision: SpamDecision.WHITELIST, confidence: "4" }]),
 					)
-					predictedSpam = assertNotNull(await copiedClassifier.predict(compressor.binaryToVector(sample.vector), TEST_OWNER_GROUP))
+					predictedSpam = assertNotNull(
+						await copiedClassifier.predict(compressor.decompress(sample.vectorLegacy, await spamProcessor.getModelInputSize()), TEST_OWNER_GROUP),
+					)
 				}
 				retrainingNeeded[i] = retrainCount
 			}
@@ -597,7 +631,7 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 			seededShuffle(dataSlice, 42)
 
 			await spamClassifier.initialTraining(TEST_OWNER_GROUP, getTrainingDataset(dataSlice))
-			const falseNegatives = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, spamSlice, 10)
+			const falseNegatives = await filterForMisclassifiedClientSpamTrainingData(spamClassifier, compressor, spamProcessor, spamSlice, 10)
 
 			let retrainingNeeded = new Array<number>(falseNegatives.length).fill(0)
 			for (let i = 0; i < falseNegatives.length; i++) {
@@ -609,9 +643,18 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 				while (!predictedSpam && retrainCount++ <= 10) {
 					await copiedClassifier.initialTraining(
 						TEST_OWNER_GROUP,
-						getTrainingDataset([...dataSlice, { ...sample, spamDecision: SpamDecision.BLACKLIST, confidence: "4" }]),
+						getTrainingDataset([
+							...dataSlice,
+							{
+								...sample,
+								spamDecision: SpamDecision.BLACKLIST,
+								confidence: "4",
+							},
+						]),
 					)
-					predictedSpam = assertNotNull(await copiedClassifier.predict(compressor.binaryToVector(sample.vector), TEST_OWNER_GROUP))
+					predictedSpam = assertNotNull(
+						await copiedClassifier.predict(compressor.decompress(sample.vectorLegacy, await spamProcessor.getModelInputSize()), TEST_OWNER_GROUP),
+					)
 				}
 				retrainingNeeded[i] = retrainCount
 			}
@@ -624,10 +667,15 @@ if (DO_RUN_PERFORMANCE_ANALYSIS) {
 	})
 }
 
-async function testClassifier(classifier: SpamClassifier, mails: ClientSpamTrainingDatum[], compressor: SparseVectorCompressor): Promise<void> {
+async function testClassifier(
+	classifier: SpamClassifier,
+	mails: tutanotaTypeRefs.ClientSpamTrainingDatum[],
+	spamMailProcessor: SpamMailProcessor,
+): Promise<void> {
 	let predictionArray: number[] = []
 	for (let mail of mails) {
-		const prediction = await classifier.predict(compressor.binaryToVector(mail.vector), TEST_OWNER_GROUP)
+		const vector = await spamMailProcessor.processClientSpamTrainingDatum(mail, TEST_CLIENT_VECTOR_SIZE, TEST_SERVER_VECTOR_SIZE)
+		const prediction = await classifier.predict(vector, TEST_OWNER_GROUP)
 		predictionArray.push(prediction ? 1 : 0)
 	}
 	const ysArray = mails.map((mail) => mail.spamDecision === SpamDecision.BLACKLIST)

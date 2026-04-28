@@ -1,4 +1,4 @@
-import { assertMainOrNodeBoot } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 export const size = {
@@ -145,8 +145,9 @@ export const layout_size = {
 }
 
 export const component_size = {
-	button_height_sm: 32,
 	button_height: 44,
+	button_height_sm: 32,
+	button_height_md: 48,
 	button_height_lg: 56,
 	button_height_accent: 40,
 	button_height_bubble: 30,
@@ -156,12 +157,12 @@ export const component_size = {
 	icon_segment_control_button_height: 36,
 	icon_segment_control_button_width: 48,
 
-	navbar_height: 70,
+	navbar_height: 72,
 	navbar_height_mobile: 52,
 	bottom_nav_bar: 50,
 	navbar_button_width: 80,
 	navbar_edge_width_mobile: 58,
-	header_logo_height: 38,
+	header_logo_height: 36,
 	list_row_height: 68,
 	dot_size: 7,
 	checkbox_size: 14,

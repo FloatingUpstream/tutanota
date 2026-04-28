@@ -1,6 +1,4 @@
-use crate::crypto::aes::Iv;
 use crate::crypto::crypto_facade::ResolvedSessionKey;
-use crate::crypto::key::GenericAesKey;
 use crate::date::DateTime;
 use crate::element_value::{ElementValue, ParsedEntity};
 use crate::entities::Errors;
@@ -8,21 +6,25 @@ use crate::metamodel::{
 	AssociationType, Cardinality, ElementType, ModelAssociation, ModelValue, TypeModel, ValueType,
 };
 use crate::type_model_provider::TypeModelProvider;
-use crate::util::array_cast_slice;
 use crate::{ApiCallError, TypeRef};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use core::str;
+use crypto_primitives::aes::Iv;
+use crypto_primitives::key::GenericAesKey;
 use crypto_primitives::randomizer_facade::RandomizerFacade;
 use lz4_flex::block::DecompressError;
 use minicbor::Encode;
 use std::sync::Arc;
+use util::array::array_cast_slice;
 
 /// The name of the field that contains the session key encrypted
 /// by the owner group's key in an entity
 pub const OWNER_ENC_SESSION_KEY_FIELD: &str = "_ownerEncSessionKey";
 /// The name of the owner-encrypted session key version field in an entity
 pub const OWNER_KEY_VERSION_FIELD: &str = "_ownerKeyVersion";
+/// The name of the field that contains the kdf nonce
+pub const KDF_NONCE_FIELD: &str = "_kdfNonce";
 /// The name of the owner group field in an entity
 pub const OWNER_GROUP_FIELD: &str = "_ownerGroup";
 /// The name of the ID field in an entity
@@ -660,8 +662,6 @@ mod tests {
 	use crate::bindings::file_client::MockFileClient;
 	use crate::bindings::rest_client::MockRestClient;
 	use crate::crypto::crypto_facade::ResolvedSessionKey;
-	use crate::crypto::key::GenericAesKey;
-	use crate::crypto::{aes::Iv, Aes256Key};
 	use crate::date::DateTime;
 	use crate::element_value::{ElementValue, ParsedEntity};
 	use crate::entities::entity_facade::{
@@ -678,6 +678,8 @@ mod tests {
 	use crate::type_model_provider::TypeModelProvider;
 	use crate::util::entity_test_utils::generate_email_entity;
 	use crate::{collection, ApiCallError};
+	use crypto_primitives::aes::{Aes256Key, Iv};
+	use crypto_primitives::key::GenericAesKey;
 	use crypto_primitives::randomizer_facade::test_util::DeterministicRng;
 	use crypto_primitives::randomizer_facade::RandomizerFacade;
 	use std::collections::BTreeMap;
@@ -1514,18 +1516,20 @@ mod tests {
 					),
 				],
 			)]),
-		"1465"=> JsonElement::Array(vec![]),
-		"1677"=> JsonElement::Null,
-		"1728"=> JsonElement::String(
+			"1465"=> JsonElement::Array(vec![]),
+			"1677"=> JsonElement::Null,
+			"1728"=> JsonElement::String(
 				"1".to_string(),
 			),
-		"1729"=> JsonElement::Array(
+			"1729"=> JsonElement::Array(
 				vec![],
 			),
-		"1769"=> JsonElement::String(
+			"1769"=> JsonElement::String(
 				"0".to_string()
 			),
-		"1784"=> JsonElement::Null
+			"1784"=> JsonElement::Null,
+			"1814" => JsonElement::String("0,1".to_string()),
+			"1839" => JsonElement::Null,
 		}
 	}
 

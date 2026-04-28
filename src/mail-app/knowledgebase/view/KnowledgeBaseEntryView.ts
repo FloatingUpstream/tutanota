@@ -1,16 +1,15 @@
 import m, { Children, Component, Vnode } from "mithril"
-import type { KnowledgeBaseEntry } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { TemplateGroupRootTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { memoized, neverNull, noOp, ofClass, startsWith } from "@tutao/tutanota-utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { memoized, neverNull, noOp, ofClass, startsWith } from "@tutao/utils"
 import { getHtmlSanitizer, HtmlSanitizer } from "../../../common/misc/HtmlSanitizer.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
 import { getConfirmation } from "../../../common/gui/base/GuiUtils.js"
-import { NotFoundError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { IconButton } from "../../../common/gui/base/IconButton.js"
 
 type KnowledgeBaseEntryViewAttrs = {
-	entry: KnowledgeBaseEntry
+	entry: tutanotaTypeRefs.KnowledgeBaseEntry
 	onTemplateSelected: (arg0: IdTuple) => unknown
 	readonly: boolean
 }
@@ -21,7 +20,7 @@ type KnowledgeBaseEntryViewAttrs = {
 export class KnowledgeBaseEntryView implements Component<KnowledgeBaseEntryViewAttrs> {
 	private readonly htmlSanitizer: HtmlSanitizer = getHtmlSanitizer()
 
-	_sanitizedEntry: (arg0: KnowledgeBaseEntry) => {
+	_sanitizedEntry: (arg0: tutanotaTypeRefs.KnowledgeBaseEntry) => {
 		content: string
 	}
 
@@ -66,23 +65,23 @@ export class KnowledgeBaseEntryView implements Component<KnowledgeBaseEntryViewA
 		)
 	}
 
-	private renderRemoveButton(entry: KnowledgeBaseEntry) {
+	private renderRemoveButton(entry: tutanotaTypeRefs.KnowledgeBaseEntry) {
 		return m(IconButton, {
 			title: "remove_action",
-			icon: Icons.Trash,
+			icon: Icons.TrashFilled,
 			click: () => {
-				getConfirmation("deleteEntryConfirm_msg").confirmed(() => locator.entityClient.erase(entry).catch(ofClass(NotFoundError, noOp)))
+				getConfirmation("deleteEntryConfirm_msg").confirmed(() => locator.entityClient.erase(entry).catch(ofClass(restError.NotFoundError, noOp)))
 			},
 		})
 	}
 
-	private renderEditButton(entry: KnowledgeBaseEntry) {
+	private renderEditButton(entry: tutanotaTypeRefs.KnowledgeBaseEntry) {
 		return m(IconButton, {
 			title: "edit_action",
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			click: () => {
 				import("../../settings/KnowledgeBaseEditor.js").then(({ showKnowledgeBaseEditor }) => {
-					locator.entityClient.load(TemplateGroupRootTypeRef, neverNull(entry._ownerGroup)).then((groupRoot) => {
+					locator.entityClient.load(tutanotaTypeRefs.TemplateGroupRootTypeRef, neverNull(entry._ownerGroup)).then((groupRoot) => {
 						showKnowledgeBaseEditor(entry, groupRoot)
 					})
 				})

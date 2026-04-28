@@ -1,36 +1,26 @@
 import { DataFile } from "../../api/common/DataFile.js"
-import { Require, utf8Uint8ArrayToString } from "@tutao/tutanota-utils"
+import { utf8Uint8ArrayToString } from "@tutao/utils"
 import { getTimeZone } from "../date/CalendarUtils.js"
 import { ParserError } from "../../misc/parsing/ParserCombinator.js"
-import { CalendarEvent } from "../../api/entities/tutanota/TypeRefs.js"
-import { AlarmInfoTemplate } from "../../api/worker/facades/lazy/CalendarFacade.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { Dialog, DialogType } from "../../gui/base/Dialog.js"
 import { lang, MaybeTranslation } from "../../misc/LanguageViewModel.js"
 import { List, ListAttrs, ListLoadingState, MultiselectMode, RenderConfig } from "../../gui/base/List.js"
 import { KindaCalendarRow } from "../../../calendar-app/calendar/gui/CalendarRow.js"
-import { component_size, size } from "../../gui/size.js"
+import { component_size } from "../../gui/size.js"
 import { DialogHeaderBar } from "../../gui/base/DialogHeaderBar.js"
 import { ButtonType } from "../../gui/base/Button.js"
 import m from "mithril"
 import { DropDownSelector, DropDownSelectorAttrs } from "../../gui/base/DropDownSelector.js"
 import { getSharedGroupName, hasCapabilityOnGroup } from "../../sharing/GroupUtils.js"
-import { BootIcons } from "../../gui/base/icons/BootIcons.js"
 import { CalendarInfo, CalendarInfoBase, CalendarModel } from "../../../calendar-app/calendar/model/CalendarModel.js"
 import { UserController } from "../../api/main/UserController.js"
-import { ShareCapability } from "../../api/common/TutanotaConstants.js"
+import { ShareCapability } from "@tutao/app-env"
 import { renderCalendarColor } from "../../../calendar-app/calendar/gui/CalendarGuiUtils.js"
 import { GroupColors } from "../../../calendar-app/calendar/view/CalendarView.js"
 import { handleCalendarImport } from "./CalendarImporterDialog.js"
-import { parseCalendarStringData } from "./ImportExportUtils.js"
-
-export type ParsedEvent = {
-	event: Require<"uid", CalendarEvent>
-	alarms: Array<AlarmInfoTemplate>
-}
-export type ParsedCalendarData = {
-	method: string
-	contents: Array<ParsedEvent>
-}
+import { parseCalendarStringData, ParsedCalendarData, ParsedEvent } from "./ImportExportUtils.js"
+import { Icons } from "../../gui/base/icons/Icons"
 
 /** given an ical datafile, get the parsed calendar events with their alarms as well as the ical method */
 export function parseCalendarFile(file: DataFile): ParsedCalendarData {
@@ -53,12 +43,12 @@ export function parseCalendarFile(file: DataFile): ParsedCalendarData {
  * @param title
  */
 export function showEventsImportDialog(
-	events: CalendarEvent[],
+	events: tutanotaTypeRefs.CalendarEvent[],
 	okAction: (dialog: Dialog) => unknown,
 	title: MaybeTranslation,
 	calendarInfo: CalendarInfoBase,
 ) {
-	const renderConfig: RenderConfig<CalendarEvent, KindaCalendarRow> = {
+	const renderConfig: RenderConfig<tutanotaTypeRefs.CalendarEvent, KindaCalendarRow> = {
 		itemHeight: component_size.list_row_height,
 		multiselectionAllowed: MultiselectMode.Disabled,
 		swipe: null,
@@ -110,12 +100,12 @@ export function showEventsImportDialog(
 							selectedItems: new Set(),
 						},
 						onLoadMore() {},
-						onRangeSelectionTowards(item: CalendarEvent) {},
+						onRangeSelectionTowards(item: tutanotaTypeRefs.CalendarEvent) {},
 						onRetryLoading() {},
-						onSingleSelection(item: CalendarEvent) {},
-						onSingleTogglingMultiselection(item: CalendarEvent) {},
+						onSingleSelection(item: tutanotaTypeRefs.CalendarEvent) {},
+						onSingleTogglingMultiselection(item: tutanotaTypeRefs.CalendarEvent) {},
 						onStopLoading() {},
-					} satisfies ListAttrs<CalendarEvent, KindaCalendarRow>),
+					} satisfies ListAttrs<tutanotaTypeRefs.CalendarEvent, KindaCalendarRow>),
 				),
 			]),
 		],
@@ -196,7 +186,7 @@ export function calendarSelectionDialog(
 					}),
 					selectedValue: selectedCalendar,
 					selectionChangedHandler: (v) => (selectedCalendar = v),
-					icon: BootIcons.Expand,
+					icon: Icons.ArrowDown,
 					disabled: availableCalendars.length < 2,
 					helpLabel: () => renderCalendarColor(selectedCalendar, groupColors),
 				} satisfies DropDownSelectorAttrs<CalendarInfo>),

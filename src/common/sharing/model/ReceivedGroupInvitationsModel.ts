@@ -1,18 +1,15 @@
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import type { ReceivedGroupInvitation } from "../../api/entities/sys/TypeRefs.js"
-import { ReceivedGroupInvitationTypeRef } from "../../api/entities/sys/TypeRefs.js"
+import { entityUpdateUtils, getLetId, isSameId, sysTypeRefs } from "@tutao/typerefs"
 import { EntityClient } from "../../api/common/EntityClient"
 import { EventController } from "../../api/main/EventController"
 import { getInvitationGroupType, loadReceivedGroupInvitations, ShareableGroupType } from "../GroupUtils"
-import { OperationType } from "../../api/common/TutanotaConstants"
 import type { LoginController } from "../../api/main/LoginController"
-import { getLetId, isSameId } from "../../api/common/utils/EntityUtils"
-import { promiseMap } from "@tutao/tutanota-utils"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils.js"
+import { promiseMap } from "@tutao/utils"
+import { OperationType } from "@tutao/app-env"
 
 export class ReceivedGroupInvitationsModel<TypeOfGroup extends ShareableGroupType> {
-	readonly invitations: Stream<Array<ReceivedGroupInvitation>>
+	readonly invitations: Stream<Array<sysTypeRefs.ReceivedGroupInvitation>>
 
 	constructor(
 		private readonly groupType: TypeOfGroup,
@@ -20,7 +17,7 @@ export class ReceivedGroupInvitationsModel<TypeOfGroup extends ShareableGroupTyp
 		private readonly entityClient: EntityClient,
 		private readonly logins: LoginController,
 	) {
-		this.invitations = stream<Array<ReceivedGroupInvitation>>([])
+		this.invitations = stream<Array<sysTypeRefs.ReceivedGroupInvitation>>([])
 	}
 
 	init() {
@@ -35,25 +32,28 @@ export class ReceivedGroupInvitationsModel<TypeOfGroup extends ShareableGroupTyp
 		this.invitations.end(true)
 	}
 
-	private readonly entityEventsReceived = (updates: ReadonlyArray<EntityUpdateData>) => {
-		return promiseMap(updates, (update) => {
-			if (isUpdateForTypeRef(ReceivedGroupInvitationTypeRef, update)) {
-				const updateId = [update.instanceListId, update.instanceId] as const
+	private readonly entityEventsReceived: entityUpdateUtils.EntityEventsListener = {
+		onEntityUpdatesReceived: (updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>) => {
+			return promiseMap(updates, (update) => {
+				if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.ReceivedGroupInvitationTypeRef, update)) {
+					const updateId = [update.instanceListId, update.instanceId] as const
 
-				if (update.operation === OperationType.CREATE) {
-					return this.entityClient.load(ReceivedGroupInvitationTypeRef, updateId).then((invitation) => {
-						if (this.hasMatchingGroupType(invitation)) {
-							this.invitations(this.invitations().concat(invitation))
-						}
-					})
-				} else if (update.operation === OperationType.DELETE) {
-					this.invitations(this.invitations().filter((invitation) => !isSameId(getLetId(invitation), updateId)))
+					if (update.operation === OperationType.CREATE) {
+						return this.entityClient.load(sysTypeRefs.ReceivedGroupInvitationTypeRef, updateId).then((invitation) => {
+							if (this.hasMatchingGroupType(invitation)) {
+								this.invitations(this.invitations().concat(invitation))
+							}
+						})
+					} else if (update.operation === OperationType.DELETE) {
+						this.invitations(this.invitations().filter((invitation) => !isSameId(getLetId(invitation), updateId)))
+					}
 				}
-			}
-		})
+			})
+		},
+		priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
 	}
 
-	private hasMatchingGroupType(invitation: ReceivedGroupInvitation): boolean {
+	private hasMatchingGroupType(invitation: sysTypeRefs.ReceivedGroupInvitation): boolean {
 		return getInvitationGroupType(invitation) === this.groupType
 	}
 }

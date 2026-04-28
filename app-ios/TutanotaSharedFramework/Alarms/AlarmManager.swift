@@ -1,4 +1,5 @@
 import Foundation
+public import Mockable
 
 // iOS (13.3 at least) has a limit on saved alarms which was empirically inferred.
 // It means that only *last* X alarms are stored in the internal plist by SpringBoard.
@@ -10,20 +11,27 @@ let SYSTEM_ALARM_LIMIT = 64
 private let TAG = "AlarmManager"
 private func log(_ message: String) { TUTSLog("\(TAG) \(message)") }
 
+@Mockable public protocol AlarmProcessor: Sendable {
+	func processNewAlarms(_ encryptedAlarmNotifications: [EncryptedAlarmNotification], _ newDeviceSessionKey: String?) throws
+	func resetStoredState()
+	func rescheduleAlarms()
+	func unscheduleAllAlarms(userId: String?)
+}
+
 /// Entry point for dealing with alarms
 /// Receives alarm notifications and makes sure that the persisted state is correct and that alarms are scheduled with the system.
 /// We can only schedule limited number of alarms ahead so they need to be periodically re-scheduled.
-public class AlarmManager {
+public final class AlarmManager: AlarmProcessor, Sendable {
 	private let alarmPersistor: any AlarmPersistor
 	private let alarmCryptor: any AlarmCryptor
 	private let alarmScheduler: any AlarmScheduler
-	private let alarmCalculator: any AlarmCalculator
+	private let alarmModel: any AlarmCalculator
 
 	public init(alarmPersistor: any AlarmPersistor, alarmCryptor: any AlarmCryptor, alarmScheduler: any AlarmScheduler, alarmCalculator: any AlarmCalculator) {
 		self.alarmPersistor = alarmPersistor
 		self.alarmCryptor = alarmCryptor
 		self.alarmScheduler = alarmScheduler
-		self.alarmCalculator = alarmCalculator
+		self.alarmModel = alarmCalculator
 	}
 
 	/// Process new alarms into the app. Will persist the changes and reschedule as appropriate
@@ -35,7 +43,7 @@ public class AlarmManager {
 		}
 		// We will modify this list and the overwrite persisted alarms with what is inside this list
 		var savedNotifications = self.alarmPersistor.alarms
-		var resultError: Error?
+		var resultError: (any Error)?
 		for alarmNotification in encryptedAlarmNotifications {
 			try self.storeNewKeyIfNeeded(alarmNotification, newDeviceSessionKey)
 
@@ -52,6 +60,7 @@ public class AlarmManager {
 		log("Finished processNewAlarms")
 		if let error = resultError { throw error }
 	}
+
 	private func storeNewKeyIfNeeded(_ alarmNotification: EncryptedAlarmNotification, _ newDeviceSessionKey: String?) throws {
 		guard let newDeviceSessionKey else {
 			// nothing to do, the caller did not provide it because we're expected to already have it stored.
@@ -74,24 +83,34 @@ public class AlarmManager {
 	/// Take the alarms from the persistor and schedule the soonest occurrences
 	public func rescheduleAlarms() {
 		log("rescheduleAlarms")
-		let decryptedAlarms = self.savedAlarms()
-			.compactMap { encryptedAlarm in
-				do { return try alarmCryptor.decrypt(alarm: encryptedAlarm) } catch {
-					log("Error when decrypting alarm \(encryptedAlarm) \(error)")
-					return nil
-				}
+		var alarmsToRemove: [EncryptedAlarmNotification] = []
+		let savedAlarms = self.savedAlarms()
+		let decryptedAlarms = savedAlarms.compactMap { encryptedAlarm in
+			do { return try alarmCryptor.decrypt(alarm: encryptedAlarm) } catch let error as SimpleStringConversionError {
+				log("Invalid int value when when decrypting alarm \(encryptedAlarm): \(error) \(error.localizedDescription)")
+				alarmsToRemove.append(encryptedAlarm)
+				return nil
+			} catch {
+				log("Error when decrypting alarm \(encryptedAlarm) \(error) \(error.localizedDescription)")
+				return nil
 			}
-		let occurences = alarmCalculator.futureOccurrences(acrossAlarms: decryptedAlarms, upToForEach: EVENTS_SCHEDULED_AHEAD, upToOverall: SYSTEM_ALARM_LIMIT)
+		}
+		let occurences = alarmModel.futureAlarmOccurrences(acrossAlarms: decryptedAlarms, upToForEach: EVENTS_SCHEDULED_AHEAD, upToOverall: SYSTEM_ALARM_LIMIT)
 
 		// Reverse in order to schedule the soonest one the last. This add reliability if we still schedule more alarms than iOS can handle because it seeems
 		// like it evicts the oldest ones from storage.
 		for occurrence in occurences.reversed() {
 			self.schedule(
 				alarmOccurrence: occurrence,
-				trigger: occurrence.alarm.alarmInfo.trigger,
-				summary: occurrence.alarm.summary,
-				alarmIdentifier: occurrence.alarm.alarmInfo.alarmIdentifer
+				summary: occurrence.alarmNotification.summary,
+				alarmIdentifier: occurrence.alarmNotification.alarmInfo.alarmIdentifer
 			)
+		}
+
+		if !alarmsToRemove.isEmpty {
+			log("cleanup failed alarms")
+			let cleanedAlarms = savedAlarms.filter { savedAlarm in !alarmsToRemove.contains(savedAlarm) }
+			self.alarmPersistor.store(alarms: Array(cleanedAlarms))
 		}
 		log("finished rescheduleAlarms")
 	}
@@ -147,25 +166,27 @@ public class AlarmManager {
 
 	private func unschedule(alarm encAlarmNotification: EncryptedAlarmNotification) throws {
 		let alarmNotification = try alarmCryptor.decrypt(alarm: encAlarmNotification)
-		let occurrenceIds = prefix(alarmCalculator.futureAlarmOccurrencesSequence(ofAlarm: alarmNotification), EVENTS_SCHEDULED_AHEAD)
-			.map { ocurrenceIdentifier(alarmIdentifier: $0.alarm.identifier, occurrence: $0.occurrenceNumber) }
+		let occurrenceIds = alarmModel.alarmOccurrencesSequence(ofAlarm: alarmNotification, maxFutureOccurrences: EVENTS_SCHEDULED_AHEAD)
+			.map { ocurrenceIdentifier(alarmIdentifier: $0.alarmNotification.identifier, occurrence: $0.occurrenceNumber) }
 		log("Cancelling all future alarm occurences of \(alarmNotification.identifier)")
 		self.alarmScheduler.unscheduleAll(occurrenceIds: occurrenceIds)
 	}
-	private func schedule(alarmOccurrence: AlarmOccurence, trigger: AlarmInterval, summary: String, alarmIdentifier: String) {
-		let alarmTime = AlarmModel.alarmTime(trigger: trigger, eventTime: alarmOccurrence.eventOccurrenceTime)
 
+	private func schedule(alarmOccurrence: AlarmOccurrence, summary: String, alarmIdentifier: String) {
 		let identifier = ocurrenceIdentifier(alarmIdentifier: alarmIdentifier, occurrence: alarmOccurrence.occurrenceNumber)
 
 		let info = ScheduledAlarmInfo(
-			alarmTime: alarmTime,
+			alarmTime: alarmOccurrence.triggerDate,
 			occurrence: alarmOccurrence.occurrenceNumber,
 			identifier: identifier,
 			summary: summary,
-			eventDate: alarmOccurrence.eventOccurrenceTime
+			eventDate: alarmOccurrence.eventStartDate
 		)
 
-		self.alarmScheduler.schedule(info: info)
+		self.alarmScheduler.schedule(
+			info: info,
+			isAllDayevent: isAllDayEvent(startDate: alarmOccurrence.alarmNotification.eventStart, endDate: alarmOccurrence.alarmNotification.eventEnd)
+		)
 	}
 }
 

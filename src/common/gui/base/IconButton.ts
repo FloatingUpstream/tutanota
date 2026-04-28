@@ -2,10 +2,11 @@ import m, { Children, Component, Vnode } from "mithril"
 import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { AllIcons, Icon, IconSize } from "./Icon"
 import type { ClickHandler } from "./GuiUtils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { ButtonColor, getColors } from "./Button.js"
 import { ButtonSize } from "./ButtonSize.js"
 import { BaseButton, BaseButtonAttrs } from "./buttons/BaseButton.js"
+import { TabIndex } from "@tutao/app-env"
 
 assertMainOrNode()
 
@@ -18,6 +19,8 @@ export interface IconButtonAttrs {
 	onkeydown?: (event: KeyboardEvent) => unknown
 	hidden?: boolean
 	disabled?: boolean
+	tabindex?: TabIndex
+	style?: Record<string, string>
 }
 
 export class IconButton implements Component<IconButtonAttrs> {
@@ -39,8 +42,10 @@ export class IconButton implements Component<IconButtonAttrs> {
 			class: `icon-button ${attrs.disabled ? "disabled" : "state-bg"} ${IconButton.getSizeClass(attrs.size)}`,
 			disabled: attrs.hidden || attrs.disabled,
 			style: {
+				...attrs.style,
 				visibility: attrs.hidden ? "hidden" : "visible",
 			},
+			tabindex: attrs.tabindex,
 		} satisfies BaseButtonAttrs)
 	}
 

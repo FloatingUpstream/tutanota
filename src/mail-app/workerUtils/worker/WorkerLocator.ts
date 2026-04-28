@@ -12,6 +12,7 @@ import type { CounterFacade } from "../../../common/api/worker/facades/lazy/Coun
 import { EventBusClient } from "../../../common/api/worker/EventBusClient.js"
 import {
 	assertWorkerOrNode,
+	Const,
 	getWebsocketBaseUrl,
 	isAdminClient,
 	isAndroidApp,
@@ -19,13 +20,13 @@ import {
 	isIOSApp,
 	isOfflineStorageAvailable,
 	isTest,
-} from "../../../common/api/common/Env.js"
-import { Const } from "../../../common/api/common/TutanotaConstants.js"
+	Mode,
+	ProgrammingError,
+} from "@tutao/app-env"
 import type { BrowserData } from "../../../common/misc/ClientConstants.js"
 import type { CalendarFacade } from "../../../common/api/worker/facades/lazy/CalendarFacade.js"
 import type { ShareFacade } from "../../../common/api/worker/facades/lazy/ShareFacade.js"
-import { RestClient } from "../../../common/api/worker/rest/RestClient.js"
-import { SuspensionHandler } from "../../../common/api/worker/SuspensionHandler.js"
+import { RestClient, restError, restSuspension as susHandler } from "@tutao/rest-client"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
 import type { GiftCardFacade } from "../../../common/api/worker/facades/lazy/GiftCardFacade.js"
 import type { ConfigurationDatabase } from "../../../common/api/worker/facades/lazy/ConfigurationDatabase.js"
@@ -46,14 +47,13 @@ import { ServiceExecutor } from "../../../common/api/worker/rest/ServiceExecutor
 import type { BookingFacade } from "../../../common/api/worker/facades/lazy/BookingFacade.js"
 import type { BlobFacade } from "../../../common/api/worker/facades/lazy/BlobFacade.js"
 import { UserFacade } from "../../../common/api/worker/facades/UserFacade.js"
-import { OfflineStorage } from "../../../common/api/worker/offline/OfflineStorage.js"
 import { OFFLINE_STORAGE_MIGRATIONS, OfflineStorageMigrator } from "../../../common/api/worker/offline/OfflineStorageMigrator.js"
 import { FileFacadeSendDispatcher } from "../../../common/native/common/generatedipc/FileFacadeSendDispatcher.js"
 import { NativePushFacadeSendDispatcher } from "../../../common/native/common/generatedipc/NativePushFacadeSendDispatcher.js"
 import { NativeCryptoFacadeSendDispatcher } from "../../../common/native/common/generatedipc/NativeCryptoFacadeSendDispatcher.js"
-import { random } from "@tutao/tutanota-crypto"
+import { CryptoWrapper, random, SYMMETRIC_CIPHER_FACADE } from "@tutao/crypto"
 import { ExportFacadeSendDispatcher } from "../../../common/native/common/generatedipc/ExportFacadeSendDispatcher.js"
-import { assertNotNull, delay, lazyAsync, lazyMemoized } from "@tutao/tutanota-utils"
+import { assertNotNull, delay, lazyAsync, lazyMemoized } from "@tutao/utils"
 import { InterWindowEventFacadeSendDispatcher } from "../../../common/native/common/generatedipc/InterWindowEventFacadeSendDispatcher.js"
 import { SqlCipherFacadeSendDispatcher } from "../../../common/native/common/generatedipc/SqlCipherFacadeSendDispatcher.js"
 import { EntropyFacade } from "../../../common/api/worker/facades/EntropyFacade.js"
@@ -61,9 +61,8 @@ import { BlobAccessTokenFacade } from "../../../common/api/worker/facades/BlobAc
 import { EventBusEventCoordinator } from "../../../common/api/worker/EventBusEventCoordinator.js"
 import { WorkerFacade } from "../../../common/api/worker/facades/WorkerFacade.js"
 import { SqlCipherFacade } from "../../../common/native/common/generatedipc/SqlCipherFacade.js"
-import { Challenge, UserTypeRef } from "../../../common/api/entities/sys/TypeRefs.js"
+import { ClientModelInfo, ServerModelInfo, sysTypeRefs, tutanotaTypeRefs, TypeModelResolver } from "@tutao/typerefs"
 import { LoginFailReason } from "../../../common/api/main/PageContextLoginListener.js"
-import { ConnectionError, ServiceUnavailableError } from "../../../common/api/common/error/RestError.js"
 import { SessionType } from "../../../common/api/common/SessionType.js"
 import { Argon2idFacade, NativeArgon2idFacade, WASMArgon2idFacade } from "../../../common/api/worker/facades/Argon2idFacade.js"
 import { DomainConfigProvider } from "../../../common/api/common/DomainConfigProvider.js"
@@ -74,7 +73,7 @@ import { ContactFacade } from "../../../common/api/worker/facades/lazy/ContactFa
 import { KeyLoaderFacade } from "../../../common/api/worker/facades/KeyLoaderFacade.js"
 import { KeyRotationFacade } from "../../../common/api/worker/facades/KeyRotationFacade.js"
 import { KeyCache } from "../../../common/api/worker/facades/KeyCache.js"
-import { CryptoWrapper } from "../../../common/api/worker/crypto/CryptoWrapper.js"
+import { InstancePipeline, PatchMerger, SessionKeyResolver } from "@tutao/instance-pipeline"
 import { RecoverCodeFacade } from "../../../common/api/worker/facades/lazy/RecoverCodeFacade.js"
 import { CacheManagementFacade } from "../../../common/api/worker/facades/lazy/CacheManagementFacade.js"
 import { MailOfflineCleaner } from "../offline/MailOfflineCleaner.js"
@@ -87,37 +86,39 @@ import { EphemeralCacheStorage } from "../../../common/api/worker/rest/Ephemeral
 import { LocalTimeDateProvider } from "../../../common/api/worker/DateProvider.js"
 import type { BulkMailLoader } from "../index/BulkMailLoader.js"
 import type { MailExportFacade } from "../../../common/api/worker/facades/lazy/MailExportFacade"
-import { InstancePipeline } from "../../../common/api/worker/crypto/InstancePipeline"
 import { ApplicationTypesFacade } from "../../../common/api/worker/facades/ApplicationTypesFacade"
 import { Ed25519Facade, NativeEd25519Facade, WASMEd25519Facade } from "../../../common/api/worker/facades/Ed25519Facade"
-import { ClientModelInfo, ServerModelInfo, TypeModelResolver } from "../../../common/api/common/EntityFunctions"
 import type { Indexer } from "../index/Indexer"
 import type { SearchFacade } from "../index/SearchFacade"
 import type { ContactIndexer } from "../index/ContactIndexer"
 import { CustomCacheHandlerMap } from "../../../common/api/worker/rest/cacheHandler/CustomCacheHandler"
-import { CalendarEventTypeRef, ContactTypeRef, MailTypeRef } from "../../../common/api/entities/tutanota/TypeRefs"
 import { CustomUserCacheHandler } from "../../../common/api/worker/rest/cacheHandler/CustomUserCacheHandler"
 import { CustomCalendarEventCacheHandler } from "../../../common/api/worker/rest/cacheHandler/CustomCalendarEventCacheHandler"
 import { CustomMailEventCacheHandler } from "../../../common/api/worker/rest/cacheHandler/CustomMailEventCacheHandler"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError"
 import { DateProvider } from "../../../common/api/common/DateProvider"
 import type { ContactSearchFacade } from "../index/ContactSearchFacade"
 import type { IndexedDbSearchFacade } from "../index/IndexedDbSearchFacade.js"
 import type { OfflineStorageSearchFacade } from "../index/OfflineStorageSearchFacade.js"
-import { PatchMerger } from "../../../common/api/worker/offline/PatchMerger"
-import { EventInstancePrefetcher } from "../../../common/api/worker/EventInstancePrefetcher"
 import { RolloutFacade } from "../../../common/api/worker/facades/RolloutFacade"
 import { PublicKeySignatureFacade } from "../../../common/api/worker/facades/PublicKeySignatureFacade"
 import { AdminKeyLoaderFacade } from "../../../common/api/worker/facades/AdminKeyLoaderFacade"
 import { IdentityKeyCreator } from "../../../common/api/worker/facades/lazy/IdentityKeyCreator"
 import { PublicIdentityKeyProvider } from "../../../common/api/worker/facades/PublicIdentityKeyProvider"
-import { IdentityKeyTrustDatabase } from "../../../common/api/worker/facades/IdentityKeyTrustDatabase"
+import { type IdentityKeyTrustDatabase, KeyVerificationTableDefinitions } from "../../../common/api/worker/facades/IdentityKeyTrustDatabase"
 import { AutosaveFacade } from "../../../common/api/worker/facades/lazy/AutosaveFacade"
 import type { SpamClassifier } from "../spamClassification/SpamClassifier"
 import { SpamClassifierStorageFacade } from "../../../common/api/worker/facades/lazy/SpamClassifierStorageFacade"
 import { PublicEncryptionKeyCache } from "../../../common/api/worker/facades/PublicEncryptionKeyCache"
 import { InstanceSessionKeysCache } from "../../../common/api/worker/facades/InstanceSessionKeysCache"
 import type { DriveFacade } from "../../../common/api/worker/facades/lazy/DriveFacade"
+import {
+	IndexedDbLastProcessedEventBatchStorageFacade,
+	LastProcessedEventBatchStorageFacade,
+	NoOpLastProcessedEventBatchStorageFacade,
+	OfflineStorageLastProcessedEventBatchStorageFacade,
+} from "../../../common/api/worker/LastProcessedEventBatchStorageFacade"
+import { OfflineStorage } from "../../../common/api/worker/offline/OfflineStorage"
+import { UpdateAppTypesHashMiddleware } from "../../../common/api/common/UpdateTypesHashMiddleware"
 
 assertWorkerOrNode()
 
@@ -205,10 +206,14 @@ export type WorkerLocatorType = {
 
 	// drive
 	driveFacade: lazyAsync<DriveFacade>
+
+	lastProcessedEventBatchStorageFacade: lazyAsync<LastProcessedEventBatchStorageFacade>
 }
 export const locator: WorkerLocatorType = {} as any
 
 export async function initLocator(worker: WorkerImpl, browserData: BrowserData) {
+	const { IdentityKeyTrustDatabase } = await import("../../../common/api/worker/facades/IdentityKeyTrustDatabase")
+
 	locator._worker = worker
 	locator._browserData = browserData
 	locator.keyCache = new KeyCache()
@@ -219,7 +224,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 
 	const mainInterface = worker.getMainInterface()
 
-	const suspensionHandler = new SuspensionHandler(self, () =>
+	const suspensionHandler = new susHandler.SuspensionHandler(self, () =>
 		mainInterface.infoMessageHandler.onInfoMessage({
 			translationKey: "clientSuspensionWait_label",
 			args: {},
@@ -235,11 +240,15 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	const serverModelInfo = ServerModelInfo.getPossiblyUninitializedInstance(clientModelInfo, (expectedHash: string | null) =>
 		locator.applicationTypesFacade.getServerApplicationTypesJson(expectedHash),
 	)
-	locator.restClient = new RestClient(suspensionHandler, domainConfig, serverModelInfo, String(browserData.clientPlatform))
+	locator.restClient = new RestClient(suspensionHandler, domainConfig, String(browserData.clientPlatform)).addMiddleware(
+		new UpdateAppTypesHashMiddleware(serverModelInfo),
+	)
 	const typeModelResolver = new TypeModelResolver(clientModelInfo, serverModelInfo)
 	locator.instancePipeline = new InstancePipeline(
 		typeModelResolver.resolveClientTypeReference.bind(typeModelResolver),
 		typeModelResolver.resolveServerTypeReference.bind(typeModelResolver),
+		() => locator.keyLoader,
+		SYMMETRIC_CIPHER_FACADE,
 	)
 	locator.serviceExecutor = new ServiceExecutor(locator.restClient, locator.user, locator.instancePipeline, () => locator.crypto, typeModelResolver)
 	locator.applicationTypesFacade = new ApplicationTypesFacade(locator.restClient, fileFacadeSendDispatcher, serverModelInfo)
@@ -296,7 +305,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 			const core = await indexerCore()
 			return new MailIndexer(
 				mainInterface.infoMessageHandler,
-				bulkLoaderFactory,
+				locator.bulkMailLoader,
 				locator.cachingEntityClient,
 				dateProvider,
 				mailFacade,
@@ -307,7 +316,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 
 	const contactSuggestionFacade = lazyMemoized(async () => {
 		const { SuggestionFacade } = await import("../index/SuggestionFacade")
-		return new SuggestionFacade(ContactTypeRef, await db(), typeModelResolver)
+		return new SuggestionFacade(tutanotaTypeRefs.ContactTypeRef, await db(), typeModelResolver)
 	})
 
 	const contactIndexer = lazyMemoized(async (): Promise<ContactIndexer> => {
@@ -332,30 +341,32 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	})
 
 	let offlineStorageProvider
-	if (isOfflineStorageAvailable() && !isAdminClient()) {
+	if (isOfflineStorageAvailable()) {
 		locator.sqlCipherFacade = new SqlCipherFacadeSendDispatcher(locator.native)
 		offlineStorageProvider = async () => {
-			const { KeyVerificationTableDefinitions } = await import("../../../common/api/worker/facades/IdentityKeyTrustDatabase.js")
 			const { SearchTableDefinitions } = await import("../index/OfflineStoragePersistence.js")
 			const { AutosaveDraftsTableDefinitions } = await import("../../../common/api/worker/facades/lazy/OfflineStorageAutosaveFacade.js")
 			const { SpamClassificationTableDefinitions } = await import("../../../common/api/worker/facades/lazy/OfflineStorageSpamClassifierStorageFacade.js")
 
 			const customCacheHandler = new CustomCacheHandlerMap(
 				{
-					ref: CalendarEventTypeRef,
+					ref: tutanotaTypeRefs.CalendarEventTypeRef,
 					handler: new CustomCalendarEventCacheHandler(entityRestClient, typeModelResolver),
 				},
 				{
-					ref: MailTypeRef,
+					ref: tutanotaTypeRefs.MailTypeRef,
 					handler: new CustomMailEventCacheHandler(mailIndexer),
 				},
-				{ ref: UserTypeRef, handler: new CustomUserCacheHandler(locator.cacheStorage, await locator.spamClassifierStorageFacade()) },
+				{
+					ref: sysTypeRefs.UserTypeRef,
+					handler: new CustomUserCacheHandler(locator.cacheStorage, await locator.spamClassifierStorageFacade()),
+				},
 			)
 			return new OfflineStorage(
 				locator.sqlCipherFacade,
 				new InterWindowEventFacadeSendDispatcher(worker),
 				dateProvider,
-				new OfflineStorageMigrator(OFFLINE_STORAGE_MIGRATIONS),
+				new OfflineStorageMigrator(OFFLINE_STORAGE_MIGRATIONS, locator.applicationTypesFacade),
 				new MailOfflineCleaner(),
 				locator.instancePipeline.modelMapper,
 				typeModelResolver,
@@ -368,7 +379,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	}
 	const ephemeralStorageProvider = async () => {
 		const customCacheHandler = new CustomCacheHandlerMap({
-			ref: UserTypeRef,
+			ref: sysTypeRefs.UserTypeRef,
 			handler: new CustomUserCacheHandler(locator.cacheStorage, await locator.spamClassifierStorageFacade()),
 		})
 		return new EphemeralCacheStorage(locator.instancePipeline.modelMapper, typeModelResolver, customCacheHandler)
@@ -386,13 +397,35 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 		const { PdfWriter } = await import("../../../common/api/worker/pdf/PdfWriter.js")
 		return new PdfWriter(new TextEncoder(), undefined)
 	}
-	locator.patchMerger = new PatchMerger(locator.cacheStorage, locator.instancePipeline, typeModelResolver, () => locator.crypto)
+	const cryptoFacadeSessionKeyResolver: SessionKeyResolver = (entity) => locator.crypto.resolveSessionKey(entity)
+	locator.patchMerger = new PatchMerger(
+		locator.cacheStorage,
+		locator.instancePipeline,
+		typeModelResolver,
+		cryptoFacadeSessionKeyResolver,
+		SYMMETRIC_CIPHER_FACADE,
+	)
+
+	locator.lastProcessedEventBatchStorageFacade = lazyMemoized(async () => {
+		if (isOfflineStorageAvailable()) {
+			return new OfflineStorageLastProcessedEventBatchStorageFacade(locator.sqlCipherFacade)
+		} else if (isBrowser()) {
+			return new IndexedDbLastProcessedEventBatchStorageFacade(indexerCore, ephemeralStorageProvider, mailIndexer)
+		} else {
+			return new NoOpLastProcessedEventBatchStorageFacade()
+		}
+	})
 
 	// We don't want to cache within the admin client
-
 	let cache: DefaultEntityRestCache | null = null
 	if (!isAdminClient()) {
-		cache = new DefaultEntityRestCache(entityRestClient, maybeUninitializedStorage, typeModelResolver, locator.patchMerger)
+		cache = new DefaultEntityRestCache(
+			entityRestClient,
+			maybeUninitializedStorage,
+			typeModelResolver,
+			locator.patchMerger,
+			locator.lastProcessedEventBatchStorageFacade,
+		)
 	}
 	locator.cache = cache ?? entityRestClient
 
@@ -407,16 +440,24 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	const prepareBulkLoaderFactory = async () => {
 		const { BulkMailLoader } = await import("../index/BulkMailLoader.js")
 		const mailFacade = await locator.mail()
-		return () => {
+		return async () => {
 			// On platforms with offline cache we just use cache as we are not bounded by memory.
 			if (isOfflineStorageAvailable()) {
 				return new BulkMailLoader(locator.cachingEntityClient, locator.cachingEntityClient, mailFacade)
 			} else {
 				// On platforms without offline cache we use new ephemeral cache storage for mails only and uncached storage for the rest
 				// We create empty CustomCacheHandlerMap because this cache is separate anyway and user updates don't matter.
-				const cacheStorage = new EphemeralCacheStorage(locator.instancePipeline.modelMapper, typeModelResolver, new CustomCacheHandlerMap())
 				return new BulkMailLoader(
-					new EntityClient(new DefaultEntityRestCache(entityRestClient, cacheStorage, typeModelResolver, locator.patchMerger), typeModelResolver),
+					new EntityClient(
+						new DefaultEntityRestCache(
+							entityRestClient,
+							await ephemeralStorageProvider(),
+							typeModelResolver,
+							locator.patchMerger,
+							locator.lastProcessedEventBatchStorageFacade,
+						),
+						typeModelResolver,
+					),
 					new EntityClient(entityRestClient, typeModelResolver),
 					mailFacade,
 				)
@@ -609,7 +650,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 			if (!isTest() && sessionType !== SessionType.Temporary && !isAdminClient()) {
 				// index new items in background
 				console.log("initIndexer and SpamClassifier after log in")
-				fullLoginIndexerInit(worker)
+				await fullLoginIndexerInit(worker)
 			}
 
 			return mainInterface.loginListener.onFullLoginSuccess(sessionType, cacheInfo, credentials)
@@ -619,7 +660,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 			return mainInterface.loginListener.onLoginFailure(reason)
 		},
 
-		onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<Challenge>, mailAddress: string | null): Promise<void> {
+		onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<sysTypeRefs.Challenge>, mailAddress: string | null): Promise<void> {
 			return mainInterface.loginListener.onSecondFactorChallenge(sessionId, challenges, mailAddress)
 		},
 	}
@@ -658,6 +699,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 		locator.cacheManagement,
 		typeModelResolver,
 		locator.rolloutFacade,
+		locator.applicationTypesFacade,
 	)
 
 	locator.search = lazyMemoized(async () => {
@@ -821,7 +863,6 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	}
 
 	const eventBusCoordinator = new EventBusEventCoordinator(
-		mainInterface.wsConnectivityListener,
 		locator.mail,
 		locator.user,
 		locator.cachingEntityClient,
@@ -841,19 +882,19 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 		locator.identityKeyCreator,
 		mainInterface.syncTracker,
 	)
-	const prefetcher = new EventInstancePrefetcher(locator.cache)
 	locator.eventBusClient = new EventBusClient(
+		mainInterface.wsConnectivityListener,
 		eventBusCoordinator,
 		cache ?? new AdminClientDummyEntityRestCache(),
 		locator.user,
-		locator.cachingEntityClient,
 		locator.instancePipeline,
 		(path) => new WebSocket(getWebsocketBaseUrl(domainConfig) + path),
 		new SleepDetector(scheduler, dateProvider),
-		mainInterface.progressTracker,
 		typeModelResolver,
 		locator.crypto,
-		prefetcher,
+		locator.lastProcessedEventBatchStorageFacade,
+		serverDateProvider,
+		mainInterface.progressTracker,
 	)
 	locator.login.init(locator.eventBusClient)
 	locator.Const = Const
@@ -885,7 +926,7 @@ export async function initLocator(worker: WorkerImpl, browserData: BrowserData) 
 	})
 }
 
-const RETRY_TIMOUT_AFTER_INIT_INDEXER_ERROR_MS = 30000
+const RETRY_TIMEOUT_AFTER_INIT_INDEXER_ERROR_MS = 30000
 
 async function fullLoginIndexerInit(worker: WorkerImpl): Promise<void> {
 	const indexer = await locator.indexer()
@@ -894,19 +935,20 @@ async function fullLoginIndexerInit(worker: WorkerImpl): Promise<void> {
 			user: assertNotNull(locator.user.getUser()),
 		})
 	} catch (e) {
-		if (e instanceof ServiceUnavailableError) {
+		if (e instanceof restError.TooManyRequestsError) {
 			console.log("Retry init indexer in 30 seconds after ServiceUnavailableError")
-			await delay(RETRY_TIMOUT_AFTER_INIT_INDEXER_ERROR_MS)
+			await delay(RETRY_TIMEOUT_AFTER_INIT_INDEXER_ERROR_MS)
 			console.log("_initIndexer after ServiceUnavailableError")
 			return fullLoginIndexerInit(worker)
-		} else if (e instanceof ConnectionError) {
+		} else if (e instanceof restError.ConnectionError) {
 			console.log("Retry init indexer in 30 seconds after ConnectionError")
-			await delay(RETRY_TIMOUT_AFTER_INIT_INDEXER_ERROR_MS)
+			await delay(RETRY_TIMEOUT_AFTER_INIT_INDEXER_ERROR_MS)
 			console.log("_initIndexer after ConnectionError")
 			return fullLoginIndexerInit(worker)
 		} else {
-			// not awaiting
 			console.log("send indexer error to main thread", e)
+			// not awaiting
+			// noinspection ES6MissingAwait
 			worker.sendError(e)
 			return
 		}

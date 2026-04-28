@@ -1,15 +1,7 @@
-import type {
-	AdvancedRepeatRule,
-	CalendarEvent,
-	CalendarEventAttendee,
-	CalendarRepeatRule,
-	EncryptedMailAddress,
-} from "../../../../common/api/entities/tutanota/TypeRefs.js"
-import { createCalendarEventAttendee, createEncryptedMailAddress } from "../../../../common/api/entities/tutanota/TypeRefs.js"
+import { getAttendeeStatus, hasError, tutanotaTypeRefs } from "@tutao/typerefs"
 import m, { Children, Component, Vnode } from "mithril"
 import { AllIcons, Icon, IconSize } from "../../../../common/gui/base/Icon.js"
 import { theme } from "../../../../common/gui/theme.js"
-import { BootIcons } from "../../../../common/gui/base/icons/BootIcons.js"
 import { Icons } from "../../../../common/gui/base/icons/Icons.js"
 import {
 	areAllAdvancedRepeatRulesValid,
@@ -18,10 +10,9 @@ import {
 	getRepeatEndTimeForDisplay,
 	getTimeZone,
 } from "../../../../common/calendar/date/CalendarUtils.js"
-import { CalendarAttendeeStatus, EndType, getAttendeeStatus, RepeatPeriod } from "../../../../common/api/common/TutanotaConstants.js"
-import { downcast, memoized } from "@tutao/tutanota-utils"
+import { CalendarAttendeeStatus, EndType, RepeatPeriod, UpgradePromptType } from "@tutao/app-env"
+import { downcast, memoized } from "@tutao/utils"
 import { lang, TranslationKey } from "../../../../common/misc/LanguageViewModel.js"
-import type { RepeatRule } from "../../../../common/api/entities/sys/TypeRefs.js"
 import { cleanMailAddress, findAttendeeInAddresses, isAllDayEvent } from "../../../../common/api/common/utils/CommonCalendarUtils.js"
 import { formatDateWithMonth } from "../../../../common/misc/Formatter.js"
 import { BannerButton, BannerButtonAttrs } from "../../../../common/gui/base/buttons/BannerButton.js"
@@ -31,15 +22,15 @@ import { UpgradeRequiredError } from "../../../../common/api/main/UpgradeRequire
 import { showPlanUpgradeRequiredDialog } from "../../../../common/misc/SubscriptionDialogs.js"
 import { ExternalLink } from "../../../../common/gui/base/ExternalLink.js"
 import { calendarAttendeeStatusSymbol, formatEventDuration, getDisplayEventTitle, repeatRuleOptions } from "../CalendarGuiUtils.js"
-import { hasError } from "../../../../common/api/common/utils/ErrorUtils.js"
 import { font_size, px, size } from "../../../../common/gui/size.js"
 import { SearchToken } from "../../../../common/api/common/utils/QueryTokenUtils"
 import { highlightTextInQueryAsChildren } from "../../../../common/gui/TextHighlightViewUtils"
 import { ExpandableTextArea, ExpandableTextAreaAttrs } from "../../../../common/gui/base/ExpandableTextArea.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export type EventPreviewViewAttrs = {
 	calendarEventPreviewModel: CalendarEventPreviewViewModel
-	event: Omit<CalendarEvent, "description">
+	event: Omit<tutanotaTypeRefs.CalendarEvent, "description">
 	sanitizedDescription: string | null
 	participation?: ReturnType<typeof CalendarEventPreviewViewModel.prototype.getParticipationSetterAndThen>
 	highlightedStrings?: readonly SearchToken[]
@@ -68,7 +59,7 @@ export const ReplyButtons = pureComponent((participation: NonNullable<EventPrevi
 						await participation.setParticipation(status)
 					} catch (e) {
 						if (e instanceof UpgradeRequiredError) {
-							const ordered = await showPlanUpgradeRequiredDialog(e.plans, e.message)
+							const ordered = await showPlanUpgradeRequiredDialog(UpgradePromptType.CALENDAR_EVENT_INVITATION_REPLY, e.plans, e.message)
 							if (!ordered) return
 							await participation.setParticipation(status)
 						} else {
@@ -104,7 +95,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 
 		return m(".flex.col.smaller", [
 			this.renderRow(
-				BootIcons.Calendar,
+				Icons.CalendarFilled,
 				[m("span.h3", highlightedStrings ? highlightTextInQueryAsChildren(eventTitle, highlightedStrings) : eventTitle)],
 				true,
 				true,
@@ -113,7 +104,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 				? this.renderCalendar(calendarInfo.name, calendarInfo.color, CALENDAR_TYPE_TRANSLATION_MAP.get(calendarInfo.type) ?? "yourCalendars_label")
 				: null,
 			this.renderRow(
-				Icons.Time,
+				Icons.ClockFilled,
 				[formatEventDuration(event, getTimeZone(), false), m("small.text-fade", this.renderRepeatRule(event.repeatRule, isAllDayEvent(event)))],
 				true,
 			),
@@ -145,7 +136,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 		})
 	}
 
-	private renderRepeatRule(rule: CalendarRepeatRule | null, isAllDay: boolean): Children {
+	private renderRepeatRule(rule: tutanotaTypeRefs.CalendarRepeatRule | null, isAllDay: boolean): Children {
 		if (rule == null) return null
 
 		const frequency = formatRepetitionFrequency(rule)
@@ -160,7 +151,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 
 	private renderLocation(location: string | null): Children {
 		if (location == null || location.trim().length === 0) return null
-		return this.renderRow(Icons.Pin, [
+		return this.renderRow(Icons.PlaceFilled, [
 			m(
 				".text-ellipsis.selectable",
 				m(ExternalLink, {
@@ -172,10 +163,10 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 		])
 	}
 
-	private renderAttendeesSection(attendees: Array<CalendarEventAttendee>, participation: EventPreviewViewAttrs["participation"]): Children {
+	private renderAttendeesSection(attendees: Array<tutanotaTypeRefs.CalendarEventAttendee>, participation: EventPreviewViewAttrs["participation"]): Children {
 		if (attendees.length === 0) return null
 		return this.renderRow(
-			Icons.People,
+			Icons.PeopleFilled,
 			[
 				m(
 					".flex-wrap",
@@ -196,14 +187,14 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 	 */
 	private renderAttendanceSection(
 		event: EventPreviewViewAttrs["event"],
-		attendees: Array<CalendarEventAttendee>,
+		attendees: Array<tutanotaTypeRefs.CalendarEventAttendee>,
 		participation: EventPreviewViewAttrs["participation"],
 		model: CalendarEventPreviewViewModel,
 	): Children {
 		if (attendees.length === 0 || participation == null || event._ownerGroup == null) return null
 		return m("", [
-			m(".flex.pb-8", [
-				this.renderSectionIndicator(BootIcons.Contacts),
+			m(".flex.gap-12.pb-8", [
+				this.renderSectionIndicator(Icons.PeopleFilled, { marginTop: "2px", visibility: "hidden" }),
 				m(".flex.flex-column", [
 					m(".small", lang.get("invitedToEvent_msg")),
 					m(".fit-content", { style: { "min-height": px(font_size.line_height_input * 7) } }, [
@@ -240,7 +231,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 		} satisfies ExpandableTextAreaAttrs)
 	}
 
-	private renderAttendee(attendee: CalendarEventAttendee, participation: EventPreviewViewAttrs["participation"]): Children {
+	private renderAttendee(attendee: tutanotaTypeRefs.CalendarEventAttendee, participation: EventPreviewViewAttrs["participation"]): Children {
 		const attendeeField = hasError(attendee.address) ? lang.get("corruptedValue_msg") : attendee.address.address
 		/** we might have a more current local attendance for ourselves. */
 		const status =
@@ -253,7 +244,7 @@ export class EventPreviewView implements Component<EventPreviewViewAttrs> {
 
 	private renderDescription(sanitizedDescription: string | null, highlightedStrings?: readonly SearchToken[]) {
 		if (sanitizedDescription == null || sanitizedDescription.length === 0) return null
-		return this.renderRow(Icons.AlignLeft, [m.trust(sanitizedDescription)], true)
+		return this.renderRow(Icons.TextAlignLeft, [m.trust(sanitizedDescription)], true)
 	}
 
 	private renderCalendar(calendarName: string, calendarColor: string, calendarType: TranslationKey) {
@@ -300,7 +291,7 @@ export function getLocationUrl(text: string): URL {
 	return url
 }
 
-export function formatRepetitionFrequency(repeatRule: RepeatRule): string | null {
+export function formatRepetitionFrequency(repeatRule: sysTypeRefs.RepeatRule): string | null {
 	if (repeatRule.interval === "1") {
 		const frequency = repeatRuleOptions.find((frequency) => frequency.value === repeatRule.frequency)
 
@@ -324,7 +315,7 @@ export function formatRepetitionFrequency(repeatRule: RepeatRule): string | null
 	return null
 }
 
-function buildAdvancedRepetitionRuleDescription(advancedRules: AdvancedRepeatRule[], frequency: RepeatPeriod): string {
+function buildAdvancedRepetitionRuleDescription(advancedRules: tutanotaTypeRefs.AdvancedRepeatRule[], frequency: RepeatPeriod): string {
 	const hasInvalidRules = !areAllAdvancedRepeatRulesValid(advancedRules, frequency)
 
 	let translationKey: TranslationKey = "withCustomRules_label"
@@ -400,7 +391,7 @@ function joinAndEndWithString(items: any[], separator: string, lastSeparator: st
 /**
  * @returns {string} The returned string includes a leading separator (", " or "").
  */
-export function formatRepetitionEnd(repeatRule: RepeatRule, isAllDay: boolean): string {
+export function formatRepetitionEnd(repeatRule: sysTypeRefs.RepeatRule, isAllDay: boolean): string {
 	switch (repeatRule.endType) {
 		case EndType.Count:
 			if (!repeatRule.endValue) {
@@ -457,7 +448,10 @@ function parseShortDay(day: string) {
 	return lang.get(days[day]) || ""
 }
 
-function prepareAttendees(attendees: Array<CalendarEventAttendee>, organizer: EncryptedMailAddress | null): Array<CalendarEventAttendee> {
+function prepareAttendees(
+	attendees: Array<tutanotaTypeRefs.CalendarEventAttendee>,
+	organizer: tutanotaTypeRefs.EncryptedMailAddress | null,
+): Array<tutanotaTypeRefs.CalendarEventAttendee> {
 	// We copy the attendees array so that we can add the organizer, in the case that they are not already in attendees
 	// This is just for display purposes. We need to copy because event.attendees is the source of truth for the event
 	// so we can't modify it
@@ -465,8 +459,8 @@ function prepareAttendees(attendees: Array<CalendarEventAttendee>, organizer: En
 
 	if (organizer != null && attendeesCopy.length > 0 && !findAttendeeInAddresses(attendeesCopy, [organizer.address])) {
 		attendeesCopy.unshift(
-			createCalendarEventAttendee({
-				address: createEncryptedMailAddress({
+			tutanotaTypeRefs.createCalendarEventAttendee({
+				address: tutanotaTypeRefs.createEncryptedMailAddress({
 					address: organizer.address,
 					name: "",
 				}),

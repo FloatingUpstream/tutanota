@@ -1,14 +1,14 @@
 import m, { Children, ClassComponent, Vnode } from "mithril"
 import { createDropdown } from "./Dropdown.js"
 import type { AllIcons } from "./Icon"
-import { type lazy, noOp } from "@tutao/tutanota-utils"
+import { type lazy, noOp } from "@tutao/utils"
 import { lang, MaybeTranslation } from "../../misc/LanguageViewModel"
 import { ClickHandler, getOperatingClasses } from "./GuiUtils"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { IconButton } from "./IconButton"
 import { TextField } from "./TextField"
-import { BootIcons } from "./icons/BootIcons"
 import { ButtonSize } from "./ButtonSize"
+import { Icons } from "./icons/Icons"
 
 assertMainOrNode()
 export type SelectorItem<T> = {
@@ -61,7 +61,7 @@ export class DropDownSelector<T> implements ClassComponent<DropDownSelectorAttrs
 							".flex.items-center.justify-center",
 							{ style: { width: "30px", height: "30px" } },
 							m(IconButton, {
-								icon: a.icon ? a.icon : BootIcons.Expand,
+								icon: a.icon ? a.icon : Icons.PaddedArrowDown,
 								title: "show_action",
 								click: a.disabled ? noOp : this.createDropdown(a),
 								size: ButtonSize.Compact,

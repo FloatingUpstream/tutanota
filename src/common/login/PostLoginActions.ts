@@ -1,23 +1,21 @@
 import m, { Component } from "mithril"
 import type { LoggedInEvent, PostLoginAction } from "../api/main/LoginController"
 import { LoginController } from "../api/main/LoginController"
-import { isAdminClient, isApp, isDesktop, LOGIN_TITLE } from "../api/common/Env"
-import { assertNotNull, defer, delay, isEmpty, LazyLoaded, neverNull, newPromise, noOp, ofClass } from "@tutao/tutanota-utils"
+import { assertNotNull, isEmpty, LazyLoaded, neverNull, newPromise, noOp, ofClass } from "@tutao/utils"
 import { windowFacade } from "../misc/WindowFacade.js"
 import { checkApprovalStatus } from "../misc/LoginUtils.js"
 import { locator } from "../api/main/CommonLocator"
-import { ReceiveInfoService } from "../api/entities/tutanota/Services"
+import { GENERATED_MIN_ID, sysTypeRefs, tutanotaServices, tutanotaTypeRefs } from "@tutao/typerefs"
 import { lang } from "../misc/LanguageViewModel.js"
 import { getHourCycle } from "../misc/Formatter.js"
-import { createReceiveInfoServiceData, OutOfOfficeNotification } from "../api/entities/tutanota/TypeRefs.js"
 import { isNotificationCurrentlyActive, loadOutOfOfficeNotification } from "../misc/OutOfOfficeNotificationUtils.js"
 import * as notificationOverlay from "../gui/base/NotificationOverlay"
 import { ButtonType } from "../gui/base/Button.js"
 import { Dialog } from "../gui/base/Dialog"
-import { CloseEventBusOption, Const, FeatureType, SecondFactorType } from "../api/common/TutanotaConstants"
+import { CloseEventBusOption, Const, FeatureType, isApp, isDesktop, LOGIN_TITLE, Mode, SecondFactorType, UpgradePromptType } from "@tutao/app-env"
 import { showMoreStorageNeededOrderDialog } from "../misc/SubscriptionDialogs.js"
 import { notifications } from "../gui/Notifications"
-import { LockedError, NotAuthorizedError } from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { CredentialsProvider, usingKeychainAuthenticationWithOptions } from "../misc/credentials/CredentialsProvider.js"
 import { getThemeCustomizations } from "../misc/WhitelabelCustomizations.js"
 import { CredentialEncryptionMode } from "../misc/credentials/CredentialEncryptionMode.js"
@@ -26,17 +24,14 @@ import { SessionType } from "../api/common/SessionType"
 import { StorageBehavior } from "../misc/UsageTestModel.js"
 import type { WebsocketConnectivityModel } from "../misc/WebsocketConnectivityModel.js"
 import { DateProvider } from "../api/common/DateProvider.js"
-import { createCustomerProperties, CustomerTypeRef, SecondFactorTypeRef } from "../api/entities/sys/TypeRefs.js"
 import { EntityClient } from "../api/common/EntityClient.js"
 import { shouldShowStorageWarning, shouldShowUpgradeReminder } from "./PostLoginUtils.js"
 import { UserManagementFacade } from "../api/worker/facades/lazy/UserManagementFacade.js"
 import { CustomerFacade } from "../api/worker/facades/lazy/CustomerFacade.js"
 import { deviceConfig } from "../misc/DeviceConfig.js"
 import { ThemeController } from "../gui/ThemeController.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../api/common/utils/EntityUpdateUtils.js"
 import { showSnackBar } from "../gui/base/SnackBar"
 import { SyncDonePriority, SyncTracker } from "../api/main/SyncTracker"
-import { GENERATED_MIN_ID } from "../api/common/utils/EntityUtils"
 import { showRequestPasswordDialog } from "../misc/passwords/PasswordRequestDialog"
 import { LoginFacade } from "../api/worker/facades/LoginFacade"
 
@@ -120,42 +115,26 @@ export class PostLoginActions implements PostLoginAction {
 	}
 
 	// Runs the user approval check after the user has been updated or after a timeout
-	private checkApprovalAfterSync(): Promise<void> {
-		// Create a promise we will use to track the completion of the below listener
-		const listenerDeferral = defer<void>()
-		// Add an event listener to run the check after any customer entity update
-		const listener = async (updates: ReadonlyArray<EntityUpdateData>) => {
-			// Get whether the entity update contains the customer
-			const customer = this.logins.getUserController().user.customer
-			const isCustomerUpdate: boolean = updates.some((update) => isUpdateForTypeRef(CustomerTypeRef, update) && update.instanceId === customer)
-			if (customer != null && isCustomerUpdate) {
-				listenerDeferral.resolve()
-			}
-		}
-		locator.eventController.addEntityListener(listener)
-
-		// Timeout if the entity update does not arrive or takes too long to arrive
-		const timeoutPromise = delay(2000)
-
-		// Remove the listener and start the approval check depending on whether a customer update or the timeout resolves first.
-		return Promise.race([listenerDeferral.promise, timeoutPromise]).then(() => {
-			locator.eventController.removeEntityListener(listener)
-			checkApprovalStatus(this.logins, true)
-		})
+	private async checkApprovalAfterSync(): Promise<void> {
+		await this.syncTracker.waitSync()
+		await checkApprovalStatus(this.logins, true)
 	}
 
 	private async fullLoginAsyncActions() {
-		this.checkApprovalAfterSync() // Not awaiting so this is run in parallel
+		//noinspection ES6MissingAwait Not awaiting so this is run in parallel
+		this.checkApprovalAfterSync()
 		await this.showUpgradeReminderIfNeeded()
 		await this.checkStorageLimit()
 
 		this.secondFactorHandler.setupAcceptOtherClientLoginListener()
 
-		if (!isAdminClient()) {
+		if (!(env.mode === Mode.Admin)) {
 			// If it failed during the partial login due to missing cache entries we will give it another spin here. If it didn't fail then it's just a noop
 			await locator.mailboxModel.init()
 			const calendarModel = await locator.calendarModel()
 			await calendarModel.init()
+			const calendarEventUpdateCoordinator = await locator.calendarEventUpdateCoordinator()
+			await calendarEventUpdateCoordinator.init()
 			await this.remindActiveOutOfOfficeNotification()
 		}
 
@@ -176,11 +155,11 @@ export class PostLoginActions implements PostLoginAction {
 			this.handleExternalSync()
 		}
 
-		if (this.logins.isGlobalAdminUserLoggedIn() && !isAdminClient()) {
-			const receiveInfoData = createReceiveInfoServiceData({
+		if (this.logins.isGlobalAdminUserLoggedIn() && !(env.mode === Mode.Admin)) {
+			const receiveInfoData = tutanotaTypeRefs.createReceiveInfoServiceData({
 				language: lang.code,
 			})
-			const receiveInfoServicePostOut = await locator.serviceExecutor.post(ReceiveInfoService, receiveInfoData)
+			const receiveInfoServicePostOut = await locator.serviceExecutor.post(tutanotaServices.ReceiveInfoService, receiveInfoData)
 			if (receiveInfoServicePostOut && receiveInfoServicePostOut.outdatedVersion) {
 				return Dialog.updateReminder(true, () => {
 					this.updateClient()
@@ -208,7 +187,7 @@ export class PostLoginActions implements PostLoginAction {
 		}
 	}
 
-	private deactivateOutOfOfficeNotification(notification: OutOfOfficeNotification): Promise<void> {
+	private deactivateOutOfOfficeNotification(notification: tutanotaTypeRefs.OutOfOfficeNotification): Promise<void> {
 		notification.enabled = false
 		return this.entityClient.update(notification)
 	}
@@ -296,12 +275,16 @@ export class PostLoginActions implements PostLoginAction {
 			const confirmed = await Dialog.upgradeReminder(lang.get("upgradeReminderTitle_msg"), lang.get("premiumOffer_msg"))
 			if (confirmed) {
 				const wizard = await import("../subscription/UpgradeSubscriptionWizard.js")
-				await wizard.showUpgradeWizard({ logins: this.logins, isCalledBySatisfactionDialog: false })
+				await wizard.showUpgradeWizard({
+					upgradePromptType: UpgradePromptType.UPGRADE_REMINDER,
+					logins: this.logins,
+					isCalledBySatisfactionDialog: false,
+				})
 			}
 
-			const newCustomerProperties = createCustomerProperties(await this.logins.getUserController().loadCustomerProperties())
+			const newCustomerProperties = sysTypeRefs.createCustomerProperties(await this.logins.getUserController().loadCustomerProperties())
 			newCustomerProperties.lastUpgradeReminder = new Date(this.dateProvider.now())
-			this.entityClient.update(newCustomerProperties).catch(ofClass(LockedError, noOp))
+			this.entityClient.update(newCustomerProperties).catch(ofClass(restError.LockedError, noOp))
 		}
 	}
 
@@ -318,7 +301,7 @@ export class PostLoginActions implements PostLoginAction {
 
 		if (location.hostname === Const.DEFAULT_APP_DOMAIN) {
 			const user = this.logins.getUserController().user
-			const secondFactors = await this.entityClient.loadAll(SecondFactorTypeRef, assertNotNull(user.auth).secondFactors)
+			const secondFactors = await this.entityClient.loadAll(sysTypeRefs.SecondFactorTypeRef, assertNotNull(user.auth).secondFactors)
 			const webauthnFactors = secondFactors.filter((f) => f.type === SecondFactorType.webauthn || f.type === SecondFactorType.u2f)
 			// If there are webauthn factors but none of them are for the default domain, show a message
 			if (webauthnFactors.length > 0 && !webauthnFactors.some((f) => f.u2f && f.u2f?.appId === Const.WEBAUTHN_RP_ID)) {
@@ -350,7 +333,13 @@ export class PostLoginActions implements PostLoginAction {
 
 		// Next, check if we have at least one.
 		const user = this.logins.getUserController().user
-		const secondFactors = await this.entityClient.loadRange(SecondFactorTypeRef, assertNotNull(user.auth).secondFactors, GENERATED_MIN_ID, 1, false)
+		const secondFactors = await this.entityClient.loadRange(
+			sysTypeRefs.SecondFactorTypeRef,
+			assertNotNull(user.auth).secondFactors,
+			GENERATED_MIN_ID,
+			1,
+			false,
+		)
 		if (!isEmpty(secondFactors)) {
 			return
 		}
@@ -393,7 +382,7 @@ export class PostLoginActions implements PostLoginAction {
 								},
 							})
 						} catch (e) {
-							if (e instanceof NotAuthorizedError) {
+							if (e instanceof restError.NotAuthorizedError) {
 								return lang.getTranslation("invalidPassword_msg").text
 							} else {
 								reject(e)

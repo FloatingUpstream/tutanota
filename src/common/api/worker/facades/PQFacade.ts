@@ -1,11 +1,12 @@
 import { KyberFacade } from "./KyberFacade.js"
 import {
 	Aes256Key,
+	aesDecrypt,
 	aesEncrypt,
-	authenticatedAesDecrypt,
+	AesKeyLength,
 	generateX25519KeyPair,
+	getKeyLengthInBytes,
 	hkdf,
-	KEY_LENGTH_BYTES_AES_256,
 	KeyPairType,
 	kyberPublicKeyToBytes,
 	PQKeyPairs,
@@ -17,10 +18,10 @@ import {
 	X25519KeyPair,
 	X25519PublicKey,
 	X25519SharedSecrets,
-} from "@tutao/tutanota-crypto"
-import { concat, stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
+} from "@tutao/crypto"
+import { concat, stringToUtf8Uint8Array } from "@tutao/utils"
 import { decodePQMessage, encodePQMessage, PQMessage } from "./PQMessage.js"
-import { CryptoProtocolVersion } from "../../common/TutanotaConstants.js"
+import { CryptoProtocolVersion } from "@tutao/app-env"
 
 export type DecapsulatedSymKey = {
 	senderIdentityPubKey: X25519PublicKey
@@ -108,7 +109,7 @@ export class PQFacade {
 			CryptoProtocolVersion.TUTA_CRYPT,
 		)
 
-		return authenticatedAesDecrypt(kek, message.encapsulation.kekEncBucketKey)
+		return aesDecrypt(kek, message.encapsulation.kekEncBucketKey)
 	}
 
 	private derivePQKEK(
@@ -131,7 +132,7 @@ export class PQFacade {
 
 		const inputKeyMaterial = concat(eccSharedSecret.ephemeralSharedSecret, eccSharedSecret.authSharedSecret, kyberSharedSecret)
 
-		const kekBytes = hkdf(context, inputKeyMaterial, stringToUtf8Uint8Array("kek"), KEY_LENGTH_BYTES_AES_256)
+		const kekBytes = hkdf(context, inputKeyMaterial, stringToUtf8Uint8Array("kek"), getKeyLengthInBytes(AesKeyLength.Aes256))
 		return uint8ArrayToKey(kekBytes)
 	}
 }

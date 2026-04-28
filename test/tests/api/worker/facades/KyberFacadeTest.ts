@@ -1,7 +1,8 @@
 import o from "@tutao/otest"
 import { WASMKyberFacade } from "../../../../../src/common/api/worker/facades/KyberFacade.js"
-import { bytesToKyberPrivateKey, bytesToKyberPublicKey, kyberPrivateKeyToBytes, kyberPublicKeyToBytes } from "@tutao/tutanota-crypto"
-import { loadLibOQSWASM } from "../WASMTestUtils.js"
+import { bytesToKyberPrivateKey, bytesToKyberPublicKey, kyberPrivateKeyToBytes, kyberPublicKeyToBytes } from "@tutao/crypto"
+
+import { loadLibOQSWASM } from "../../../crypto/WebAssemblyTestUtils"
 
 o.spec("KyberFacade", function () {
 	let kyberFacade: WASMKyberFacade

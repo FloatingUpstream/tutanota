@@ -1,44 +1,15 @@
-import o from "@tutao/otest"
+import o, { assertThrows, verify } from "@tutao/otest"
 // @ts-ignore[untyped-import]
 import en from "../../../src/mail-app/translations/en.js"
 import type { UserController } from "../../../src/common/api/main/UserController.js"
 import type { LoginController } from "../../../src/common/api/main/LoginController.js"
-import {
-	BodyTypeRef,
-	Contact,
-	ContactListTypeRef,
-	ContactTypeRef,
-	ConversationEntryTypeRef,
-	createContact,
-	Mail,
-	MailAddressTypeRef,
-	MailboxGroupRootTypeRef,
-	MailboxPropertiesTypeRef,
-	MailBoxTypeRef,
-	MailDetailsDraftTypeRef,
-	MailDetailsTypeRef,
-	MailTypeRef,
-	NotificationMailTypeRef,
-	RecipientsTypeRef,
-	TutanotaPropertiesTypeRef,
-} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { assertThrows, verify } from "@tutao/tutanota-test-utils"
-import { downcast, isSameTypeRef } from "@tutao/tutanota-utils"
-import {
-	ChallengeTypeRef,
-	CustomerTypeRef,
-	GroupInfoTypeRef,
-	GroupMembershipTypeRef,
-	GroupTypeRef,
-	MailAddressAliasTypeRef,
-	UserTypeRef,
-} from "../../../src/common/api/entities/sys/TypeRefs.js"
-import { ConversationType, GroupType, MailMethod, OperationType } from "../../../src/common/api/common/TutanotaConstants.js"
+import { isSameId, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
+import { downcast, isSameTypeRef } from "@tutao/utils"
+import { MailMethod } from "../../../src/app-env"
 import { lang, TranslationKey } from "../../../src/common/misc/LanguageViewModel.js"
 import { EventController } from "../../../src/common/api/main/EventController.js"
 import { UserError } from "../../../src/common/api/main/UserError.js"
 import { EntityClient } from "../../../src/common/api/common/EntityClient.js"
-import { isSameId } from "../../../src/common/api/common/utils/EntityUtils.js"
 import { MailFacade } from "../../../src/common/api/worker/facades/lazy/MailFacade.js"
 import { func, instance, matchers, object, replace, when } from "testdouble"
 import { RecipientsModel } from "../../../src/common/api/main/RecipientsModel"
@@ -49,11 +20,12 @@ import { MailboxDetail, MailboxModel } from "../../../src/common/mailFunctionali
 import { SendMailModel, TOO_MANY_VISIBLE_RECIPIENTS } from "../../../src/common/mailFunctionality/SendMailModel.js"
 import { RecipientField } from "../../../src/common/mailFunctionality/SharedMailUtils.js"
 import { getContactDisplayName } from "../../../src/common/contactsFunctionality/ContactUtils.js"
-import { EntityUpdateData, PrefetchStatus } from "../../../src/common/api/common/utils/EntityUpdateUtils"
 import { ConfigurationDatabase } from "../../../src/common/api/worker/facades/lazy/ConfigurationDatabase"
 import { SyncTracker } from "../../../src/common/api/main/SyncTracker"
 import { DateProvider } from "../../../src/common/api/common/DateProvider"
-import { ProgrammingError } from "../../../src/common/api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
+import { noPatchesAndInstance } from "../api/worker/EventBusClientTest"
+import { ConversationType, GroupType, OperationType } from "../../../src/app-env"
 
 const { anything, argThat } = matchers
 
@@ -93,10 +65,6 @@ const BODY_TEXT_1 = "lorem ipsum dolor yaddah yaddah"
 const SUBJECT_LINE_1 = "Did you get that thing I sent ya"
 const STRONG_PASSWORD = "@()IE!)(@FME)0-123jfDSA32SDACmmnvnvddEW"
 const WEAK_PASSWORD = "123"
-const noPatchesAndInstance: Pick<EntityUpdateData, "instance" | "patches"> = {
-	instance: null,
-	patches: null,
-}
 
 o.spec("SendMailModel", () => {
 	o.before(() => {
@@ -117,7 +85,7 @@ o.spec("SendMailModel", () => {
 		entity = instance(EntityClient)
 		when(
 			entity.loadRoot(
-				argThat((typeRef) => isSameTypeRef(typeRef, ContactListTypeRef)),
+				argThat((typeRef) => isSameTypeRef(typeRef, tutanotaTypeRefs.ContactListTypeRef)),
 				anything(),
 			),
 		).thenDo(() => ({ contacts: testIdGenerator.newId() }))
@@ -133,24 +101,27 @@ o.spec("SendMailModel", () => {
 		when(contactModel.searchForContact(anything())).thenResolve(null)
 
 		mailFacade = instance(MailFacade)
-		when(mailFacade.createDraft(anything())).thenDo(() => createTestEntity(MailTypeRef))
-		when(mailFacade.updateDraft(anything())).thenDo(() => createTestEntity(MailTypeRef))
+		when(mailFacade.createDraft(anything())).thenDo(() => createTestEntity(tutanotaTypeRefs.MailTypeRef))
+		when(mailFacade.updateDraft(anything())).thenDo(() => createTestEntity(tutanotaTypeRefs.MailTypeRef))
 		when(mailFacade.getRecipientKeyData(anything())).thenResolve(null)
 		when(mailFacade.getAttachmentIds(anything())).thenResolve([])
+		when(mailFacade.sendDraft(anything(), anything(), anything(), anything(), anything())).thenResolve(
+			createTestEntity(tutanotaTypeRefs.SendDraftReturnTypeRef),
+		)
 
-		const tutanotaProperties = createTestEntity(TutanotaPropertiesTypeRef, {
+		const tutanotaProperties = createTestEntity(tutanotaTypeRefs.TutanotaPropertiesTypeRef, {
 			defaultSender: DEFAULT_SENDER_FOR_TESTING,
 			defaultUnconfidential: true,
 			notificationMailLanguage: "en",
 			noAutomaticContacts: false,
 		})
-		const user = createTestEntity(UserTypeRef, {
-			userGroup: createTestEntity(GroupMembershipTypeRef, {
+		const user = createTestEntity(sysTypeRefs.UserTypeRef, {
+			userGroup: createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 				_id: testIdGenerator.newId(),
 				group: testIdGenerator.newId(),
 			}),
 			memberships: [
-				createTestEntity(GroupMembershipTypeRef, {
+				createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 					_id: testIdGenerator.newId(),
 					groupType: GroupType.Contact,
 				}),
@@ -160,7 +131,7 @@ o.spec("SendMailModel", () => {
 		userController = object<UserController>()
 		replace(userController, "user", user)
 		replace(userController, "props", tutanotaProperties)
-		when(userController.loadCustomer()).thenResolve(createTestEntity(CustomerTypeRef))
+		when(userController.reloadCustomer()).thenResolve(createTestEntity(sysTypeRefs.CustomerTypeRef))
 
 		const loginController = object<LoginController>()
 		when(loginController.isInternalUserLoggedIn()).thenReturn(true)
@@ -169,12 +140,12 @@ o.spec("SendMailModel", () => {
 		const eventController = instance(EventController)
 
 		const mailboxDetails: MailboxDetail = {
-			mailbox: createTestEntity(MailBoxTypeRef),
-			mailGroupInfo: createTestEntity(GroupInfoTypeRef, {
+			mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+			mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 				mailAddress: "mailgroup@addre.ss",
 			}),
-			mailGroup: createTestEntity(GroupTypeRef),
-			mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+			mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef),
+			mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 		}
 
 		recipientsModel = instance(RecipientsModel)
@@ -194,7 +165,7 @@ o.spec("SendMailModel", () => {
 			},
 		}
 
-		const mailboxProperties = createTestEntity(MailboxPropertiesTypeRef)
+		const mailboxProperties = createTestEntity(tutanotaTypeRefs.MailboxPropertiesTypeRef)
 		model = new SendMailModel(
 			mailFacade,
 			entity,
@@ -208,10 +179,11 @@ o.spec("SendMailModel", () => {
 			mailboxProperties,
 			db,
 
-			async (mail: Mail) => {
+			async (mail: tutanotaTypeRefs.Mail) => {
 				return false
 			},
 			syncTracker,
+			object(),
 		)
 
 		replace(model, "getDefaultSender", () => DEFAULT_SENDER_FOR_TESTING)
@@ -282,19 +254,19 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with blank data", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
-				sender: createTestEntity(MailAddressTypeRef),
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef),
 				subject: "",
 				conversationEntry: conversationEntryId,
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
-				recipients: createTestEntity(RecipientsTypeRef),
-				body: createTestEntity(BodyTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
+				recipients: createTestEntity(tutanotaTypeRefs.RecipientsTypeRef),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, {
 					text: BODY_TEXT_1,
 				}),
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.REPLY,
@@ -314,35 +286,35 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with some data", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
-				sender: createTestEntity(MailAddressTypeRef),
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.FORWARD,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
 				toRecipients: [
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: "",
 					}),
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: EXTERNAL_ADDRESS_1,
 					}),
 				],
 				ccRecipients: [
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: EXTERNAL_ADDRESS_2,
 					}),
 				],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const initializedModel = await model.initWithDraft(draft, draftDetails, conversationEntry, [], new Map())
@@ -361,33 +333,33 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with shared mailbox mailAddress as sender", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
-				sender: createTestEntity(MailAddressTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					address: "shared-mailbox@addre.ss",
 				}),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.NEW,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
-				toRecipients: [createTestEntity(MailAddressTypeRef)],
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
+				toRecipients: [createTestEntity(tutanotaTypeRefs.MailAddressTypeRef)],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const mailboxDetails: MailboxDetail = {
-				mailbox: createTestEntity(MailBoxTypeRef),
-				mailGroupInfo: createTestEntity(GroupInfoTypeRef, {
+				mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+				mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 					mailAddress: "shared-mailbox@addre.ss",
 				}),
-				mailGroup: createTestEntity(GroupTypeRef),
-				mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+				mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef),
+				mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 			}
 			replace(model, "mailboxDetails", mailboxDetails)
 
@@ -396,35 +368,35 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with user's primary alias as sender", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
-				sender: createTestEntity(MailAddressTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					address: "primary-alias@tutanota.de",
 				}),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.NEW,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
-				toRecipients: [createTestEntity(MailAddressTypeRef)],
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
+				toRecipients: [createTestEntity(tutanotaTypeRefs.MailAddressTypeRef)],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const mailboxDetails: MailboxDetail = {
-				mailbox: createTestEntity(MailBoxTypeRef),
-				mailGroupInfo: createTestEntity(GroupInfoTypeRef, {
+				mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+				mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 					mailAddress: "primary-alias@tutanota.de",
 				}),
-				mailGroup: createTestEntity(GroupTypeRef, {
+				mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef, {
 					user: "user-id",
 				}),
-				mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+				mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 			}
 			replace(model, "mailboxDetails", mailboxDetails)
 			replace(userController, "userGroupInfo", mailboxDetails.mailGroupInfo)
@@ -434,41 +406,41 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with enabled alias as sender", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
-				sender: createTestEntity(MailAddressTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					address: "enabled-alias@tutanota.de",
 				}),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.NEW,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
-				toRecipients: [createTestEntity(MailAddressTypeRef)],
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
+				toRecipients: [createTestEntity(tutanotaTypeRefs.MailAddressTypeRef)],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const mailboxDetails: MailboxDetail = {
-				mailbox: createTestEntity(MailBoxTypeRef),
-				mailGroupInfo: createTestEntity(GroupInfoTypeRef, {
+				mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+				mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 					mailAddress: "primary-alias@tutanota.de",
 					mailAddressAliases: [
-						createTestEntity(MailAddressAliasTypeRef, {
+						createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, {
 							mailAddress: "enabled-alias@tutanota.de",
 							enabled: true,
 						}),
 					],
 				}),
-				mailGroup: createTestEntity(GroupTypeRef, {
+				mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef, {
 					user: "user-id",
 				}),
-				mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+				mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 			}
 			replace(model, "mailboxDetails", mailboxDetails)
 			replace(userController, "userGroupInfo", mailboxDetails.mailGroupInfo)
@@ -478,40 +450,40 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with deactivated alias as sender", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
-				sender: createTestEntity(MailAddressTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					address: "deactivated-alias@tutanota.de",
 				}),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.NEW,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
-				toRecipients: [createTestEntity(MailAddressTypeRef)],
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
+				toRecipients: [createTestEntity(tutanotaTypeRefs.MailAddressTypeRef)],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const mailboxDetails: MailboxDetail = {
-				mailbox: createTestEntity(MailBoxTypeRef),
-				mailGroupInfo: createTestEntity(GroupInfoTypeRef, {
+				mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+				mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef, {
 					mailAddressAliases: [
-						createTestEntity(MailAddressAliasTypeRef, {
+						createTestEntity(sysTypeRefs.MailAddressAliasTypeRef, {
 							mailAddress: "deactivated-alias@tutanota.de",
 							enabled: false,
 						}),
 					],
 				}),
-				mailGroup: createTestEntity(GroupTypeRef, {
+				mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef, {
 					user: "user-id",
 				}),
-				mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+				mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 			}
 			replace(model, "mailboxDetails", mailboxDetails)
 			replace(userController, "userGroupInfo", mailboxDetails.mailGroupInfo)
@@ -521,33 +493,33 @@ o.spec("SendMailModel", () => {
 		})
 		o.test("initWithDraft with deleted custom domain alias as sender", async () => {
 			const conversationEntryId = testIdGenerator.newIdTuple()
-			const draft = createTestEntity(MailTypeRef, {
-				sender: createTestEntity(MailAddressTypeRef, {
+			const draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
+				sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 					address: "deleted-alias@custom.domain",
 				}),
 				subject: SUBJECT_LINE_1,
 				conversationEntry: conversationEntryId,
 			})
-			const conversationEntry = createTestEntity(ConversationEntryTypeRef, {
+			const conversationEntry = createTestEntity(tutanotaTypeRefs.ConversationEntryTypeRef, {
 				_id: conversationEntryId,
 				mail: draft._id,
 				conversationType: ConversationType.NEW,
 			})
-			const recipients = createTestEntity(RecipientsTypeRef, {
-				toRecipients: [createTestEntity(MailAddressTypeRef)],
+			const recipients = createTestEntity(tutanotaTypeRefs.RecipientsTypeRef, {
+				toRecipients: [createTestEntity(tutanotaTypeRefs.MailAddressTypeRef)],
 			})
-			const draftDetails = createTestEntity(MailDetailsTypeRef, {
+			const draftDetails = createTestEntity(tutanotaTypeRefs.MailDetailsTypeRef, {
 				recipients,
-				body: createTestEntity(BodyTypeRef, { text: BODY_TEXT_1 }),
+				body: createTestEntity(tutanotaTypeRefs.BodyTypeRef, { text: BODY_TEXT_1 }),
 			})
 
 			const mailboxDetails: MailboxDetail = {
-				mailbox: createTestEntity(MailBoxTypeRef),
-				mailGroupInfo: createTestEntity(GroupInfoTypeRef),
-				mailGroup: createTestEntity(GroupTypeRef, {
+				mailbox: createTestEntity(tutanotaTypeRefs.MailBoxTypeRef),
+				mailGroupInfo: createTestEntity(sysTypeRefs.GroupInfoTypeRef),
+				mailGroup: createTestEntity(sysTypeRefs.GroupTypeRef, {
 					user: "user-id",
 				}),
-				mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
+				mailboxGroupRoot: createTestEntity(tutanotaTypeRefs.MailboxGroupRootTypeRef),
 			}
 			replace(model, "mailboxDetails", mailboxDetails)
 			replace(userController, "userGroupInfo", mailboxDetails.mailGroupInfo)
@@ -627,7 +599,7 @@ o.spec("SendMailModel", () => {
 			const e = await assertThrows(UserError, () => model.send(method, getConfirmation))
 			o.check(e?.message).equals(lang.get("noRecipients_msg"))
 			verify(getConfirmation(), { times: 0 })
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 0 })
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 0 })
 			verify(mailFacade.createDraft(anything()), { times: 0 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 		})
@@ -641,9 +613,9 @@ o.spec("SendMailModel", () => {
 			const method = MailMethod.NONE
 			const getConfirmation = func<() => Promise<boolean>>()
 			const r = await model.send(method, getConfirmation)
-			o.check(r).equals(false)
+			o.check(r.success).equals(false)
 			verify(getConfirmation(), { times: 0 })
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 0 })
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 0 })
 			verify(mailFacade.createDraft(anything()), { times: 0 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 		})
@@ -662,7 +634,7 @@ o.spec("SendMailModel", () => {
 			const e = await assertThrows(UserError, () => model.send(method, getConfirmation))
 			o.check(e?.message).equals(lang.get("noPreSharedPassword_msg"))
 
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 0 })
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 0 })
 			verify(mailFacade.createDraft(anything()), { times: 0 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 		})
@@ -680,8 +652,8 @@ o.spec("SendMailModel", () => {
 			const getConfirmation = func<(TranslationKey) => Promise<boolean>>()
 			when(getConfirmation(anything())).thenResolve(false)
 			const r = await model.send(method, getConfirmation)
-			o.check(r).equals(false)
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 0 })
+			o.check(r.success).equals(false)
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 0 })
 			verify(mailFacade.createDraft(anything()), { times: 0 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 		})
@@ -700,9 +672,9 @@ o.spec("SendMailModel", () => {
 			when(getConfirmation(anything())).thenResolve(true)
 
 			const r = await model.send(method, getConfirmation)
-			o.check(r).equals(true)
+			o.check(r.success).equals(true)
 
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 1 })
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 1 })
 			verify(mailFacade.createDraft(anything()), { times: 1 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 
@@ -733,11 +705,11 @@ o.spec("SendMailModel", () => {
 			const getConfirmation = func<(TranslationKey) => Promise<boolean>>()
 
 			const r = await model.send(method, getConfirmation)
-			o.check(r).equals(true)
+			o.check(r.success).equals(true)
 
 			verify(getConfirmation(anything), { times: 0 })
 
-			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything()), { times: 1 })
+			verify(mailFacade.sendDraft(anything(), anything(), anything(), anything(), false), { times: 1 })
 			verify(mailFacade.createDraft(anything()), { times: 1 })
 			verify(mailFacade.updateDraft(anything()), { times: 0 })
 
@@ -748,7 +720,7 @@ o.spec("SendMailModel", () => {
 		o.test("when a recipient has an existing contact, and the saved password changes, then the contact will be updated", async () => {
 			const getConfirmation = func<(TranslationKey) => Promise<boolean>>()
 
-			const contact = createTestEntity(ContactTypeRef, {
+			const contact = createTestEntity(tutanotaTypeRefs.ContactTypeRef, {
 				_id: testIdGenerator.newIdTuple(),
 				firstName: "my",
 				lastName: "chippie",
@@ -772,7 +744,7 @@ o.spec("SendMailModel", () => {
 		let existingContact
 		let recipients
 		o.before(() => {
-			existingContact = createTestEntity(ContactTypeRef, {
+			existingContact = createTestEntity(tutanotaTypeRefs.ContactTypeRef, {
 				_id: testIdGenerator.newIdTuple(),
 				firstName: "james",
 				lastName: "hetfield",
@@ -794,44 +766,39 @@ o.spec("SendMailModel", () => {
 
 		o.test("nonmatching event", async () => {
 			await model.handleEntityEvent({
-				typeRef: UserTypeRef,
+				typeRef: sysTypeRefs.UserTypeRef,
 				operation: OperationType.CREATE,
 				instanceListId: null,
 				instanceId: "",
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			await model.handleEntityEvent({
-				typeRef: CustomerTypeRef,
+				typeRef: sysTypeRefs.CustomerTypeRef,
 				operation: OperationType.CREATE,
 				instanceListId: null,
 				instanceId: "",
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			await model.handleEntityEvent({
-				typeRef: NotificationMailTypeRef,
+				typeRef: tutanotaTypeRefs.NotificationMailTypeRef,
 				operation: OperationType.CREATE,
 				instanceListId: null,
 				instanceId: "",
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			await model.handleEntityEvent({
-				typeRef: ChallengeTypeRef,
+				typeRef: sysTypeRefs.ChallengeTypeRef,
 				operation: OperationType.CREATE,
 				instanceListId: null,
 				instanceId: "",
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			await model.handleEntityEvent({
-				typeRef: MailTypeRef,
+				typeRef: tutanotaTypeRefs.MailTypeRef,
 				operation: OperationType.CREATE,
 				instanceListId: "mail-list-id",
 				instanceId: "",
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			verify(entity.load(anything(), anything(), anything()), { times: 0 })
 		})
@@ -842,28 +809,27 @@ o.spec("SendMailModel", () => {
 				firstName: "newfirstname",
 				lastName: "newlastname",
 				mailAddresses: [
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: "james@tuta.com",
 					}),
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: "address2@hotmail.com",
 					}),
 				],
 			}
 			when(
 				entity.load(
-					ContactTypeRef,
+					tutanotaTypeRefs.ContactTypeRef,
 					argThat((id) => isSameId(id, existingContact._id)),
 				),
-			).thenResolve(createContact(Object.assign({ _id: existingContact._id } as Contact, contactForUpdate)))
+			).thenResolve(tutanotaTypeRefs.createContact(Object.assign({ _id: existingContact._id } as tutanotaTypeRefs.Contact, contactForUpdate)))
 			await model.initWithTemplate({ to: recipients }, "somb", "", [], true, "a@b.c", false)
 			await model.handleEntityEvent({
-				typeRef: ContactTypeRef,
+				typeRef: tutanotaTypeRefs.ContactTypeRef,
 				operation: OperationType.UPDATE,
 				instanceListId,
 				instanceId,
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			o.check(model.allRecipients().length).equals(2)
 			const updatedRecipient = model.allRecipients().find((r) => r.contact && isSameId(r.contact._id, existingContact._id))
@@ -875,30 +841,29 @@ o.spec("SendMailModel", () => {
 				firstName: "james",
 				lastName: "hetfield",
 				mailAddresses: [
-					createTestEntity(MailAddressTypeRef, {
+					createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, {
 						address: "nolongerjames@hotmail.com",
 					}),
 				],
 			}
 
-			when(entity.load(ContactTypeRef, existingContact._id)).thenResolve(
-				createContact(
+			when(entity.load(tutanotaTypeRefs.ContactTypeRef, existingContact._id)).thenResolve(
+				tutanotaTypeRefs.createContact(
 					Object.assign(
 						{
 							_id: existingContact._id,
-						} as Contact,
+						} as tutanotaTypeRefs.Contact,
 						contactForUpdate,
 					),
 				),
 			)
 			await model.initWithTemplate({ to: recipients }, "b", "c", [], true, "", false)
 			await model.handleEntityEvent({
-				typeRef: ContactTypeRef,
+				typeRef: tutanotaTypeRefs.ContactTypeRef,
 				operation: OperationType.UPDATE,
 				instanceListId,
 				instanceId,
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			o.check(model.allRecipients().length).equals(1)
 			const updatedContact = model.allRecipients().find((r) => r.contact && isSameId(r.contact._id, existingContact._id))
@@ -908,12 +873,11 @@ o.spec("SendMailModel", () => {
 			const [instanceListId, instanceId] = existingContact._id
 			await model.initWithTemplate({ to: recipients }, "subj", "", [], true, "a@b.c", false)
 			await model.handleEntityEvent({
-				typeRef: ContactTypeRef,
+				typeRef: tutanotaTypeRefs.ContactTypeRef,
 				operation: OperationType.DELETE,
 				instanceListId,
 				instanceId,
 				...noPatchesAndInstance,
-				prefetchStatus: PrefetchStatus.NotPrefetched,
 			})
 			o.check(model.allRecipients().length).equals(1)
 			const updatedContact = model.allRecipients().find((r) => r.contact && isSameId(r.contact._id, existingContact._id))
@@ -939,7 +903,7 @@ o.spec("SendMailModel", () => {
 
 			await model.initWithTemplate(recipients, subject, body, [], false, "eggs@tutanota.de", false)
 			const hasBeenSent = await model.send(MailMethod.NONE, getConfirmation)
-			o.check(hasBeenSent).equals(false)("nothing was sent")
+			o.check(hasBeenSent.success).equals(false)("nothing was sent")
 			verify(getConfirmation("manyRecipients_msg"), { times: 1 })
 		})
 		o.test("too many to recipients confirm", async () => {
@@ -962,7 +926,7 @@ o.spec("SendMailModel", () => {
 
 			await model.initWithTemplate(recipients, subject, body, [], false, "eggs@tutanota.de")
 
-			o.check(await model.send(MailMethod.NONE, getConfirmation)).equals(true)
+			o.check((await model.send(MailMethod.NONE, getConfirmation)).success).equals(true)
 			verify(getConfirmation("manyRecipients_msg"), { times: 1 })
 		})
 		o.test("too many cc recipients dont confirm", async () => {
@@ -984,7 +948,7 @@ o.spec("SendMailModel", () => {
 			when(getConfirmation("manyRecipients_msg")).thenResolve(false)
 
 			await model.initWithTemplate(recipients, subject, body, [], false, "eggs@tutanota.de")
-			o.check(await model.send(MailMethod.NONE, getConfirmation)).equals(false)
+			o.check((await model.send(MailMethod.NONE, getConfirmation)).success).equals(false)
 			verify(getConfirmation("manyRecipients_msg"), { times: 1 })
 		})
 		o.test("too many cc recipients confirm", async () => {
@@ -1006,7 +970,7 @@ o.spec("SendMailModel", () => {
 			when(getConfirmation("manyRecipients_msg")).thenResolve(true)
 
 			await model.initWithTemplate(recipients, subject, body, [], false, "eggs@tutanota.de")
-			o.check(await model.send(MailMethod.NONE, getConfirmation)).equals(true)
+			o.check((await model.send(MailMethod.NONE, getConfirmation)).success).equals(true)
 			verify(getConfirmation("manyRecipients_msg"), { times: 1 })
 		})
 		o.spec("mail draft update", () => {
@@ -1014,7 +978,7 @@ o.spec("SendMailModel", () => {
 			const draftElementId = "some draft element id"
 
 			o.beforeEach(() => {
-				model.draft = createTestEntity(MailTypeRef, {
+				model.draft = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 					mailDetailsDraft: [draftListId, draftElementId],
 				})
 			})
@@ -1027,12 +991,11 @@ o.spec("SendMailModel", () => {
 					now = 1234
 
 					await model.handleEntityEvent({
-						typeRef: MailDetailsDraftTypeRef,
+						typeRef: tutanotaTypeRefs.MailDetailsDraftTypeRef,
 						operation: OperationType.UPDATE,
 						instanceListId: draftListId,
 						instanceId: `not ${draftElementId}`,
 						...noPatchesAndInstance,
-						prefetchStatus: PrefetchStatus.NotPrefetched,
 					})
 
 					o.check(model.getMailRemotelyUpdatedAt()).equals(1000)
@@ -1048,12 +1011,11 @@ o.spec("SendMailModel", () => {
 					now = 1234
 
 					await model.handleEntityEvent({
-						typeRef: MailDetailsDraftTypeRef,
+						typeRef: tutanotaTypeRefs.MailDetailsDraftTypeRef,
 						operation: OperationType.UPDATE,
 						instanceListId: draftListId,
 						instanceId: draftElementId,
 						...noPatchesAndInstance,
-						prefetchStatus: PrefetchStatus.NotPrefetched,
 					})
 
 					o.check(model.getMailRemotelyUpdatedAt()).equals(0)
@@ -1069,12 +1031,11 @@ o.spec("SendMailModel", () => {
 				model.setMailRemotelyUpdatedAt(1000)
 				now = 1234
 				await model.handleEntityEvent({
-					typeRef: MailDetailsDraftTypeRef,
+					typeRef: tutanotaTypeRefs.MailDetailsDraftTypeRef,
 					operation: OperationType.UPDATE,
 					instanceListId: draftListId,
 					instanceId: draftElementId,
 					...noPatchesAndInstance,
-					prefetchStatus: PrefetchStatus.NotPrefetched,
 				})
 				o.check(model._draftSavedRecently).equals(false)
 				o.check(model.getMailRemotelyUpdatedAt()).equals(1000)
@@ -1090,12 +1051,11 @@ o.spec("SendMailModel", () => {
 				model.setBody("we changed the body")
 				now = 1234
 				await model.handleEntityEvent({
-					typeRef: MailDetailsDraftTypeRef,
+					typeRef: tutanotaTypeRefs.MailDetailsDraftTypeRef,
 					operation: OperationType.UPDATE,
 					instanceListId: draftListId,
 					instanceId: draftElementId,
 					...noPatchesAndInstance,
-					prefetchStatus: PrefetchStatus.NotPrefetched,
 				})
 				o.check(model.getMailRemotelyUpdatedAt()).equals(1234)
 				o.check(model.hasDraftDataChangedOnServer()).equals(true)

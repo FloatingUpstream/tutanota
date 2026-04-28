@@ -1,7 +1,7 @@
 import m, { Component, Vnode } from "mithril"
 import { px, size } from "../../gui/size"
 import { lang } from "../../misc/LanguageViewModel"
-import { PLAN_SELECTOR_SELECTED_BOX_SCALE, PlanType } from "../../api/common/TutanotaConstants"
+import { PLAN_SELECTOR_SELECTED_BOX_SCALE } from "@tutao/app-env"
 import { PriceAndConfigProvider } from "../utils/PriceUtils"
 import { theme } from "../../gui/theme.js"
 import { ReplacementKey } from "../FeatureListProvider.js"
@@ -11,9 +11,10 @@ import { TranslationKeyType } from "../../misc/TranslationKey.js"
 import { styles } from "../../gui/styles.js"
 import { getFeaturePlaceholderReplacement } from "../utils/SubscriptionUtils.js"
 import { PlanBadge } from "./PlanBadge.js"
-import { Callback } from "@tutao/tutanota-utils"
+import { Callback } from "@tutao/utils"
 import { boxShadowHigh } from "../../gui/main-styles"
 import { DiscountDetail, getBorderRadius, getBorderWidth } from "../utils/PlanSelectorUtils"
+import { PlanType } from "@tutao/app-env"
 
 type FreePlanBoxAttrs = {
 	isSelected: boolean
@@ -86,9 +87,9 @@ export class PersonalFreePlanBox implements Component<FreePlanBoxAttrs> {
 							...(styles.isMobileLayout() && { "flex-wrap": "wrap" }),
 						},
 					},
-					renderFeature("pricing.comparisonStorage_msg", Icons.PricingStorage, "storage"),
-					renderFeature("pricing.comparisonOneCalendar_msg", Icons.PricingCalendar, undefined, true),
-					renderFeature("pricing.comparisonFaqSupport_msg", Icons.PricingSupport, undefined),
+					renderFeature("pricing.comparisonStorage_msg", Icons.CloudOutline, "storage"),
+					renderFeature("pricing.comparisonOneCalendar_msg", Icons.CalendarNumberOutline, undefined, true),
+					renderFeature("pricing.comparisonFaqSupport_msg", Icons.SmileyfaceOutline, undefined),
 					m(
 						".smaller.pt-8",
 						{ style: { color: theme.on_surface_variant, opacity: 0.7 } },

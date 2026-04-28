@@ -9,13 +9,21 @@ import type { MailAddressFacade } from "../../../common/api/worker/facades/lazy/
 import type { CustomerFacade } from "../../../common/api/worker/facades/lazy/CustomerFacade.js"
 import type { CounterFacade } from "../../../common/api/worker/facades/lazy/CounterFacade.js"
 import { EventBusClient } from "../../../common/api/worker/EventBusClient.js"
-import { assertWorkerOrNode, getWebsocketBaseUrl, isAndroidApp, isBrowser, isIOSApp, isOfflineStorageAvailable } from "../../../common/api/common/Env.js"
-import { Const } from "../../../common/api/common/TutanotaConstants.js"
+import {
+	assertWorkerOrNode,
+	Const,
+	getWebsocketBaseUrl,
+	isAndroidApp,
+	isBrowser,
+	isIOSApp,
+	isOfflineStorageAvailable,
+	Mode,
+	ProgrammingError,
+} from "@tutao/app-env"
 import type { BrowserData } from "../../../common/misc/ClientConstants.js"
 import type { CalendarFacade } from "../../../common/api/worker/facades/lazy/CalendarFacade.js"
 import type { ShareFacade } from "../../../common/api/worker/facades/lazy/ShareFacade.js"
-import { RestClient } from "../../../common/api/worker/rest/RestClient.js"
-import { SuspensionHandler } from "../../../common/api/worker/SuspensionHandler.js"
+import { RestClient, restSuspension } from "@tutao/rest-client"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
 import type { GiftCardFacade } from "../../../common/api/worker/facades/lazy/GiftCardFacade.js"
 import type { ConfigurationDatabase } from "../../../common/api/worker/facades/lazy/ConfigurationDatabase.js"
@@ -40,9 +48,9 @@ import { OFFLINE_STORAGE_MIGRATIONS, OfflineStorageMigrator } from "../../../com
 import { FileFacadeSendDispatcher } from "../../../common/native/common/generatedipc/FileFacadeSendDispatcher.js"
 import { NativePushFacadeSendDispatcher } from "../../../common/native/common/generatedipc/NativePushFacadeSendDispatcher.js"
 import { NativeCryptoFacadeSendDispatcher } from "../../../common/native/common/generatedipc/NativeCryptoFacadeSendDispatcher.js"
-import { random } from "@tutao/tutanota-crypto"
+import { CryptoWrapper, random, SYMMETRIC_CIPHER_FACADE } from "@tutao/crypto"
 import { ExportFacadeSendDispatcher } from "../../../common/native/common/generatedipc/ExportFacadeSendDispatcher.js"
-import { lazyAsync, lazyMemoized, noOp } from "@tutao/tutanota-utils"
+import { lazyAsync, lazyMemoized, noOp } from "@tutao/utils"
 import { InterWindowEventFacadeSendDispatcher } from "../../../common/native/common/generatedipc/InterWindowEventFacadeSendDispatcher.js"
 import { SqlCipherFacadeSendDispatcher } from "../../../common/native/common/generatedipc/SqlCipherFacadeSendDispatcher.js"
 import { EntropyFacade } from "../../../common/api/worker/facades/EntropyFacade.js"
@@ -50,7 +58,7 @@ import { BlobAccessTokenFacade } from "../../../common/api/worker/facades/BlobAc
 import { EventBusEventCoordinator } from "../../../common/api/worker/EventBusEventCoordinator.js"
 import { WorkerFacade } from "../../../common/api/worker/facades/WorkerFacade.js"
 import { SqlCipherFacade } from "../../../common/native/common/generatedipc/SqlCipherFacade.js"
-import { Challenge, UserTypeRef } from "../../../common/api/entities/sys/TypeRefs.js"
+import { ClientModelInfo, ServerModelInfo, sysTypeRefs, tutanotaTypeRefs, TypeModelResolver } from "@tutao/typerefs"
 import { LoginFailReason } from "../../../common/api/main/PageContextLoginListener.js"
 import { SessionType } from "../../../common/api/common/SessionType.js"
 import { Argon2idFacade, NativeArgon2idFacade, WASMArgon2idFacade } from "../../../common/api/worker/facades/Argon2idFacade.js"
@@ -68,30 +76,32 @@ import { CalendarWorkerImpl } from "./CalendarWorkerImpl.js"
 import { CalendarOfflineCleaner } from "../offline/CalendarOfflineCleaner.js"
 import { Credentials } from "../../../common/misc/credentials/Credentials.js"
 import { AsymmetricCryptoFacade } from "../../../common/api/worker/crypto/AsymmetricCryptoFacade.js"
-import { CryptoWrapper } from "../../../common/api/worker/crypto/CryptoWrapper.js"
+import { InstancePipeline, PatchMerger, SessionKeyResolver } from "@tutao/instance-pipeline"
 import { KeyVerificationFacade } from "../../../common/api/worker/facades/lazy/KeyVerificationFacade"
 import { KeyAuthenticationFacade } from "../../../common/api/worker/facades/KeyAuthenticationFacade.js"
 import { PublicEncryptionKeyProvider } from "../../../common/api/worker/facades/PublicEncryptionKeyProvider.js"
-import { InstancePipeline } from "../../../common/api/worker/crypto/InstancePipeline"
 import { ApplicationTypesFacade } from "../../../common/api/worker/facades/ApplicationTypesFacade"
 import { Ed25519Facade, NativeEd25519Facade, WASMEd25519Facade } from "../../../common/api/worker/facades/Ed25519Facade"
-import { ClientModelInfo, ServerModelInfo, TypeModelResolver } from "../../../common/api/common/EntityFunctions"
 import { CustomCacheHandlerMap } from "../../../common/api/worker/rest/cacheHandler/CustomCacheHandler"
-import { CalendarEventTypeRef } from "../../../common/api/entities/tutanota/TypeRefs"
 import { CustomUserCacheHandler } from "../../../common/api/worker/rest/cacheHandler/CustomUserCacheHandler"
 import { EphemeralCacheStorage } from "../../../common/api/worker/rest/EphemeralCacheStorage"
 import { CustomCalendarEventCacheHandler } from "../../../common/api/worker/rest/cacheHandler/CustomCalendarEventCacheHandler"
-import { PatchMerger } from "../../../common/api/worker/offline/PatchMerger"
-import { EventInstancePrefetcher } from "../../../common/api/worker/EventInstancePrefetcher"
 import { RolloutFacade } from "../../../common/api/worker/facades/RolloutFacade"
 import { PublicKeySignatureFacade } from "../../../common/api/worker/facades/PublicKeySignatureFacade"
 import { AdminKeyLoaderFacade } from "../../../common/api/worker/facades/AdminKeyLoaderFacade"
 import { IdentityKeyCreator } from "../../../common/api/worker/facades/lazy/IdentityKeyCreator"
 import { PublicIdentityKeyProvider } from "../../../common/api/worker/facades/PublicIdentityKeyProvider"
-import { IdentityKeyTrustDatabase } from "../../../common/api/worker/facades/IdentityKeyTrustDatabase"
+import { IdentityKeyTrustDatabase, KeyVerificationTableDefinitions } from "../../../common/api/worker/facades/IdentityKeyTrustDatabase"
 import { InstanceSessionKeysCache } from "../../../common/api/worker/facades/InstanceSessionKeysCache"
 import { PublicEncryptionKeyCache } from "../../../common/api/worker/facades/PublicEncryptionKeyCache"
 import { DriveFacade } from "../../../common/api/worker/facades/lazy/DriveFacade"
+import {
+	LastProcessedEventBatchStorageFacade,
+	NoOpLastProcessedEventBatchStorageFacade,
+	OfflineStorageLastProcessedEventBatchStorageFacade,
+} from "../../../common/api/worker/LastProcessedEventBatchStorageFacade"
+import { DateProvider } from "../../../common/api/common/DateProvider"
+import { UpdateAppTypesHashMiddleware } from "../../../common/api/common/UpdateTypesHashMiddleware"
 
 assertWorkerOrNode()
 
@@ -166,6 +176,8 @@ export type CalendarWorkerLocatorType = {
 
 	// drive
 	driveFacade: lazyAsync<DriveFacade>
+
+	lastProcessedEventBatchStorageFacade: lazyAsync<LastProcessedEventBatchStorageFacade>
 }
 export const locator: CalendarWorkerLocatorType = {} as any
 
@@ -180,7 +192,7 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 
 	const mainInterface = worker.getMainInterface()
 
-	const suspensionHandler = new SuspensionHandler(self, () => {
+	const suspensionHandler = new restSuspension.SuspensionHandler(self, () => {
 		mainInterface.infoMessageHandler.onInfoMessage({
 			translationKey: "clientSuspensionWait_label",
 			args: {},
@@ -195,11 +207,15 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 	locator.instancePipeline = new InstancePipeline(
 		typeModelResolver.resolveClientTypeReference.bind(typeModelResolver),
 		typeModelResolver.resolveServerTypeReference.bind(typeModelResolver),
+		() => locator.keyLoader,
+		SYMMETRIC_CIPHER_FACADE,
 	)
 	locator.rsa = await createRsaImplementation(worker)
 
 	const domainConfig = new DomainConfigProvider().getCurrentDomainConfig()
-	locator.restClient = new RestClient(suspensionHandler, domainConfig, serverModelInfo, String(browserData.clientPlatform))
+	locator.restClient = new RestClient(suspensionHandler, domainConfig, String(browserData.clientPlatform)).addMiddleware(
+		new UpdateAppTypesHashMiddleware(serverModelInfo),
+	)
 	locator.serviceExecutor = new ServiceExecutor(locator.restClient, locator.user, locator.instancePipeline, () => locator.crypto, typeModelResolver)
 	locator.entropyFacade = new EntropyFacade(locator.user, locator.serviceExecutor, random, () => locator.keyLoader)
 	locator.blobAccessToken = new BlobAccessTokenFacade(locator.serviceExecutor, locator.user, dateProvider, typeModelResolver)
@@ -223,21 +239,19 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 	locator.applicationTypesFacade = new ApplicationTypesFacade(locator.restClient, fileFacadeSendDispatcher, serverModelInfo)
 
 	let offlineStorageProvider
-	if (isOfflineStorageAvailable()) {
+	if (!isBrowser() && !(env.mode === Mode.Admin)) {
 		locator.sqlCipherFacade = new SqlCipherFacadeSendDispatcher(locator.native)
 		offlineStorageProvider = async () => {
 			const customCacheHandler = new CustomCacheHandlerMap({
-				ref: CalendarEventTypeRef,
+				ref: tutanotaTypeRefs.CalendarEventTypeRef,
 				handler: new CustomCalendarEventCacheHandler(entityRestClient, typeModelResolver),
 			})
-
-			const { KeyVerificationTableDefinitions } = await import("../../../common/api/worker/facades/IdentityKeyTrustDatabase.js")
 
 			return new OfflineStorage(
 				locator.sqlCipherFacade,
 				new InterWindowEventFacadeSendDispatcher(worker),
 				dateProvider,
-				new OfflineStorageMigrator(OFFLINE_STORAGE_MIGRATIONS),
+				new OfflineStorageMigrator(OFFLINE_STORAGE_MIGRATIONS, locator.applicationTypesFacade),
 				new CalendarOfflineCleaner(),
 				locator.instancePipeline.modelMapper,
 				typeModelResolver,
@@ -255,7 +269,7 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 
 	const ephemeralStorageProvider = async () => {
 		const customCacheHandler = new CustomCacheHandlerMap({
-			ref: UserTypeRef,
+			ref: sysTypeRefs.UserTypeRef,
 			handler: new CustomUserCacheHandler(locator.cacheStorage),
 		})
 		return new EphemeralCacheStorage(locator.instancePipeline.modelMapper, typeModelResolver, customCacheHandler)
@@ -271,9 +285,30 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 
 	locator.cacheStorage = maybeUninitializedStorage
 
-	locator.patchMerger = new PatchMerger(locator.cacheStorage, locator.instancePipeline, typeModelResolver, () => locator.crypto)
+	const cryptoFacadeSessionKeyResolver: SessionKeyResolver = (entity) => locator.crypto.resolveSessionKey(entity)
+	locator.patchMerger = new PatchMerger(
+		locator.cacheStorage,
+		locator.instancePipeline,
+		typeModelResolver,
+		cryptoFacadeSessionKeyResolver,
+		SYMMETRIC_CIPHER_FACADE,
+	)
 
-	locator.cache = new DefaultEntityRestCache(entityRestClient, maybeUninitializedStorage, typeModelResolver, locator.patchMerger)
+	locator.lastProcessedEventBatchStorageFacade = lazyMemoized(async () => {
+		if (isOfflineStorageAvailable()) {
+			return new OfflineStorageLastProcessedEventBatchStorageFacade(locator.sqlCipherFacade)
+		} else {
+			return new NoOpLastProcessedEventBatchStorageFacade()
+		}
+	})
+
+	locator.cache = new DefaultEntityRestCache(
+		entityRestClient,
+		maybeUninitializedStorage,
+		typeModelResolver,
+		locator.patchMerger,
+		locator.lastProcessedEventBatchStorageFacade,
+	)
 
 	locator.cachingEntityClient = new EntityClient(locator.cache, typeModelResolver)
 	const nonCachingEntityClient = new EntityClient(entityRestClient, typeModelResolver)
@@ -435,7 +470,7 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 			return mainInterface.loginListener.onLoginFailure(reason)
 		},
 
-		onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<Challenge>, mailAddress: string | null): Promise<void> {
+		onSecondFactorChallenge(sessionId: IdTuple, challenges: ReadonlyArray<sysTypeRefs.Challenge>, mailAddress: string | null): Promise<void> {
 			return mainInterface.loginListener.onSecondFactorChallenge(sessionId, challenges, mailAddress)
 		},
 	}
@@ -474,6 +509,7 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 		locator.cacheManagement,
 		typeModelResolver,
 		locator.rolloutFacade,
+		locator.applicationTypesFacade,
 	)
 
 	locator.userManagement = lazyMemoized(async () => {
@@ -579,7 +615,6 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 	})
 
 	const eventBusCoordinator = new EventBusEventCoordinator(
-		mainInterface.wsConnectivityListener,
 		locator.mail,
 		locator.user,
 		locator.cachingEntityClient,
@@ -597,20 +632,28 @@ export async function initLocator(worker: CalendarWorkerImpl, browserData: Brows
 		mainInterface.syncTracker,
 	)
 
-	const eventInstancePrefetcher = new EventInstancePrefetcher(locator.cache)
+	const serverDateProvider: DateProvider = {
+		now(): number {
+			return locator.restClient.getServerTimestampMs()
+		},
+		timeZone(): string {
+			throw new ProgrammingError("Not supported")
+		},
+	}
 
 	locator.eventBusClient = new EventBusClient(
+		mainInterface.wsConnectivityListener,
 		eventBusCoordinator,
 		locator.cache as EntityRestCache,
 		locator.user,
-		locator.cachingEntityClient,
 		locator.instancePipeline,
 		(path) => new WebSocket(getWebsocketBaseUrl(domainConfig) + path),
 		new SleepDetector(scheduler, dateProvider),
-		mainInterface.progressTracker,
 		typeModelResolver,
 		locator.crypto,
-		eventInstancePrefetcher,
+		locator.lastProcessedEventBatchStorageFacade,
+		serverDateProvider,
+		mainInterface.progressTracker,
 	)
 	locator.login.init(locator.eventBusClient)
 	locator.Const = Const

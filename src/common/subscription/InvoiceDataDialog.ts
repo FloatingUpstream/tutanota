@@ -4,16 +4,16 @@ import type { TranslationKey } from "../misc/LanguageViewModel"
 import { lang } from "../misc/LanguageViewModel"
 import { InvoiceDataInput } from "./InvoiceDataInput"
 import { updatePaymentData } from "./InvoiceAndPaymentDataPage"
-import { BadRequestError } from "../api/common/error/RestError"
-import type { AccountingInfo } from "../api/entities/sys/TypeRefs.js"
-import type { InvoiceData } from "../api/common/TutanotaConstants"
-import { ofClass } from "@tutao/tutanota-utils"
+import * as restError from "@tutao/rest-client/error"
+import type { InvoiceData } from "@tutao/app-env"
+import { ofClass } from "@tutao/utils"
 import { asPaymentInterval } from "./utils/PriceUtils.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export function show(
 	businessUse: boolean,
 	invoiceData: InvoiceData,
-	accountingInfo: AccountingInfo,
+	accountingInfo: sysTypeRefs.AccountingInfo,
 	headingId?: TranslationKey,
 	infoMessageId?: TranslationKey,
 ): Dialog {
@@ -32,7 +32,7 @@ export function show(
 					}
 				})
 				.catch(
-					ofClass(BadRequestError, (e) => {
+					ofClass(restError.BadRequestError, (e) => {
 						Dialog.message("paymentMethodNotAvailable_msg")
 					}),
 				)

@@ -100,9 +100,19 @@
 				},
 				{
 					"headers": "Map<string, string>"
-				}
+				},
+				{ "fileId": "string" }
 			],
 			"ret": "UploadTaskResponse"
+		},
+		"abortUpload": {
+			"doc": "abort a transfer started by FileFacade#upload",
+			"arg": [
+				{
+					"fileId": "string"
+				}
+			],
+			"ret": "void"
 		},
 		"download": {
 			"doc": "download an encrypted file to the file system and return the location of the data",
@@ -119,6 +129,15 @@
 				{ "fileId": "string" }
 			],
 			"ret": "DownloadTaskResponse"
+		},
+		"abortDownload": {
+			"doc": "abort a transfer started by FileFacade#download",
+			"arg": [
+				{
+					"fileId": "string"
+				}
+			],
+			"ret": "void"
 		},
 		"hashFile": {
 			"doc": "Calculates specified file hash (with SHA-256). Returns first 6 bytes of it as Base64.",
@@ -186,6 +205,15 @@
 				}
 			],
 			"ret": "bytes"
+		},
+		"deleteFromAppDir": {
+			"doc": "Delete file from given path relative to app data folder",
+			"arg": [
+				{
+					"path": "string"
+				}
+			],
+			"ret": "void"
 		},
 		"readDataFile": {
 			"doc": "read the file at the given location into a DataFile. Returns null if reading fails for any reason.",

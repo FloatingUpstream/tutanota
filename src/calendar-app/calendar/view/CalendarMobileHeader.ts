@@ -14,13 +14,12 @@ import { theme } from "../../../common/gui/theme.js"
 import { ClickHandler } from "../../../common/gui/base/GuiUtils.js"
 import { TodayIconButton } from "./TodayIconButton.js"
 import { ExpanderButton } from "../../../common/gui/base/Expander.js"
-import { isApp } from "../../../common/api/common/Env.js"
-import { BootIcons } from "../../../common/gui/base/icons/BootIcons.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
 import { NavButton } from "../../../common/gui/base/NavButton.js"
 import { CalendarViewType, formatJSDate } from "../../../common/api/common/utils/CommonCalendarUtils.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { client } from "../../../common/misc/ClientDetector.js"
+import { isApp } from "@tutao/app-env"
 
 export interface CalendarMobileHeaderAttrs extends AppHeaderAttrs {
 	viewType: CalendarViewType
@@ -71,7 +70,7 @@ export class CalendarMobileHeader implements Component<CalendarMobileHeaderAttrs
 				client.isCalendarApp()
 					? this.renderSearchNavigationButton()
 					: m(IconButton, {
-							icon: Icons.Add,
+							icon: Icons.Plus,
 							title: "newEvent_action",
 							click: attrs.onCreateEvent,
 						}),
@@ -108,7 +107,7 @@ export class CalendarMobileHeader implements Component<CalendarMobileHeaderAttrs
 				m(NavButton, {
 					label: "search_label",
 					hideLabel: true,
-					icon: () => BootIcons.Search,
+					icon: () => Icons.Search,
 					href: "/search/calendar",
 					centred: true,
 					fillSpaceAround: false,

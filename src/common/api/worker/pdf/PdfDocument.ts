@@ -1,9 +1,9 @@
 import { boldFontWidths, PdfDictValue, PdfObjectRef, PdfStreamEncoding, regularFontWidths } from "./PdfConstants.js"
 import { PdfWriter } from "./PdfWriter.js"
 import { Deflater } from "./Deflater.js"
-import { stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
+import { stringToUtf8Uint8Array } from "@tutao/utils"
 import { parseQrSvg } from "./qrSvg.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 
 export enum PDF_FONTS {
 	REGULAR = 1,
@@ -148,8 +148,6 @@ export class PdfDocument {
 		} else {
 			ops.push("f")
 		}
-		// ops.push(`0 g`)
-		// ops.push(`0 G`)
 		this.graphicsStream += ops.join(" ") + " "
 		return this
 	}
@@ -164,7 +162,6 @@ export class PdfDocument {
 		this.pdfWriter.createObject(
 			new Map<string, PdfDictValue>([
 				["Type", "/Pages"],
-				["Parent", { refId: "CATALOG" }],
 				["Kids", this.pageList],
 				["Count", `${this.pageCount}`],
 			]),

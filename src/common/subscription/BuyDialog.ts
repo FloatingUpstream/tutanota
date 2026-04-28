@@ -1,17 +1,15 @@
 import m, { Children, Component, Vnode } from "mithril"
-import { assertNotNull, filterInt, incrementDate, newPromise, ofClass } from "@tutao/tutanota-utils"
+import { assertNotNull, filterInt, incrementDate, newPromise, ofClass } from "@tutao/utils"
 import { TextField, TextFieldType } from "../gui/base/TextField.js"
 import { Dialog, DialogType } from "../gui/base/Dialog.js"
 import { lang, TranslationKey } from "../misc/LanguageViewModel.js"
-import { BookingItemFeatureType, FeatureType } from "../api/common/TutanotaConstants.js"
+import { assertMainOrNode, BookingItemFeatureType, FeatureType } from "@tutao/app-env"
 import { formatDate } from "../misc/Formatter.js"
-import type { PriceData, PriceServiceReturn } from "../api/entities/sys/TypeRefs.js"
-import { AccountingInfoTypeRef, PriceItemData } from "../api/entities/sys/TypeRefs.js"
-import { NotAuthorizedError } from "../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { asPaymentInterval, formatPrice, getPriceItem, PaymentInterval } from "./utils/PriceUtils.js"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog.js"
 import { locator } from "../api/main/CommonLocator.js"
-import { assertMainOrNode } from "../api/common/Env.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -49,7 +47,9 @@ async function prepareDialog({ featureType, count, reactivate }: BookingParams):
 	const price = await locator.bookingFacade.getPrice(featureType, count, reactivate)
 	const priceChangeModel = new PriceChangeModel(price, featureType)
 	const customerInfo = await locator.logins.getUserController().loadCustomerInfo()
-	const accountingInfo = await locator.entityClient.load(AccountingInfoTypeRef, customerInfo.accountingInfo).catch(ofClass(NotAuthorizedError, () => null))
+	const accountingInfo = await locator.entityClient
+		.load(sysTypeRefs.AccountingInfoTypeRef, customerInfo.accountingInfo)
+		.catch(ofClass(restError.NotAuthorizedError, () => null))
 	if (accountingInfo && accountingInfo.paymentMethod == null) {
 		const confirm = await Dialog.confirm("enterPaymentDataFirst_msg")
 		if (confirm) {
@@ -159,14 +159,14 @@ class ConfirmSubscriptionView implements Component<ConfirmAttrs> {
 }
 
 class PriceChangeModel {
-	readonly currentItem: PriceItemData | null
-	readonly futureItem: PriceItemData | null
+	readonly currentItem: sysTypeRefs.PriceItemData | null
+	readonly futureItem: sysTypeRefs.PriceItemData | null
 	readonly currentPrice: number
 	readonly futurePrice: number
 	readonly additionalFeatures: ReadonlySet<BookingItemFeatureType>
 
 	constructor(
-		private readonly price: PriceServiceReturn,
+		private readonly price: sysTypeRefs.PriceServiceReturn,
 		readonly featureType: BookingItemFeatureType,
 	) {
 		this.currentItem = getPriceItem(price.currentPriceNextPeriod, featureType)
@@ -246,7 +246,7 @@ class PriceChangeModel {
 	/**
 	 * Returns the price for the feature type from the price data if available, otherwise 0.
 	 */
-	private getPriceFromPriceData(priceData: PriceData | null, featureType: NumberString): number {
+	private getPriceFromPriceData(priceData: sysTypeRefs.PriceData | null, featureType: NumberString): number {
 		let item = getPriceItem(priceData, featureType)
 		let itemPrice = item ? Number(item.price) : 0
 

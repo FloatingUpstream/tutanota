@@ -1,9 +1,9 @@
-import { Base64, base64ToUint8Array, getDayShifted, getStartOfDay, typedEntries, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
+import { Base64, base64ToUint8Array, getDayShifted, getStartOfDay, typedEntries, uint8ArrayToBase64 } from "@tutao/utils"
 import type { LanguageCode } from "./LanguageViewModel"
 import type { ThemePreference } from "../gui/theme"
-import { ProgrammingError } from "../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import type { CredentialEncryptionMode } from "./credentials/CredentialEncryptionMode.js"
-import { assertMainOrNodeBoot, isApp } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import { PersistedAssignmentData, UsageTestStorage } from "./UsageTestModel"
 import { client } from "./ClientDetector"
 import { NewsItemStorage } from "./news/NewsModel.js"
@@ -12,6 +12,7 @@ import { CalendarViewType } from "../api/common/utils/CommonCalendarUtils.js"
 import { SyncStatus } from "../calendar/gui/ImportExportUtils.js"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
+import { isApp } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 export const defaultThemePreference: ThemePreference = "auto:light|dark"
@@ -71,6 +72,7 @@ interface ConfigObject {
 	installationDate: string
 	/** Map from user id to the size of the list */
 	mailListSize: Record<Id, number>
+	isUndoSendEnabled: boolean
 
 	/**
 	 * A list of dates on which a user has sent an e-mail or created a calendar event. Each date is represented as the date's timestamp.
@@ -158,6 +160,7 @@ export class DeviceConfig implements UsageTestStorage, NewsItemStorage {
 			retryRatingPromptAfter: loadedConfig.retryRatingPromptAfter ?? null,
 			scrollTime: loadedConfig.scrollTime ?? 8,
 			installationDate: loadedConfig.installationDate ?? getStartOfDay(new Date()).getTime().toString(),
+			isUndoSendEnabled: loadedConfig.isUndoSendEnabled ?? true,
 		}
 
 		this.lastSyncStream(new Map(Object.entries(this.config.lastExternalCalendarSync)))
@@ -473,6 +476,15 @@ export class DeviceConfig implements UsageTestStorage, NewsItemStorage {
 
 	public writeEvents(events: Date[]): void {
 		this.config.events = events.map((date) => date.getTime())
+		this.writeToStorage()
+	}
+
+	getIsUndoSendEnabled(): boolean {
+		return this.config.isUndoSendEnabled
+	}
+
+	setIsUndoSendEnabled(status: boolean) {
+		this.config.isUndoSendEnabled = status
 		this.writeToStorage()
 	}
 

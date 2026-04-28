@@ -1,39 +1,64 @@
 //@bundleInto:common
 
-import { Mail, MailSet } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { isFolderReadOnly, tutanotaTypeRefs } from "@tutao/typerefs"
 import { MailModel } from "./MailModel.js"
 import { FolderSystem } from "../../../common/api/common/mail/FolderSystem.js"
-import { isFolderReadOnly, MailSetKind, MailState, SystemFolderType } from "../../../common/api/common/TutanotaConstants.js"
+import { MailSetKind, MailState, SystemFolderType } from "@tutao/app-env"
 
-export function isSubfolderOfType(system: FolderSystem, folder: MailSet, type: SystemFolderType): boolean {
+export function isSubfolderOfType(system: FolderSystem, folder: tutanotaTypeRefs.MailSet, type: SystemFolderType): boolean {
 	const systemFolder = system.getSystemFolderByType(type)
 	return systemFolder != null && system.checkFolderForAncestor(folder, systemFolder._id)
 }
 
-export function isDraft(mail: Mail): boolean {
-	return mail.state === MailState.DRAFT
+/**
+ * A mail is considered a draft as long as its mail details haven't yet been stored as a blob.
+ *
+ * Draft mails that are queued to be sent have a state of SENDING _before_ mail details is stored as a blob, so it's
+ * possible for a mail to have `state === SENDING` and `mailDetailsDraft != null`.
+ * Mail details is only stored as a blob once the send can no longer be undone.
+ */
+export function isDraft(mail: tutanotaTypeRefs.Mail): boolean {
+	return mail.mailDetailsDraft != null
 }
 
-export function isMailScheduled(mail: Mail): boolean {
+/**
+ * Returns true for draft mails that are queued to be sent
+ */
+export function isDraftSending(mail: tutanotaTypeRefs.Mail): boolean {
+	return isDraft(mail) && mail.state === MailState.SENDING
+}
+
+export function isMailScheduled(mail: tutanotaTypeRefs.Mail): boolean {
 	return mail.sendAt != null
 }
 
 /**
- * Draft mails that are scheduled to be sent are not editable
+ * Draft mails that are scheduled or queued to be sent are not editable
  */
-export function isEditableDraft(mail: Mail): boolean {
-	return isDraft(mail) && !isMailScheduled(mail)
+export function isEditableDraft(mail: tutanotaTypeRefs.Mail): boolean {
+	return isDraft(mail) && !isDraftSending(mail) && !isMailScheduled(mail)
 }
 
 /**
- * Scheduled mails cannot be moved
+ * Mails that are scheduled or queued to be sent cannot be moved
  */
-export function isMailMovable(mail: Mail, mailModel: MailModel): boolean {
+export function isMailMovable(mail: tutanotaTypeRefs.Mail, mailModel: MailModel): boolean {
+	if (isDraftSending(mail)) {
+		return false
+	}
+
 	const folder = mailModel.getMailFolderForMail(mail)
 	return folder != null && !isFolderReadOnly(folder)
 }
 
-export async function isMailInSpamOrTrash(mail: Mail, mailModel: MailModel): Promise<boolean> {
+/**
+ * Delete mail service ignores mails in the sending state
+ */
+export function isMailDeletable(mail: tutanotaTypeRefs.Mail): boolean {
+	return mail.state !== MailState.SENDING
+}
+
+export async function isMailInSpamOrTrash(mail: tutanotaTypeRefs.Mail, mailModel: MailModel): Promise<boolean> {
 	const folders = await mailModel.getMailboxFoldersForMail(mail)
 	const mailFolder = folders?.getFolderByMail(mail)
 	if (folders && mailFolder) {
@@ -43,7 +68,7 @@ export async function isMailInSpamOrTrash(mail: Mail, mailModel: MailModel): Pro
 	}
 }
 
-export async function isMailInSpam(mail: Mail, mailModel: MailModel): Promise<boolean> {
+export async function isMailInSpam(mail: tutanotaTypeRefs.Mail, mailModel: MailModel): Promise<boolean> {
 	const folders = await mailModel.getMailboxFoldersForMail(mail)
 	const mailFolder = folders?.getFolderByMail(mail)
 	if (folders && mailFolder) {
@@ -53,14 +78,14 @@ export async function isMailInSpam(mail: Mail, mailModel: MailModel): Promise<bo
 	}
 }
 
-export function isSpamFolder(system: FolderSystem, folder: MailSet): boolean {
+export function isSpamFolder(system: FolderSystem, folder: tutanotaTypeRefs.MailSet): boolean {
 	return folder.folderType === MailSetKind.SPAM || isSubfolderOfType(system, folder, MailSetKind.SPAM)
 }
 
 /**
  * Returns true if given folder is the {@link MailFolderType.SPAM} or {@link MailFolderType.TRASH} folder, or a descendant of those mailSets.
  */
-export function isSpamOrTrashFolder(system: FolderSystem, folder: MailSet): boolean {
+export function isSpamOrTrashFolder(system: FolderSystem, folder: tutanotaTypeRefs.MailSet): boolean {
 	// not using isOfTypeOrSubfolderOf because checking the type first is cheaper
 	return (
 		folder.folderType === MailSetKind.TRASH ||
@@ -70,6 +95,6 @@ export function isSpamOrTrashFolder(system: FolderSystem, folder: MailSet): bool
 	)
 }
 
-export function isOfTypeOrSubfolderOf(system: FolderSystem, folder: MailSet, type: SystemFolderType): boolean {
+export function isOfTypeOrSubfolderOf(system: FolderSystem, folder: tutanotaTypeRefs.MailSet, type: SystemFolderType): boolean {
 	return folder.folderType === type || isSubfolderOfType(system, folder, type)
 }

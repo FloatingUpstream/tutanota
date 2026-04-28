@@ -1,16 +1,16 @@
-import { AccessExpiredError, BadRequestError, NotAuthenticatedError } from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { lang, MaybeTranslation } from "../misc/LanguageViewModel.js"
 import { SecondFactorHandler } from "../misc/2fa/SecondFactorHandler.js"
 import { getLoginErrorMessage, handleExpectedLoginError } from "../misc/LoginUtils.js"
 import type { LoginController } from "../api/main/LoginController"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { ProgrammingError } from "../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import type { CredentialsProvider } from "../misc/credentials/CredentialsProvider.js"
 import { CredentialAuthenticationError } from "../api/common/error/CredentialAuthenticationError"
-import { first, noOp } from "@tutao/tutanota-utils"
+import { first, noOp } from "@tutao/utils"
 import { KeyPermanentlyInvalidatedError } from "../api/common/error/KeyPermanentlyInvalidatedError"
-import { assertMainOrNode } from "../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { SessionType } from "../api/common/SessionType"
 import { DeviceStorageUnavailableError } from "../api/common/error/DeviceStorageUnavailableError"
 import { DeviceConfig } from "../misc/DeviceConfig.js"
@@ -345,7 +345,7 @@ export class LoginViewModel implements ILoginViewModel {
 				this.state = LoginState.NotAuthenticated
 			}
 		} catch (e) {
-			if (e instanceof NotAuthenticatedError && this.autoLoginCredentials) {
+			if (e instanceof restError.NotAuthenticatedError && this.autoLoginCredentials) {
 				const autoLoginCredentials = this.autoLoginCredentials
 				await this.credentialsProvider.deleteByUserId(autoLoginCredentials.userId)
 				if (credentials) {
@@ -465,9 +465,9 @@ export class LoginViewModel implements ILoginViewModel {
 	private async onLoginFailed(error: Error): Promise<void> {
 		this.helpText = getLoginErrorMessage(error, false)
 
-		if (error instanceof BadRequestError || error instanceof NotAuthenticatedError) {
+		if (error instanceof restError.BadRequestError || error instanceof restError.NotAuthenticatedError) {
 			this.state = LoginState.InvalidCredentials
-		} else if (error instanceof AccessExpiredError) {
+		} else if (error instanceof restError.AccessExpiredError) {
 			this.state = LoginState.AccessExpired
 		} else {
 			this.state = LoginState.UnknownError

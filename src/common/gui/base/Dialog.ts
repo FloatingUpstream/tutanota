@@ -9,27 +9,27 @@ import type { Shortcut } from "../../misc/KeyManager"
 import { focusNext, focusPrevious, keyManager } from "../../misc/KeyManager"
 import { getElevatedBackground, theme, ThemeId } from "../theme"
 import { px, size } from "../size"
-import { HabReminderImage } from "./icons/Icons"
+import { HabReminderImage, Icons } from "./icons/Icons"
 import { windowFacade } from "../../misc/WindowFacade"
 import { Button, ButtonAttrs, ButtonColor, ButtonType } from "./Button.js"
-import type { DialogHeaderBarAttrs } from "./DialogHeaderBar"
-import { DialogHeaderBar } from "./DialogHeaderBar"
+import { DialogHeaderBar, DialogHeaderBarAttrs } from "./DialogHeaderBar"
 import { TextField, TextFieldType } from "./TextField.js"
 import type { DropDownSelectorAttrs, SelectorItemList } from "./DropDownSelector.js"
 import { DropDownSelector } from "./DropDownSelector.js"
-import { DEFAULT_ERROR, Keys, TabIndex } from "../../api/common/TutanotaConstants"
+import { DEFAULT_ERROR, Keys, TabIndex } from "@tutao/app-env"
 import { AriaWindow } from "../AriaUtils"
 import { styles } from "../styles"
-import { $Promisable, assertNotNull, getAsLazy, identity, lazy, mapLazily, MaybeLazy, newPromise, noOp, Thunk } from "@tutao/tutanota-utils"
+import { $Promisable, assertNotNull, getAsLazy, identity, lazy, mapLazily, MaybeLazy, newPromise, noOp, Thunk } from "@tutao/utils"
 import type { DialogInjectionRightAttrs } from "./DialogInjectionRight"
 import { DialogInjectionRight } from "./DialogInjectionRight"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { isOfflineError } from "../../api/common/utils/ErrorUtils.js"
 import Stream from "mithril/stream"
 import { client } from "../../misc/ClientDetector"
+import { LoginTextField } from "./LoginTextField"
 
 assertMainOrNode()
-export const INPUT = "input, textarea, div[contenteditable='true']"
+export const INPUT = "input.text, input.tutaui-text-field, textarea, div[contenteditable='true']"
 
 export const enum DialogType {
 	Progress = "Progress",
@@ -224,15 +224,17 @@ export class Dialog implements ModalComponent {
 	}
 
 	/**
-	 * By default the focus is set on the first text field after this dialog is fully visible. This behavior can be overwritten by calling this function.
+	 * By default, the focus is set on the first text field after this dialog is fully visible.
+	 * This behavior can be overwritten by calling this function.
 	 * If it has already been called, then calls it instantly
 	 */
-	setFocusOnLoadFunction(callback: Dialog["focusOnLoadFunction"]): void {
+	setFocusOnLoadFunction(callback: Dialog["focusOnLoadFunction"]): this {
 		this.focusOnLoadFunction = callback
 
 		if (this.wasFocusOnLoadCalled) {
 			this.focusOnLoadFunction(assertNotNull(this.domDialog))
 		}
+		return this
 	}
 
 	private getDialogWrapperClasses(dialogType: DialogType): string {
@@ -976,10 +978,14 @@ export class Dialog implements ModalComponent {
 		dialog = Dialog.showActionDialog({
 			title: props.title,
 			child: () =>
-				m(TextField, {
+				m(LoginTextField, {
 					label: props.label,
 					value: result,
 					type: textFieldType,
+					leadingIcon: {
+						icon: Icons.PenFilled,
+						color: theme.on_surface_variant,
+					},
 					onReturnKeyPressed: wrappedOkAction,
 					oninput: (newValue) => (result = newValue),
 					onDomInputCreated: (dom) => {

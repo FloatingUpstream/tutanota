@@ -42,6 +42,7 @@ import {
 	findLastIndex,
 	getFromMap,
 	groupByAndMap,
+	last,
 	lastThrow,
 	mergeMaps,
 	neverNull,
@@ -52,8 +53,8 @@ import {
 	tokenize,
 	TypeRef,
 	uint8ArrayToBase64,
-} from "@tutao/tutanota-utils"
-import { elementIdPart, firstBiggerThanSecond, generatedIdToTimestamp, listIdPart } from "../../../common/api/common/utils/EntityUtils.js"
+} from "@tutao/utils"
+import { elementIdPart, generatedIdToTimestamp, listIdPart } from "@tutao/typerefs"
 import { compareMetaEntriesOldest, getIdFromEncSearchIndexEntry, typeRefToTypeInfo } from "../../../common/api/common/utils/IndexUtils.js"
 import type {
 	AttributeHandler,
@@ -72,7 +73,7 @@ import type {
 	SearchIndexMetaDataRow,
 } from "../../../common/api/worker/search/SearchTypes.js"
 import { CancelledError } from "../../../common/api/common/error/CancelledError.js"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import type { BrowserData } from "../../../common/misc/ClientConstants.js"
 import { InvalidDatabaseStateError } from "../../../common/api/common/error/InvalidDatabaseStateError.js"
 import {
@@ -83,7 +84,7 @@ import {
 	iterateBinaryBlocks,
 	removeBinaryBlockRanges,
 } from "../../../common/api/worker/search/SearchIndexEncoding.js"
-import { aes256EncryptSearchIndexEntry, unauthenticatedAesDecrypt } from "@tutao/tutanota-crypto"
+import { aes256EncryptSearchIndexEntry, aesDecryptUnauthenticated } from "@tutao/crypto"
 import {
 	ElementDataOS,
 	GroupDataOS,
@@ -93,8 +94,8 @@ import {
 	SearchIndexOS,
 	SearchIndexWordsIndex,
 } from "../../../common/api/worker/search/IndexTables.js"
-import { FULL_INDEXED_TIMESTAMP, NOTHING_INDEXED_TIMESTAMP } from "../../../common/api/common/TutanotaConstants"
-import { ContactList } from "../../../common/api/entities/tutanota/TypeRefs"
+import { FULL_INDEXED_TIMESTAMP, NOTHING_INDEXED_TIMESTAMP } from "@tutao/app-env"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { EncryptedDbWrapper } from "../../../common/api/worker/search/EncryptedDbWrapper"
 import {
 	decryptIndexKey,
@@ -134,6 +135,7 @@ export class IndexerCore {
 	private _promiseMapCompat: PromiseMapFn
 	private _needsExplicitIds: boolean
 	private _explicitIdStart: number
+	indexedGroupIds: Array<Id>
 
 	constructor(db: EncryptedDbWrapper, browserData: BrowserData) {
 		this.db = db
@@ -141,6 +143,7 @@ export class IndexerCore {
 		this._promiseMapCompat = promiseMapCompat(browserData.needsMicrotaskHack)
 		this._needsExplicitIds = browserData.needsExplicitIDBIds
 		this._explicitIdStart = Date.now()
+		this.indexedGroupIds = []
 	}
 
 	async storeMetadata(key: keyof typeof Metadata, value: unknown): Promise<void> {
@@ -236,7 +239,7 @@ export class IndexerCore {
 
 		// We need to find SearchIndex rows which we want to update. In the ElementData we have references to the metadata and we can find
 		// corresponding SearchIndex row in it.
-		const metaDataRowKeysBinary = unauthenticatedAesDecrypt(key, elementData[1], true)
+		const metaDataRowKeysBinary = aesDecryptUnauthenticated(key, elementData[1])
 		// For every word we have a metadata reference and we want to update them all.
 		const metaDataRowKeys = decodeNumbers(metaDataRowKeysBinary)
 		for (const metaDataRowKey of metaDataRowKeys) {
@@ -284,13 +287,25 @@ export class IndexerCore {
 		return this._writeIndexUpdate(indexUpdate, noOp)
 	}
 
-	async writeGroupDataBatchId(groupId: Id, batchId: Id) {
+	async putLastBatchIdForGroup(groupId: Id, batchId: Id) {
 		await this._executeOperation({
 			transaction: null,
 			deferred: defer(),
 			isAbortedForBackgroundMode: false,
 			transactionFactory: () => this.db.dbFacade.createTransaction(false, [SearchIndexOS, SearchIndexMetaDataOS, ElementDataOS, MetaDataOS, GroupDataOS]),
 			operation: (transaction) => this._updateGroupDataBatchId(groupId, batchId, transaction),
+		})
+	}
+
+	async getLastProcessedEventBatchIdForGroup(groupId: Id): Promise<Id | null> {
+		return await this.db.dbFacade.createTransaction(true, [GroupDataOS]).then((t) => {
+			return t.get(GroupDataOS, groupId).then((groupData: GroupData | null) => {
+				if (groupData) {
+					return last(groupData.lastBatchIds) ?? null
+				} else {
+					return null
+				}
+			})
 		})
 	}
 
@@ -921,25 +936,8 @@ export class IndexerCore {
 			if (!groupData) {
 				throw new InvalidDatabaseStateError("GroupData not available for group " + groupId)
 			}
-
-			if (groupData.lastBatchIds.length > 0 && groupData.lastBatchIds.indexOf(batchId) !== -1) {
-				// concurrent indexing (multiple tabs)
-				console.warn("Abort transaction on updating group data: concurrent access", groupId, batchId)
-				transaction.abort()
-			} else {
-				const newIndex = groupData.lastBatchIds.findIndex((indexedBatchId) => firstBiggerThanSecond(batchId, indexedBatchId))
-
-				if (newIndex !== -1) {
-					groupData.lastBatchIds.splice(newIndex, 0, batchId)
-				} else {
-					groupData.lastBatchIds.push(batchId) // new batch is oldest of all stored batches
-				}
-
-				// We keep the last 1000 batch IDs
-				groupData.lastBatchIds = groupData.lastBatchIds.slice(0, 1000)
-
-				return transaction.put(GroupDataOS, groupId, groupData)
-			}
+			groupData.lastBatchIds = [batchId]
+			return transaction.put(GroupDataOS, groupId, groupData)
 		})
 	}
 
@@ -949,7 +947,7 @@ export class IndexerCore {
 		}
 	}
 
-	async areContactsIndexed(contactList: ContactList): Promise<boolean> {
+	async areContactsIndexed(contactList: tutanotaTypeRefs.ContactList): Promise<boolean> {
 		const t = await this.db.dbFacade.createTransaction(true, [MetaDataOS, GroupDataOS])
 		const groupId = neverNull(contactList._ownerGroup)
 		const groupData = await t.get<GroupData>(GroupDataOS, groupId)

@@ -1,29 +1,28 @@
 import { showProgressDialog } from "../../../gui/dialogs/ProgressDialog.js"
-import { SecondFactorType } from "../../../api/common/TutanotaConstants.js"
+import { isApp, SecondFactorType } from "@tutao/app-env"
 import type { DropDownSelectorAttrs } from "../../../gui/base/DropDownSelector.js"
 import { DropDownSelector } from "../../../gui/base/DropDownSelector.js"
 import { lang } from "../../../misc/LanguageViewModel.js"
 import type { TextFieldAttrs } from "../../../gui/base/TextField.js"
 import { Autocomplete, TextField } from "../../../gui/base/TextField.js"
-import { isApp } from "../../../api/common/Env.js"
 import m, { Children } from "mithril"
 import { copyToClipboard } from "../../../misc/ClipboardUtils.js"
 import { Icons } from "../../../gui/base/icons/Icons.js"
 import { Dialog } from "../../../gui/base/Dialog.js"
 import { Icon, IconSize, progressIcon } from "../../../gui/base/Icon.js"
 import { theme } from "../../../gui/theme.js"
-import type { User } from "../../../api/entities/sys/TypeRefs.js"
-import { assertNotNull, LazyLoaded } from "@tutao/tutanota-utils"
+import { assertNotNull, LazyLoaded } from "@tutao/utils"
 import { locator } from "../../../api/main/CommonLocator.js"
 import * as RecoverCodeDialog from "../RecoverCodeDialog.js"
 import { EntityClient } from "../../../api/common/EntityClient.js"
-import { ProgrammingError } from "../../../api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { IconButton, IconButtonAttrs } from "../../../gui/base/IconButton.js"
 import { ButtonSize } from "../../../gui/base/ButtonSize.js"
 import { NameValidationStatus, SecondFactorEditModel, SecondFactorTypeToNameTextId, VerificationStatus } from "./SecondFactorEditModel.js"
 import { UserError } from "../../../api/main/UserError.js"
 import { LoginButton } from "../../../gui/base/buttons/LoginButton.js"
-import { NotAuthorizedError } from "../../../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export interface SecondFactorEditDialogAttrs {
 	allowCancel?: boolean
@@ -66,7 +65,7 @@ export class SecondFactorEditDialog {
 			if (e instanceof UserError) {
 				// noinspection ES6MissingAwait
 				Dialog.message(lang.makeTranslation("error_msg", e.message))
-			} else if (e instanceof NotAuthorizedError) {
+			} else if (e instanceof restError.NotAuthorizedError) {
 				this.dialog.close()
 				if (this.attrs?.onTokenExpired) {
 					this.attrs?.onTokenExpired()
@@ -80,12 +79,17 @@ export class SecondFactorEditDialog {
 		}
 	}
 
-	finalize(user: User): void {
+	finalize(user: sysTypeRefs.User): void {
 		this.dialog.close()
 		RecoverCodeDialog.showRecoverCodeDialogAfterPasswordVerificationAndInfoDialog(user)
 	}
 
-	static async loadAndShow(entityClient: EntityClient, lazyUser: LazyLoaded<User>, token?: string, attrs?: SecondFactorEditDialogAttrs): Promise<void> {
+	static async loadAndShow(
+		entityClient: EntityClient,
+		lazyUser: LazyLoaded<sysTypeRefs.User>,
+		token?: string,
+		attrs?: SecondFactorEditDialogAttrs,
+	): Promise<void> {
 		const dialog: SecondFactorEditDialog = await showProgressDialog("pleaseWait_msg", this.loadWebauthnClient(entityClient, lazyUser, token, attrs))
 		dialog.dialog.show()
 	}
@@ -141,7 +145,7 @@ export class SecondFactorEditDialog {
 		const copyButtonAttrs: IconButtonAttrs = {
 			title: "copy_action",
 			click: () => copyToClipboard(this.model.totpKeys.readableKey),
-			icon: Icons.Clipboard,
+			icon: Icons.ClipboardFilled,
 			size: ButtonSize.Compact,
 		}
 		return m(".mb-16", [
@@ -196,7 +200,7 @@ export class SecondFactorEditDialog {
 
 	private static async loadWebauthnClient(
 		entityClient: EntityClient,
-		lazyUser: LazyLoaded<User>,
+		lazyUser: LazyLoaded<sysTypeRefs.User>,
 		token?: string,
 		attrs?: SecondFactorEditDialogAttrs,
 	): Promise<SecondFactorEditDialog> {
@@ -234,7 +238,7 @@ export class SecondFactorEditDialog {
 
 			case VerificationStatus.Failed:
 				return m(Icon, {
-					icon: Icons.Cancel,
+					icon: Icons.X,
 					size: IconSize.PX24,
 					style: {
 						fill: theme.primary,

@@ -1,15 +1,15 @@
 import m, { Children, ClassComponent, Vnode, VnodeDOM } from "mithril"
-import { createResizeObserver, debounce, memoized, numberRange } from "@tutao/tutanota-utils"
+import { createResizeObserver, debounce, memoized, numberRange } from "@tutao/utils"
 import { component_size, px, size } from "../size.js"
 import { isKeyPressed } from "../../misc/KeyManager.js"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants.js"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { client } from "../../misc/ClientDetector.js"
 import { progressIcon } from "./Icon.js"
 import { Button, ButtonType } from "./Button.js"
 import { ListSwipeHandler } from "./ListSwipeHandler.js"
 import { applySafeAreaInsetMarginLR } from "../HtmlUtils.js"
 import { theme, ThemeId } from "../theme.js"
-import { ProgrammingError } from "../../api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { Coordinate2D } from "./SwipeHandler.js"
 import { styles } from "../styles.js"
 
@@ -23,12 +23,12 @@ export type ListState<T> = Readonly<{
 }>
 
 export enum ListLoadingState {
-	/** not loading anything */
+	/** not loading anything or not loaded all items yet */
 	Idle,
 	Loading,
 	/** loading was cancelled, e.g. because of the network error or explicit user request */
 	ConnectionLost,
-	/** finished loading */
+	/** finished loading all items */
 	Done,
 }
 
@@ -76,6 +76,10 @@ export interface ListAttrs<T, R extends ViewHolder<T>> {
 	/** will be compared referentially, will completely reset DOM and state on change */
 	renderConfig: RenderConfig<T, R>
 
+	/** Allows for a custom message to be displayed at the end of the list
+	 * Loading and ConnectionLost messages take priority and will be displayed instead if the List is in those states */
+	renderEndOfListMessage?: Children
+
 	/** called when the end of the list is getting close to the viewport or when "load more" button is pressed. */
 	onLoadMore(): void
 
@@ -114,13 +118,15 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 	private lastAttrs!: ListAttrs<T, VH>
 	private domSwipeSpacerLeft!: HTMLElement
 	private domSwipeSpacerRight!: HTMLElement
-	private loadingIndicatorChildDom!: HTMLElement
+	private endOfListMessageChildDom!: HTMLElement
 	private swipeHandler!: ListSwipeHandler<T, VH>
 	private width = 0
 	private height = 0
 	// remember the last time we needed to scroll somewhere
 	private activeIndex: number | null = null
 	private lastThemeId: ThemeId = theme.themeId
+
+	private observer: ResizeObserver | null = null
 
 	view({ attrs }: Vnode<ListAttrs<T, VH>>) {
 		const oldRenderConfig = this.lastAttrs?.renderConfig
@@ -135,7 +141,9 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 					// Some of the tech-savvy users like to disable *all* "experimental features" in their Safari devices and there's also a toggle to disable
 					// ResizeObserver. Since the app works without it anyway we just fall back to not handling the resize events.
 					if (typeof ResizeObserver !== "undefined") {
-						createResizeObserver(() => this.updateSize()).observe(this.containerDom)
+						this.observer?.disconnect()
+						this.observer = createResizeObserver(() => this.updateSize())
+						this.observer.observe(this.containerDom)
 					} else {
 						requestAnimationFrame(() => this.updateSize())
 					}
@@ -169,6 +177,8 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 						dom.vnodes = null
 						this.initializeDom(dom as HTMLElement, attrs.renderConfig)
 					}
+					// Update the end of list message regardless of state change
+					this.updateEndOfListMessage(attrs)
 					// if the state has changed or the theme has changed we need to update the DOM
 					if (this.state !== attrs.state || this.lastThemeId !== theme.themeId) {
 						this.updateDomElements(attrs)
@@ -181,6 +191,11 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 				},
 			}),
 		)
+	}
+
+	onremove(): any {
+		this.observer?.disconnect()
+		this.observer = null
 	}
 
 	private createSwipeHandler() {
@@ -238,6 +253,9 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 		return m("li.list-row", {
 			role: "listitem",
 			draggable: renderConfig.dragStart ? "true" : undefined,
+			style: {
+				height: px(renderConfig.itemHeight),
+			},
 			oncreate: (vnode: VnodeDOM) => {
 				const dom = vnode.dom as HTMLElement
 				const row = {
@@ -396,10 +414,9 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 		// if resize didn't kick in yet, measure it right away once
 		if (this.height === 0) this.height = this.containerDom!.clientHeight
 		const rowHeight = attrs.renderConfig.itemHeight
-		// plus loading indicator
-		// should depend on whether we are completely loaded maybe?
-		const statusHeight = attrs.state.loadingStatus === ListLoadingState.Done ? 0 : component_size.list_row_height
-		this.innerDom!.style.height = px(attrs.state.items.length * rowHeight + statusHeight)
+		// added list row height for either the end of list message or loading indicator
+		const endOfListHeight = attrs.renderEndOfListMessage || attrs.state.loadingStatus !== ListLoadingState.Done ? component_size.list_row_height : 0
+		this.innerDom!.style.height = px(attrs.state.items.length * rowHeight + endOfListHeight)
 		if (attrs.state.activeIndex != null && attrs.state.activeIndex !== this.activeIndex) {
 			const index = attrs.state.activeIndex
 			const desiredPosition = attrs.state.activeIndex * rowHeight
@@ -446,27 +463,38 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 				row.domElement.focus()
 			}
 		}
-		this.updateStatus(attrs.state.loadingStatus)
+
+		// if there is no custom end of list message, display list status message (custom end of list message is updated elsewhere)
+		if (!attrs.renderEndOfListMessage) {
+			this.updateStatus(attrs.state.loadingStatus)
+		}
 
 		this.loadMoreIfNecessary(attrs, visibleElementsHeight)
 
 		return visibleElementsHeight
 	}
 
+	private updateEndOfListMessage(attrs: ListAttrs<T, VH>) {
+		if (attrs.renderEndOfListMessage) {
+			m.render(this.endOfListMessageChildDom, attrs.renderEndOfListMessage)
+			this.endOfListMessageChildDom.style.display = ""
+		}
+	}
+
 	private readonly updateStatus = memoized((status: ListLoadingState) => {
 		switch (status) {
 			case ListLoadingState.Idle:
 			case ListLoadingState.Done:
-				m.render(this.loadingIndicatorChildDom, null)
-				this.loadingIndicatorChildDom.style.display = "none"
+				m.render(this.endOfListMessageChildDom, null)
+				this.endOfListMessageChildDom.style.display = "none"
 				break
 			case ListLoadingState.Loading:
-				m.render(this.loadingIndicatorChildDom, this.renderLoadingIndicator())
-				this.loadingIndicatorChildDom.style.display = ""
+				m.render(this.endOfListMessageChildDom, this.renderLoadingIndicator())
+				this.endOfListMessageChildDom.style.display = ""
 				break
 			case ListLoadingState.ConnectionLost:
-				m.render(this.loadingIndicatorChildDom, this.renderConnectionLostIndicator())
-				this.loadingIndicatorChildDom.style.display = ""
+				m.render(this.endOfListMessageChildDom, this.renderConnectionLostIndicator())
+				this.endOfListMessageChildDom.style.display = ""
 				break
 		}
 	})
@@ -528,16 +556,11 @@ export class List<T, VH extends ViewHolder<T>> implements ClassComponent<ListAtt
 			style: {
 				bottom: 0,
 				height: px(component_size.list_row_height),
-				display: this.shouldDisplayStatusRow() ? "none" : null,
 			},
 			oncreate: (vnode) => {
-				this.loadingIndicatorChildDom = vnode.dom as HTMLElement
+				this.endOfListMessageChildDom = vnode.dom as HTMLElement
 			},
 		})
-	}
-
-	private shouldDisplayStatusRow() {
-		return this.state?.loadingStatus === ListLoadingState.Done || this.state?.loadingStatus === ListLoadingState.Idle
 	}
 
 	private renderSwipeItems(attrs: ListAttrs<T, VH>): Children {

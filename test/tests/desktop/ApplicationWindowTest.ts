@@ -1,13 +1,13 @@
 import o from "@tutao/otest"
 import n from "../nodemocker.js"
-import { defer, DeferredObject, delay, downcast } from "@tutao/tutanota-utils"
+import { defer, DeferredObject, delay, downcast } from "@tutao/utils"
 import { ApplicationWindow } from "../../../src/common/desktop/ApplicationWindow.js"
 import type { BrowserWindow, NativeImage, Rectangle } from "electron"
 import type { Theme, ThemeId } from "../../../src/common/gui/theme.js"
 import { WindowManager } from "../../../src/common/desktop/DesktopWindowManager.js"
 import { LocalShortcutManager } from "../../../src/common/desktop/electron-localshortcut/LocalShortcut.js"
 import { matchers, object, when } from "testdouble"
-import { spy, verify } from "@tutao/tutanota-test-utils"
+import { spy, verify } from "@tutao/otest"
 import { ThemeFacade } from "../../../src/common/native/common/generatedipc/ThemeFacade.js"
 import { DesktopThemeFacade } from "../../../src/common/desktop/DesktopThemeFacade.js"
 import { RemoteBridge, SendingFacades } from "../../../src/common/desktop/ipc/RemoteBridge.js"
@@ -147,8 +147,6 @@ o.spec("ApplicationWindow Test", function () {
 							closeDevTools: function () {
 								this.devToolsOpened = false
 							},
-							goBack: function () {},
-							goForward: function () {},
 							setZoomFactor: function (n: number) {
 								this.zoomFactor = n
 							},
@@ -189,6 +187,10 @@ o.spec("ApplicationWindow Test", function () {
 
 							setWindowOpenHandler(handler) {
 								this.windowOpenHandler = handler
+							},
+							navigationHistory: {
+								goBack: function () {},
+								goForward: function () {},
 							},
 						})
 					},
@@ -499,11 +501,11 @@ o.spec("ApplicationWindow Test", function () {
 		})
 		testShortcut(["Alt+Left"], ({ electronMock }) => {
 			const bwInstance = electronMock.BrowserWindow.mockedInstances[0]
-			o(bwInstance.webContents.goBack.callCount).equals(1)
+			o(bwInstance.webContents.navigationHistory.goBack.callCount).equals(1)
 		})
 		testShortcut(["Alt+Right"], ({ electronMock }) => {
 			const bwInstance = electronMock.BrowserWindow.mockedInstances[0]
-			o(bwInstance.webContents.goForward.callCount).equals(1)
+			o(bwInstance.webContents.navigationHistory.goForward.callCount).equals(1)
 		})
 	})
 

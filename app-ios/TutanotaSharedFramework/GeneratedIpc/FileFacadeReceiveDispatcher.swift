@@ -3,9 +3,9 @@
 
 import Foundation
 
-public class FileFacadeReceiveDispatcher {
-	let facade: FileFacade
-	init(facade: FileFacade) {
+public final class FileFacadeReceiveDispatcher: Sendable {
+	let facade: any FileFacade
+	init(facade: any FileFacade) {
 		self.facade = facade
 	}
 	public func dispatch(method: String, arg: [String]) async throws -> String {
@@ -73,13 +73,21 @@ public class FileFacadeReceiveDispatcher {
 			let targetUrl = try! JSONDecoder().decode(String.self, from: arg[1].data(using: .utf8)!)
 			let method = try! JSONDecoder().decode(String.self, from: arg[2].data(using: .utf8)!)
 			let headers = try! JSONDecoder().decode([String : String].self, from: arg[3].data(using: .utf8)!)
+			let fileId = try! JSONDecoder().decode(String.self, from: arg[4].data(using: .utf8)!)
 			let result = try await self.facade.upload(
 				fileUrl,
 				targetUrl,
 				method,
-				headers
+				headers,
+				fileId
 			)
 			return toJson(result)
+		case "abortUpload":
+			let fileId = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
+			try await self.facade.abortUpload(
+				fileId
+			)
+			return "null"
 		case "download":
 			let sourceUrl = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
 			let filename = try! JSONDecoder().decode(String.self, from: arg[1].data(using: .utf8)!)
@@ -92,6 +100,12 @@ public class FileFacadeReceiveDispatcher {
 				fileId
 			)
 			return toJson(result)
+		case "abortDownload":
+			let fileId = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
+			try await self.facade.abortDownload(
+				fileId
+			)
+			return "null"
 		case "hashFile":
 			let fileUri = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
 			let result = try await self.facade.hashFile(
@@ -138,6 +152,12 @@ public class FileFacadeReceiveDispatcher {
 				path
 			)
 			return toJson(result)
+		case "deleteFromAppDir":
+			let path = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
+			try await self.facade.deleteFromAppDir(
+				path
+			)
+			return "null"
 		case "readDataFile":
 			let filePath = try! JSONDecoder().decode(String.self, from: arg[0].data(using: .utf8)!)
 			let result = try await self.facade.readDataFile(

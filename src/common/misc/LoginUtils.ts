@@ -1,32 +1,13 @@
 import type { LoginController } from "../api/main/LoginController"
 import { Dialog } from "../gui/base/Dialog"
-import { generatedIdToTimestamp } from "../api/common/utils/EntityUtils"
+import { generatedIdToTimestamp, getCustomerApprovalStatus, sysTypeRefs } from "@tutao/typerefs"
 import { lang, LanguageCode, languageCodeToTag, LanguageNames, MaybeTranslation } from "./LanguageViewModel"
-import {
-	AccessBlockedError,
-	AccessDeactivatedError,
-	AccessExpiredError,
-	BadRequestError,
-	ConnectionError,
-	NotAuthenticatedError,
-	NotAuthorizedError,
-	NotFoundError,
-	TooManyRequestsError,
-} from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { CancelledError } from "../api/common/error/CancelledError"
-import {
-	ApprovalStatus,
-	AvailablePlans,
-	AvailablePlanType,
-	getCustomerApprovalStatus,
-	KdfType,
-	NewBusinessPlans,
-	SubscriptionType,
-} from "../api/common/TutanotaConstants"
 import type { ResetAction } from "../login/recover/RecoverLoginDialog"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog"
 import { UserError } from "../api/main/UserError"
-import { noOp, ofClass } from "@tutao/tutanota-utils"
+import { noOp, ofClass } from "@tutao/utils"
 import { showUserError } from "./ErrorHandlerImpl"
 import type { ReferralData, SubscriptionParameters } from "../subscription/UpgradeSubscriptionWizard"
 import { locator } from "../api/main/CommonLocator"
@@ -34,14 +15,15 @@ import { CredentialAuthenticationError } from "../api/common/error/CredentialAut
 import { Params } from "mithril"
 import { LoginState } from "../login/LoginViewModel.js"
 import { showApprovalNeededMessageDialog } from "./ApprovalNeededMessageDialog.js"
-import { Customer } from "../api/entities/sys/TypeRefs"
 import { deviceConfig } from "./DeviceConfig"
+import { CacheMode } from "../api/worker/rest/EntityRestClient"
+import { ApprovalStatus, AvailablePlans, AvailablePlanType, KdfType, NewBusinessPlans, SubscriptionType } from "@tutao/app-env"
 
-function getAccountAgeInMs(customer: Customer) {
+function getAccountAgeInMs(customer: sysTypeRefs.Customer) {
 	return new Date().getTime() - generatedIdToTimestamp(customer._id)
 }
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const TWO_DAYS_MS = 48 * 60 * 60 * 1000
 
 /**
  * Shows warnings if the invoices are not paid or the registration is not approved yet.
@@ -50,81 +32,86 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000
  * @param defaultStatus This status is used if the actual status on the customer is "0"
  * @returns True if the user may still send emails, false otherwise.
  */
-export function checkApprovalStatus(logins: LoginController, includeInvoiceNotPaidForAdmin: boolean, defaultStatus?: ApprovalStatus): Promise<boolean> {
+export async function checkApprovalStatus(logins: LoginController, includeInvoiceNotPaidForAdmin: boolean, defaultStatus?: ApprovalStatus): Promise<boolean> {
 	if (!logins.getUserController().isInternalUser()) {
 		// external users are not authorized to load the customer
-		return Promise.resolve(true)
+		return true
 	}
 
-	return logins
+	const customer = await logins
 		.getUserController()
-		.loadCustomer()
-		.then((customer) => {
-			const approvalStatus = getCustomerApprovalStatus(customer)
-			const status = approvalStatus === ApprovalStatus.REGISTRATION_APPROVED && defaultStatus != null ? defaultStatus : approvalStatus
-			if (
-				status === ApprovalStatus.REGISTRATION_APPROVAL_NEEDED ||
-				status === ApprovalStatus.DELAYED ||
-				status === ApprovalStatus.REGISTRATION_APPROVAL_NEEDED_AND_INITIALLY_ACCESSED
-			) {
-				return showApprovalNeededMessageDialog().then(() => false)
-			} else if (status === ApprovalStatus.DELAYED_AND_INITIALLY_ACCESSED) {
-				if (getAccountAgeInMs(customer) > ONE_DAY_MS) {
-					return Dialog.message("requestApproval_msg").then(() => true)
-				} else {
-					return showApprovalNeededMessageDialog().then(() => false)
-				}
-			} else if (status === ApprovalStatus.INVOICE_NOT_PAID) {
-				if (logins.getUserController().isGlobalAdmin()) {
-					if (includeInvoiceNotPaidForAdmin) {
-						return Dialog.message("invoiceNotPaid_msg")
-							.then(() => {
-								// TODO: navigate to payment site in settings
-								//m.route.set("/settings")
-								//tutao.locator.settingsViewModel.show(tutao.tutanota.ctrl.SettingsViewModel.DISPLAY_ADMIN_PAYMENT);
-							})
-							.then(() => true)
-					} else {
-						return true
-					}
-				} else {
-					const errorMessage = lang.makeTranslation("invoiceNotPaidUser_msg", lang.get("invoiceNotPaidUser_msg") + " " + lang.get("contactAdmin_msg"))
+		// the server doesn't push an update for the approval status change, so we have to make sure we're loading the
+		// instance from the network instead of relying on the entity updates to be applied to our cached version
+		.reloadCustomer(CacheMode.WriteOnly)
 
-					return Dialog.message(errorMessage).then(() => false)
-				}
-			} else if (status === ApprovalStatus.SPAM_SENDER) {
-				Dialog.message("loginAbuseDetected_msg") // do not logout to avoid that we try to reload with mail editor open
-
-				return false
-			} else if (status === ApprovalStatus.PAID_SUBSCRIPTION_NEEDED) {
-				const message = lang.get("upgradeNeeded_msg")
-				return Dialog.upgradeReminder(lang.get("upgradeReminderTitle_msg"), message).then((confirmed) => {
-					if (confirmed) {
-						import("../subscription/UpgradeSubscriptionWizard").then((m) => m.showUpgradeWizard({ logins }))
-					}
-
-					return false
-				})
+	const approvalStatus = getCustomerApprovalStatus(customer)
+	const status = approvalStatus === ApprovalStatus.REGISTRATION_APPROVED && defaultStatus != null ? defaultStatus : approvalStatus
+	if (status === ApprovalStatus.REGISTRATION_APPROVAL_NEEDED || status === ApprovalStatus.DELAYED || status === ApprovalStatus.UNUSED2_DEPRECATED) {
+		await showApprovalNeededMessageDialog(approvalStatus)
+		return false
+	} else if (status === ApprovalStatus.UNUSED_DEPRECATED) {
+		if (getAccountAgeInMs(customer) > TWO_DAYS_MS) {
+			await Dialog.message("requestApproval_msg")
+			return true
+		} else {
+			await showApprovalNeededMessageDialog(approvalStatus)
+			return false
+		}
+	} else if (status === ApprovalStatus.INVOICE_NOT_PAID) {
+		if (logins.getUserController().isGlobalAdmin()) {
+			if (includeInvoiceNotPaidForAdmin) {
+				await Dialog.message("invoiceNotPaid_msg")
+				// TODO: navigate to payment site in settings
+				//m.route.set("/settings")
+				//tutao.locator.settingsViewModel.show(tutao.tutanota.ctrl.SettingsViewModel.DISPLAY_ADMIN_PAYMENT);
+				return true
 			} else {
 				return true
 			}
-		})
+		} else {
+			const errorMessage = lang.makeTranslation("invoiceNotPaidUser_msg", lang.get("invoiceNotPaidUser_msg") + " " + lang.get("contactAdmin_msg"))
+			await Dialog.message(errorMessage)
+			return false
+		}
+	} else if (status === ApprovalStatus.SPAM_SENDER) {
+		// do not logout to avoid that we try to reload with mail editor open
+		await Dialog.message("loginAbuseDetected_msg")
+		return false
+	} else if (status === ApprovalStatus.PAID_SUBSCRIPTION_NEEDED) {
+		const message = lang.get("upgradeNeeded_msg")
+		const confirmed = await Dialog.upgradeReminder(lang.get("upgradeReminderTitle_msg"), message)
+		if (confirmed) {
+			// fire-and-forget since the wizard only resolves after the upgrade is done.
+			import("../subscription/UpgradeSubscriptionWizard").then((module) =>
+				module.showUpgradeWizard({
+					logins,
+
+					// this user started a paid signup but never completed it, so we don't count
+					// it as an upgrade
+					upgradePromptType: null,
+				}),
+			)
+		}
+		return false
+	} else {
+		return true
+	}
 }
 
 export function getLoginErrorMessage(error: Error, isExternalLogin: boolean): MaybeTranslation {
 	switch (error.constructor) {
-		case BadRequestError:
-		case NotAuthenticatedError:
-		case AccessDeactivatedError:
+		case restError.BadRequestError:
+		case restError.NotAuthenticatedError:
+		case restError.AccessDeactivatedError:
 			return "loginFailed_msg"
 
-		case AccessBlockedError:
+		case restError.AccessBlockedError:
 			return "loginFailedOften_msg"
 
-		case AccessExpiredError:
+		case restError.AccessExpiredError:
 			return isExternalLogin ? "expiredLink_msg" : "inactiveAccount_msg"
 
-		case TooManyRequestsError:
+		case restError.TooManyRequestsError:
 			return "tooManyAttempts_msg"
 
 		case CancelledError:
@@ -135,7 +122,7 @@ export function getLoginErrorMessage(error: Error, isExternalLogin: boolean): Ma
 				"{reason}": error.message,
 			})
 
-		case ConnectionError:
+		case restError.ConnectionError:
 			return "connectionLostLong_msg"
 
 		default:
@@ -149,15 +136,15 @@ export function getLoginErrorMessage(error: Error, isExternalLogin: boolean): Ma
  */
 export function handleExpectedLoginError<E extends Error>(error: E, handler: (error: E) => void) {
 	if (
-		error instanceof BadRequestError ||
-		error instanceof NotAuthenticatedError ||
-		error instanceof AccessExpiredError ||
-		error instanceof AccessBlockedError ||
-		error instanceof AccessDeactivatedError ||
-		error instanceof TooManyRequestsError ||
+		error instanceof restError.BadRequestError ||
+		error instanceof restError.NotAuthenticatedError ||
+		error instanceof restError.AccessExpiredError ||
+		error instanceof restError.TooManyRequestsError ||
+		error instanceof restError.AccessDeactivatedError ||
+		error instanceof restError.TooManyRequestsError ||
 		error instanceof CancelledError ||
 		error instanceof CredentialAuthenticationError ||
-		error instanceof ConnectionError
+		error instanceof restError.ConnectionError
 	) {
 		handler(error)
 	} else {
@@ -168,9 +155,9 @@ export function handleExpectedLoginError<E extends Error>(error: E, handler: (er
 export function getLoginErrorStateAndMessage(error: Error): { errorMessage: MaybeTranslation; state: LoginState } {
 	let errorMessage = getLoginErrorMessage(error, false)
 	let state
-	if (error instanceof BadRequestError || error instanceof NotAuthenticatedError) {
+	if (error instanceof restError.BadRequestError || error instanceof restError.NotAuthenticatedError) {
 		state = LoginState.InvalidCredentials
-	} else if (error instanceof AccessExpiredError) {
+	} else if (error instanceof restError.AccessExpiredError) {
 		state = LoginState.AccessExpired
 	} else {
 		state = LoginState.UnknownError
@@ -291,7 +278,7 @@ export async function showGiftCardDialog(urlHash: string) {
 	showProgressDialog("loading_msg", loadRedeemGiftCardWizard(urlHash))
 		.then((dialog) => dialog.show())
 		.catch((e) => {
-			if (e instanceof NotAuthorizedError || e instanceof NotFoundError) {
+			if (e instanceof restError.NotAuthorizedError || e instanceof restError.NotFoundError) {
 				throw new UserError("invalidGiftCard_msg")
 			} else {
 				throw e

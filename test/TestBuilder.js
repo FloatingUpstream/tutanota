@@ -4,42 +4,19 @@ import fs from "fs-extra"
 import path, { dirname } from "node:path"
 import { renderHtml } from "../buildSrc/LaunchHtml.js"
 import { getTutanotaAppVersion, runStep, writeFile } from "../buildSrc/buildUtils.js"
-import { buildPackages } from "../buildSrc/packageBuilderFunctions.js"
 import { domainConfigs } from "../buildSrc/DomainConfigs.js"
-import { sh } from "../buildSrc/sh.js"
 import { rolldown } from "rolldown"
-import { resolveLibs } from "../buildSrc/RollupConfig.js"
+import { resolveLibs, tsImportAliases } from "../buildSrc/RollupConfig.js"
 import { nodeGypPlugin } from "../buildSrc/nodeGypPlugin.js"
 import { fileURLToPath } from "node:url"
-import { copyCryptoPrimitiveCrateIntoWasmDir, WASM_PACK_OUT_DIR } from "../buildSrc/cryptoPrimitivesUtils.js"
+import { $ } from "zx"
+import { execSync, spawnSync } from "node:child_process"
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(path.join(currentDir, ".."))
 
-export async function runTestBuild({ networkDebugging = false, clean, fast = false }) {
-	if (clean) {
-		await runStep("Clean", async () => {
-			await fs.emptyDir("build")
-			fs.rm(projectRoot + WASM_PACK_OUT_DIR, { recursive: true, force: true })
-		})
-	}
-
-	if (!fast) {
-		await runStep("Packages", async () => {
-			await buildPackages("..")
-			// we know which wasm need to be included in the project, instead of running branches condition on each and every file of the project we do some
-			// transformation AOT for our three files (currently only crypto-primitives but argon2 and liboqs will follow
-			await copyCryptoPrimitiveCrateIntoWasmDir({
-				wasmOutputDir: "build",
-				pathSourcePrefix: "../",
-			})
-		})
-
-		await runStep("Types", async () => {
-			await sh`npx tsc --incremental true --noEmit true`
-		})
-	}
-
+export async function runTestBuild({ networkDebugging = false, clean, ci }) {
+	const buildDir = path.resolve("build")
 	const version = await getTutanotaAppVersion()
 	const localEnv = env.create({
 		staticUrl: "http://localhost:9000",
@@ -50,22 +27,50 @@ export async function runTestBuild({ networkDebugging = false, clean, fast = fal
 		networkDebugging,
 	})
 
+	if (clean) {
+		await runStep("Clean", async () => {
+			fs.rmSync(buildDir, { recursive: true, force: true })
+			fs.rmSync("src/mimimi/dist", { recursive: true, force: true })
+			spawnSync("cargo", ["clean"])
+			spawnSync("npx", ["tsc", "--build", "--clean"])
+		})
+	}
+
+	await runStep("Build crypto-primitives", async () => {
+		const targetDir = path.resolve(buildDir)
+		const _ = clean
+			? await $({ stdio: "inherit", cwd: "../src/crypto" })`node make ${targetDir} --clean`
+			: await $({ stdio: "inherit", cwd: "../src/crypto" })`node make ${targetDir}`
+	})
+
+	await runStep("Build mimimi", async () => {
+		const mimiMakeCmd = ci ? "node make --release" : "node make"
+		execSync(mimiMakeCmd, { cwd: "../src/mimimi", stdio: "inherit" })
+	})
+
+	await runStep("Types", async () => {
+		await $({ stdio: "inherit" })`npm run test:types`
+	})
+
 	await runStep("Assets", async () => {
 		const pjPath = path.join("..", "package.json")
 		await fs.mkdir(inBuildDir(), { recursive: true })
 		await fs.copyFile(pjPath, inBuildDir("package.json"))
 		await createUnitTestHtml(localEnv)
 	})
+
 	await runStep("Rolldown", async () => {
-		const { rollupWasmLoader } = await import("@tutao/tuta-wasm-loader")
+		for (const key of Object.keys(tsImportAliases)) delete tsImportAliases[key] // See: devbuild.js
+		const { rollupWasmLoader } = await import("../src/wasm-loader/dist/index.js")
 		const bundle = await rolldown({
 			input: ["tests/testInBrowser.ts", "tests/testInNode.ts", "../src/common/api/common/pow-worker.ts"],
 			platform: "neutral",
-			define: {
-				// See Env.ts for explanation
-				LOAD_ASSERTIONS: "false",
+			transform: {
+				define: {
+					// See Env.ts for explanation
+					LOAD_ASSERTIONS: "false",
+				},
 			},
-
 			external: [
 				"electron",
 				// esbuild can't deal with node imports in ESM output at the moment

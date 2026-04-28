@@ -1,63 +1,41 @@
+import { DAY_IN_MILLIS, FULL_INDEXED_TIMESTAMP, ImportStatus, MailSetKind, NOTHING_INDEXED_TIMESTAMP, OperationType } from "@tutao/app-env"
+import { assertNotNull, clamp, defer, DeferredObject, findAllAndRemove, first, isEmpty, isNotEmpty, isNotNull, newPromise, promiseMap } from "@tutao/utils"
 import {
-	FULL_INDEXED_TIMESTAMP,
-	ImportStatus,
+	deconstructMailSetEntryId,
+	elementIdPart,
+	entityUpdateUtils,
+	getElementId,
+	getListId,
+	hasError,
 	isFolder,
-	MailState,
-	NOTHING_INDEXED_TIMESTAMP,
-	OperationType,
-} from "../../../common/api/common/TutanotaConstants"
-import {
-	File as TutanotaFile,
-	ImportedMailTypeRef,
-	ImportMailStateTypeRef,
-	Mail,
-	MailBox,
-	MailboxGroupRootTypeRef,
-	MailBoxTypeRef,
-	MailDetails,
-	MailDetailsBlobTypeRef,
-	MailDetailsDraftTypeRef,
-	MailSetTypeRef,
-	MailSetEntry,
-	MailSetEntryTypeRef,
-	MailTypeRef,
-} from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { ConnectionError, NotAuthorizedError, NotFoundError } from "../../../common/api/common/error/RestError.js"
-import {
-	assertNotNull,
-	clamp,
-	DAY_IN_MILLIS,
-	defer,
-	DeferredObject,
-	findAllAndRemove,
-	first,
-	isEmpty,
-	isNotNull,
-	newPromise,
-	ofClass,
-	promiseMap,
-} from "@tutao/tutanota-utils"
-import { deconstructMailSetEntryId, elementIdPart, getElementId, isSameId, listIdPart } from "../../../common/api/common/utils/EntityUtils.js"
+	isSameId,
+	listIdPart,
+	sysTypeRefs,
+	tutanotaTypeRefs,
+} from "@tutao/typerefs"
+import * as restError from "@tutao/rest-client/error"
 import { filterMailMemberships } from "../../../common/api/common/utils/IndexUtils.js"
 import { IndexingErrorReason, SearchIndexStateInfo } from "../../../common/api/worker/search/SearchTypes.js"
 import { CancelledError } from "../../../common/api/common/error/CancelledError.js"
 import type { DateProvider } from "../../../common/api/worker/DateProvider.js"
-import type { User } from "../../../common/api/entities/sys/TypeRefs.js"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
 import { ProgressMonitor } from "../../../common/api/common/utils/ProgressMonitor.js"
 import { InfoMessageHandler } from "../../../common/gui/InfoMessageHandler.js"
 import { MailFacade } from "../../../common/api/worker/facades/lazy/MailFacade.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../../common/api/common/utils/EntityUpdateUtils.js"
-import { hasError } from "../../../common/api/common/utils/ErrorUtils.js"
 import { isDraft } from "../../mail/model/MailChecks.js"
 import { BulkMailLoader, MAIL_INDEXER_CHUNK } from "./BulkMailLoader.js"
-import { parseKeyVersion } from "../../../common/api/worker/facades/KeyLoaderFacade.js"
+import { cryptoUtils } from "@tutao/crypto"
 import { MailIndexerBackend, MailWithDetailsAndAttachments } from "./MailIndexerBackend"
 
 export const INITIAL_MAIL_INDEX_INTERVAL_DAYS = 28
 const MAIL_INDEX_BATCH_INTERVAL = DAY_IN_MILLIS // one day
 
 const TAG = "MailIndexer"
+
+const enum MailIndexingAbortReason {
+	Cancelled = "MailIndexingCancelled",
+	Restarting = "MailIndexingRestarting",
+}
 
 export class MailIndexer {
 	// {@link currentIndexTimestamp}: the **oldest** timestamp that has been indexed for all mail lists
@@ -75,14 +53,15 @@ export class MailIndexer {
 		return this._currentIndexTimestamp
 	}
 
-	private _mailIndexingEnabled: boolean
+	/** @private visibleForTesting */
+	_mailIndexingEnabled: boolean
 	private initialized: DeferredObject<void> = defer()
 
 	get mailIndexingEnabled(): boolean {
 		return this._mailIndexingEnabled
 	}
 
-	mailboxIndexingPromise: Promise<void>
+	mailboxIndexingPromise: DeferredObject<void>
 	/** @private visibleForTesting */
 	_isIndexing: boolean = false
 	_dateProvider: DateProvider
@@ -91,7 +70,7 @@ export class MailIndexer {
 
 	constructor(
 		private readonly infoMessageHandler: InfoMessageHandler,
-		private readonly bulkLoaderFactory: () => BulkMailLoader,
+		private readonly bulkLoaderFactory: () => Promise<BulkMailLoader>,
 		private readonly entityClient: EntityClient,
 		dateProvider: DateProvider,
 		private readonly mailFacade: MailFacade,
@@ -99,11 +78,12 @@ export class MailIndexer {
 	) {
 		this._currentIndexTimestamp = NOTHING_INDEXED_TIMESTAMP
 		this._mailIndexingEnabled = false
-		this.mailboxIndexingPromise = Promise.resolve()
+		this.mailboxIndexingPromise = defer()
+		this.mailboxIndexingPromise.resolve()
 		this._dateProvider = dateProvider
 	}
 
-	async init(user: User): Promise<void> {
+	async init(user: sysTypeRefs.User): Promise<void> {
 		this._backend = this.backendFactory(user._id)
 		this._mailIndexingEnabled = await this.backend.isMailIndexingEnabled()
 		await this.updateCurrentIndexTimestamp(user)
@@ -113,35 +93,35 @@ export class MailIndexer {
 	/** @private visibleForTesting */
 	async downloadNewMailData(mailId: IdTuple): Promise<MailWithDetailsAndAttachments | null> {
 		try {
-			const mail = await this.entityClient.load(MailTypeRef, mailId)
+			const mail = await this.entityClient.load(tutanotaTypeRefs.MailTypeRef, mailId)
 			// Will be always there, if it was not updated yet, it will still be set by CryptoFacade
 			const mailOwnerEncSessionKey = assertNotNull(mail._ownerEncSessionKey)
-			let mailDetails: MailDetails
+			let mailDetails: tutanotaTypeRefs.MailDetails
 			if (isDraft(mail)) {
 				const mailDetailsDraftId = assertNotNull(mail.mailDetailsDraft)
 				mailDetails = await this.entityClient
-					.loadMultiple(MailDetailsDraftTypeRef, listIdPart(mailDetailsDraftId), [elementIdPart(mailDetailsDraftId)], async () => ({
+					.loadMultiple(tutanotaTypeRefs.MailDetailsDraftTypeRef, listIdPart(mailDetailsDraftId), [elementIdPart(mailDetailsDraftId)], async () => ({
 						key: mailOwnerEncSessionKey,
-						encryptingKeyVersion: parseKeyVersion(mail._ownerKeyVersion ?? "0"),
+						encryptingKeyVersion: cryptoUtils.parseKeyVersion(mail._ownerKeyVersion ?? "0"),
 					}))
 					.then((d) => {
 						const draft = first(d)
 						if (draft == null) {
-							throw new NotFoundError(`MailDetailsDraft ${mailDetailsDraftId}`)
+							throw new restError.NotFoundError(`MailDetailsDraft ${mailDetailsDraftId}`)
 						}
 						return draft.details
 					})
 			} else {
 				const mailDetailsBlobId = assertNotNull(mail.mailDetails)
 				mailDetails = await this.entityClient
-					.loadMultiple(MailDetailsBlobTypeRef, listIdPart(mailDetailsBlobId), [elementIdPart(mailDetailsBlobId)], async () => ({
+					.loadMultiple(tutanotaTypeRefs.MailDetailsBlobTypeRef, listIdPart(mailDetailsBlobId), [elementIdPart(mailDetailsBlobId)], async () => ({
 						key: mailOwnerEncSessionKey,
-						encryptingKeyVersion: parseKeyVersion(mail._ownerKeyVersion ?? "0"),
+						encryptingKeyVersion: cryptoUtils.parseKeyVersion(mail._ownerKeyVersion ?? "0"),
 					}))
 					.then((d) => {
 						const blob = first(d)
 						if (blob == null) {
-							throw new NotFoundError(`MailDetailsBlob ${mailDetailsBlobId}`)
+							throw new restError.NotFoundError(`MailDetailsBlob ${mailDetailsBlobId}`)
 						}
 						return blob.details
 					})
@@ -154,16 +134,51 @@ export class MailIndexer {
 				attachments,
 			}
 		} catch (e) {
-			if (e instanceof NotFoundError) {
+			if (e instanceof restError.NotFoundError) {
 				console.log("tried to index non existing mail", mailId)
 				return null
-			} else if (e instanceof NotAuthorizedError) {
+			} else if (e instanceof restError.NotAuthorizedError) {
 				console.log("tried to index mail without permission", mailId)
 				return null
 			} else {
 				throw e
 			}
 		}
+	}
+
+	private async getMailboxIndexDatasForGroups(mailGroups: readonly Id[], oldestTimestamp: number): Promise<MboxIndexData[]> {
+		const mailBoxes: Array<{ mbox: tutanotaTypeRefs.MailBox; newestTimestamp: number }> = []
+		const timestamps = await this.backend.getCurrentIndexTimestamps(mailGroups)
+
+		for (const mailGroupId of mailGroups) {
+			// group data is not available if group has been added. group will be indexed after login.
+			const groupTimestamp = timestamps.get(mailGroupId)
+			if (groupTimestamp) {
+				const mailboxGroupRoot = await this.entityClient.load(tutanotaTypeRefs.MailboxGroupRootTypeRef, mailGroupId)
+				const mailbox = await this.entityClient.load(tutanotaTypeRefs.MailBoxTypeRef, mailboxGroupRoot.mailbox)
+				// if nothing was indexed set highest (read: later) end to be the beginning of tomorrow so that
+				// the entirety of today is included.
+				const newestTimestamp = groupTimestamp === NOTHING_INDEXED_TIMESTAMP ? this._dateProvider.getStartOfDayShiftedBy(1).getTime() : groupTimestamp
+
+				if (newestTimestamp > oldestTimestamp) {
+					mailBoxes.push({
+						mbox: mailbox,
+						newestTimestamp,
+					})
+				}
+			}
+		}
+
+		return await promiseMap(mailBoxes, async (mailboxData) => {
+			const mailSetListIds = await this.loadMailFolderListIds(mailboxData.mbox)
+			return {
+				mailSetListDatas: mailSetListIds.map((listId) => {
+					return { loadedCompletely: false, lastLoadedId: null, loadedButUnusedEntries: [], listId }
+				}),
+				newestTimestamp: mailboxData.newestTimestamp,
+				ownerGroup: assertNotNull(mailboxData.mbox._ownerGroup),
+			}
+		})
 	}
 
 	/**
@@ -182,10 +197,14 @@ export class MailIndexer {
 	}
 
 	cancelMailIndexing() {
-		this.abortController.abort("cancelMailIndexing")
+		this.abortController.abort(MailIndexingAbortReason.Cancelled)
 	}
 
-	async doInitialMailIndexing(user: User): Promise<void> {
+	cancelMailIndexingBeforeRestart() {
+		this.abortController.abort(MailIndexingAbortReason.Restarting)
+	}
+
+	async doInitialMailIndexing(user: sysTypeRefs.User): Promise<void> {
 		// create index in background, termination is handled in Indexer.enableMailIndexing
 		const oldestTimestamp = this._dateProvider.getStartOfDayShiftedBy(-INITIAL_MAIL_INDEX_INTERVAL_DAYS).getTime()
 		// We don't have to disable mail indexing when it's stopped now
@@ -204,85 +223,63 @@ export class MailIndexer {
 	 * Indexes all mailboxes of the given user up to the endIndexTimestamp if mail indexing is enabled.
 	 * If the mailboxes are already fully indexed, they are not indexed again.
 	 */
-	async indexMailboxes(user: User, oldestTimestamp: number): Promise<void> {
+	async indexMailboxes(user: sysTypeRefs.User, oldestTimestamp: number): Promise<void> {
 		await this.initialized.promise
 
 		if (!this._mailIndexingEnabled) {
 			return
 		}
 
-		const searchIndexStageInfo = this.createSearchIndexStageInfo(oldestTimestamp)
+		if (this._isIndexing) {
+			this.cancelMailIndexingBeforeRestart()
+			await this.mailboxIndexingPromise.promise
+		}
 
 		this.abortController = new AbortController()
+		this.mailboxIndexingPromise = defer()
 		this._isIndexing = true
 
+		const searchIndexStageInfo = this.createSearchIndexStageInfo(oldestTimestamp)
 		await this.infoMessageHandler.onSearchIndexStateUpdate(searchIndexStageInfo())
-		await this.infoMessageHandler.onSearchIndexStateUpdate({
-			initializing: false,
-			mailIndexEnabled: this._mailIndexingEnabled,
-			progress: 1,
-			currentMailIndexTimestamp: this._currentIndexTimestamp,
-			aimedMailIndexTimestamp: oldestTimestamp,
-			indexedMailCount: 0,
-			failedIndexingUpTo: null,
-		})
 
-		const memberships = filterMailMemberships(user)
+		const mailGroups = filterMailMemberships(user).map((membership) => membership.group)
 
 		try {
-			const mailBoxes: Array<{ mbox: MailBox; newestTimestamp: number }> = []
-			const timestamps = await this.backend.getCurrentIndexTimestamps(memberships.map((ship) => ship.group))
+			const mailboxIndexDatas: Array<MboxIndexData> = await this.getMailboxIndexDatasForGroups(mailGroups, oldestTimestamp)
 
-			for (let mailGroupMembership of memberships) {
-				const mailGroupId = mailGroupMembership.group
+			if (isNotEmpty(mailboxIndexDatas)) {
+				const indexLoader = await this.bulkLoaderFactory()
+				const newestTimestamp = mailboxIndexDatas.reduce((acc, data) => Math.max(acc, data.newestTimestamp), 0)
+				const progress = new ProgressMonitor(newestTimestamp - oldestTimestamp, (progress) => {
+					this.infoMessageHandler.onSearchIndexStateUpdate(searchIndexStageInfo({ progress }))
+				})
 
-				// group data is not available if group has been added. group will be indexed after login.
-				const groupTimestamp = timestamps.get(mailGroupId)
-				if (groupTimestamp) {
-					const mailboxGroupRoot = await this.entityClient.load(MailboxGroupRootTypeRef, mailGroupId)
-					const mailbox = await this.entityClient.load(MailBoxTypeRef, mailboxGroupRoot.mailbox)
-					// if nothing was indexed set highest (read: later) end to be the beginning of tomorrow so that
-					// the entirety of today is included.
-					const newestTimestamp =
-						groupTimestamp === NOTHING_INDEXED_TIMESTAMP ? this._dateProvider.getStartOfDayShiftedBy(1).getTime() : groupTimestamp
-
-					if (newestTimestamp > oldestTimestamp) {
-						mailBoxes.push({
-							mbox: mailbox,
-							newestTimestamp,
-						})
-					}
-				}
+				await this._indexMailLists(mailboxIndexDatas, [newestTimestamp, oldestTimestamp], progress, indexLoader, searchIndexStageInfo, user)
 			}
 
-			if (mailBoxes.length > 0) {
-				await this._indexMailLists(mailBoxes, oldestTimestamp, searchIndexStageInfo)
-			}
-
-			await this.updateCurrentIndexTimestamp(user)
 			await this.infoMessageHandler.onSearchIndexStateUpdate(searchIndexStageInfo({ progress: 0 }))
 		} catch (e) {
 			console.warn("Mail indexing failed: ", e)
-			// avoid that a rejected promise is stored
-			this.mailboxIndexingPromise = Promise.resolve()
 			await this.updateCurrentIndexTimestamp(user)
 
 			// do not treat cancellation as an error during indexing
-			const success = e instanceof CancelledError
+			const cancelled = e instanceof CancelledError
+			const restarting = cancelled && e.reason === MailIndexingAbortReason.Restarting
+			const updatedIndexState: Partial<SearchIndexStateInfo> = {
+				progress: restarting ? 1 : 0,
+				failedIndexingUpTo: cancelled ? null : oldestTimestamp,
+				error: cancelled ? null : e instanceof restError.ConnectionError ? IndexingErrorReason.ConnectionLost : IndexingErrorReason.Unknown,
+			}
 
-			const failedIndexingUpTo = success ? null : oldestTimestamp
+			if (cancelled) {
+				// only update aimedMailIndexTimestamp when indexing is cancelled but not when it fails, since user can retry indexing on failure
+				updatedIndexState.aimedMailIndexTimestamp = this.currentIndexTimestamp
+			}
 
-			const error = success ? null : e instanceof ConnectionError ? IndexingErrorReason.ConnectionLost : IndexingErrorReason.Unknown
-
-			await this.infoMessageHandler.onSearchIndexStateUpdate(
-				searchIndexStageInfo({
-					progress: 0,
-					failedIndexingUpTo,
-					error,
-				}),
-			)
+			await this.infoMessageHandler.onSearchIndexStateUpdate(searchIndexStageInfo(updatedIndexState))
 		} finally {
 			this._isIndexing = false
+			this.mailboxIndexingPromise.resolve()
 		}
 	}
 
@@ -290,16 +287,9 @@ export class MailIndexer {
 	 * Extend mail index if not indexed this range yet.
 	 * newOldestTimestamp should be aligned to the start of the day up until which you want to index, we don't do rounding inside here.
 	 */
-	async extendIndexIfNeeded(user: User, newOldestTimestamp: number): Promise<void> {
+	async extendIndexIfNeeded(user: sysTypeRefs.User, newOldestTimestamp: number): Promise<void> {
 		if (this.currentIndexTimestamp > FULL_INDEXED_TIMESTAMP && this.currentIndexTimestamp > newOldestTimestamp) {
-			const uncaughtPromise = this.mailboxIndexingPromise.then(() => this.indexMailboxes(user, newOldestTimestamp))
-
-			this.mailboxIndexingPromise = uncaughtPromise.catch(
-				ofClass(CancelledError, (e) => {
-					console.log("extend mail index has been cancelled", e)
-				}),
-			)
-			return uncaughtPromise
+			await this.mailboxIndexingPromise.promise.then(() => this.indexMailboxes(user, newOldestTimestamp))
 		}
 	}
 
@@ -313,7 +303,7 @@ export class MailIndexer {
 	 * @param user User to update
 	 * @param newTimestamp Timestamp to use
 	 */
-	async resizeMailIndex(user: User, newTimestamp: number): Promise<void> {
+	async resizeMailIndex(user: sysTypeRefs.User, newTimestamp: number): Promise<void> {
 		if (this.currentIndexTimestamp > newTimestamp) {
 			await this.extendIndexIfNeeded(user, newTimestamp)
 		} else if (this.currentIndexTimestamp < newTimestamp) {
@@ -358,46 +348,41 @@ export class MailIndexer {
 		}
 	}
 
-	/** @private visibleForTesting */
-	async _indexMailLists(
-		mailBoxes: Array<{
-			mbox: MailBox
-			newestTimestamp: number
-		}>,
-		oldestTimestamp: number,
-		update: (info?: Partial<SearchIndexStateInfo>) => SearchIndexStateInfo,
-	): Promise<void> {
-		const newestTimestamp = mailBoxes.reduce((acc, data) => Math.max(acc, data.newestTimestamp), 0)
-		const progress = new ProgressMonitor(newestTimestamp - oldestTimestamp, (progress) => {
-			this.infoMessageHandler.onSearchIndexStateUpdate(update({ progress }))
-		})
-
-		const indexLoader = this.bulkLoaderFactory()
-
-		const mailboxIndexDatas: Array<MboxIndexData> = await promiseMap(mailBoxes, async (mailboxData) => {
-			const mailSetListIds = await this.loadMailFolderListIds(mailboxData.mbox)
-			return {
-				mailSetListDatas: mailSetListIds.map((listId) => {
-					return { loadedCompletely: false, lastLoadedId: null, loadedButUnusedEntries: [], listId }
-				}),
-				newestTimestamp: mailboxData.newestTimestamp,
-				ownerGroup: assertNotNull(mailboxData.mbox._ownerGroup),
-			}
-		})
-		return this._indexMailListsInTimeBatches(mailboxIndexDatas, [newestTimestamp, oldestTimestamp], progress, indexLoader, update)
-	}
-
-	// @VisibleForTesting
-	async _indexMailListsInTimeBatches(
+	private async _indexMailLists(
 		mailboxIndexDatas: readonly MboxIndexData[],
 		[rangeStart, rangeEnd]: TimeRange,
 		progress: ProgressMonitor,
 		indexLoader: BulkMailLoader,
 		update: (info?: Partial<SearchIndexStateInfo>) => SearchIndexStateInfo,
+		user: sysTypeRefs.User,
 	): Promise<void> {
 		const mailboxesToWrite = mailboxIndexDatas.filter((mboxData) => rangeEnd < mboxData.newestTimestamp)
+		if (isEmpty(mailboxesToWrite)) {
+			return
+		}
 
-		let mailSetEntriesToProcess: MailSetEntry[] = []
+		let done = false
+		let batchStart = rangeStart
+		while (!done) {
+			const result = await this._indexMailListsInTimeBatches(mailboxesToWrite, [batchStart, rangeEnd], progress, indexLoader, update, user)
+			// If there aren't any more mails in a mailbox that we can retrieve, we're done with those.
+			findAllAndRemove(mailboxesToWrite, (data) => this.isMailboxLoadedCompletely(data))
+
+			done = result.done
+			batchStart = result.batchEnd
+		}
+	}
+
+	// @VisibleForTesting
+	async _indexMailListsInTimeBatches(
+		mailboxesToWrite: readonly MboxIndexData[],
+		[rangeStart, rangeEnd]: TimeRange,
+		progress: ProgressMonitor,
+		indexLoader: BulkMailLoader,
+		update: (info?: Partial<SearchIndexStateInfo>) => SearchIndexStateInfo,
+		user: sysTypeRefs.User,
+	): Promise<{ batchEnd: number; done: boolean }> {
+		const mailSetEntriesToProcess: tutanotaTypeRefs.MailSetEntry[] = []
 		let batchStart = rangeStart
 
 		while (batchStart > rangeEnd && !isEmpty(mailboxesToWrite)) {
@@ -406,7 +391,7 @@ export class MailIndexer {
 			const timeRange: TimeRange = [batchStart, batchEnd]
 			const finalIteration = batchEnd <= rangeEnd
 
-			const allMails: MailSetEntry[] = (
+			const allMails: tutanotaTypeRefs.MailSetEntry[] = (
 				await this.abortAware(() =>
 					promiseMap(
 						mailboxesToWrite,
@@ -439,20 +424,22 @@ export class MailIndexer {
 					mailboxesToWrite.map((data) => [data.ownerGroup, this.isMailboxLoadedCompletely(data) ? FULL_INDEXED_TIMESTAMP : batchEnd]),
 				)
 				await this.backend.indexMails(indexTimestampPerGroup, mailData)
+				await this.updateCurrentIndexTimestamp(user)
+
 				update().indexedMailCount += mailData.length
+				progress.workDone(batchStart - batchEnd)
 
-				mailSetEntriesToProcess = []
-
-				// If there aren't any more mails in a mailbox that we can retrieve, we're done with those.
-				findAllAndRemove(mailboxesToWrite, (data) => this.isMailboxLoadedCompletely(data))
+				return { batchEnd, done: finalIteration }
 			} else {
+				progress.workDone(batchStart - batchEnd)
+
 				// We don't want to keep going if we've cancelled before reaching our threshold
 				this.assertNotCancelled("indexMailListsInTimeBatches")
+				batchStart = batchEnd
 			}
-
-			progress.workDone(batchStart - batchEnd)
-			batchStart = batchEnd
 		}
+
+		return { batchEnd: rangeEnd, done: true }
 	}
 
 	/** A helper to cancel an async operation with {@link CancelledError} as soon as possible. */
@@ -464,8 +451,8 @@ export class MailIndexer {
 			loading(),
 			newPromise<T>((_, reject) => {
 				// return right away if already aborted
-				if (this.abortController.signal.aborted) reject(new CancelledError("mail indexing canceled"))
-				listener = () => reject(new CancelledError("mail indexing canceled"))
+				if (this.abortController.signal.aborted) reject(new CancelledError("mail indexing canceled", this.abortController.signal.reason))
+				listener = () => reject(new CancelledError("mail indexing canceled", this.abortController.signal.reason))
 				this.abortController.signal.addEventListener("abort", listener, { once: true })
 			}),
 		]).finally(() => {
@@ -480,9 +467,9 @@ export class MailIndexer {
 	}
 
 	private async processIndexMails(
-		mailSetEntries: Array<MailSetEntry>,
+		mailSetEntries: Array<tutanotaTypeRefs.MailSetEntry>,
 		indexLoader: BulkMailLoader,
-	): Promise<{ mail: Mail; mailDetails: MailDetails; attachments: TutanotaFile[] }[]> {
+	): Promise<{ mail: tutanotaTypeRefs.Mail; mailDetails: tutanotaTypeRefs.MailDetails; attachments: tutanotaTypeRefs.File[] }[]> {
 		this.assertNotCancelled("processIndexMails")
 		const mails = await indexLoader.loadMailsFromMultipleLists(mailSetEntries.map((entry) => entry.mail))
 		let mailsWithoutErros = mails.filter((m) => !hasError(m))
@@ -503,10 +490,12 @@ export class MailIndexer {
 	}
 
 	private assertNotCancelled(where: string) {
-		if (this.abortController.signal.aborted) throw new CancelledError(`cancelled indexing in ${where}`)
+		if (this.abortController.signal.aborted) {
+			throw new CancelledError(`cancelled indexing in ${where}`, this.abortController.signal.reason)
+		}
 	}
 
-	async updateCurrentIndexTimestamp(user: User): Promise<void> {
+	async updateCurrentIndexTimestamp(user: sysTypeRefs.User): Promise<void> {
 		const backend = assertNotNull(this._backend, "not initialized")
 		const mailMemberships = filterMailMemberships(user).map((ship) => ship.group)
 		const timestamps = await backend.getCurrentIndexTimestamps(mailMemberships)
@@ -516,9 +505,13 @@ export class MailIndexer {
 	/**
 	 * Provides all mail set list ids of the given mailbox
 	 */
-	private async loadMailFolderListIds(mailbox: MailBox): Promise<Id[]> {
-		const mailSets = await this.entityClient.loadAll(MailSetTypeRef, mailbox.mailSets.mailSets)
+	private async loadMailFolderListIds(mailbox: tutanotaTypeRefs.MailBox): Promise<Id[]> {
+		const mailSets = await this.loadMailSets(mailbox)
 		return mailSets.filter(isFolder).map((set) => set.entries)
+	}
+
+	private async loadMailSets(mailbox: tutanotaTypeRefs.MailBox) {
+		return await this.entityClient.loadAll(tutanotaTypeRefs.MailSetTypeRef, mailbox.mailSets.mailSets)
 	}
 
 	private async processImportStateEntityEvents(operation: OperationType, importStateId: IdTuple): Promise<void> {
@@ -541,7 +534,7 @@ export class MailIndexer {
 	 * after importing lots of mails...
 	 */
 	private async preloadMails(mailIds: IdTuple[]): Promise<MailWithDetailsAndAttachments[]> {
-		const indexLoader = this.bulkLoaderFactory()
+		const indexLoader = await this.bulkLoaderFactory()
 		const mails = await indexLoader.loadMailsFromMultipleLists(mailIds)
 		const mailsWithDetails = await indexLoader.loadMailDetails(mails)
 		const attachments = await indexLoader.loadAttachments(mails)
@@ -557,36 +550,41 @@ export class MailIndexer {
 	}
 
 	private async loadImportedMailIdsInIndexDateRange(importStateId: IdTuple): Promise<IdTuple[]> {
-		const importMailState = await this.entityClient.load(ImportMailStateTypeRef, importStateId)
+		const importMailState = await this.entityClient.load(tutanotaTypeRefs.ImportMailStateTypeRef, importStateId)
 		const status = parseInt(importMailState.status) as ImportStatus
 		if (status !== ImportStatus.Finished && status !== ImportStatus.Canceled) {
 			return []
 		}
-		const importedMailEntries = await this.entityClient.loadAll(ImportedMailTypeRef, importMailState.importedMails)
+		const importedMailEntries = await this.entityClient.loadAll(tutanotaTypeRefs.ImportedMailTypeRef, importMailState.importedMails)
 
 		if (isEmpty(importedMailEntries)) {
 			return []
 		}
 
-		const importedMailSetEntryListId = listIdPart(importedMailEntries[0].mailSetEntry)
+		const mailboxGroupRoot = await this.entityClient.load(tutanotaTypeRefs.MailboxGroupRootTypeRef, assertNotNull(importMailState._ownerGroup))
+		const mailbox = await this.entityClient.load(tutanotaTypeRefs.MailBoxTypeRef, mailboxGroupRoot.mailbox)
+		const mailSets = await this.loadMailSets(mailbox)
+		const importedMailSet = assertNotNull(mailSets.find((mailSet) => mailSet.folderType === MailSetKind.IMPORTED))
+
+		const importedMailSetEntryListId = getListId(importedMailSet)
 		// we only want to index mails with a receivedDate newer than the currentIndexTimestamp
 		const dateRangeFilteredMailSetEntryIds = importedMailEntries
 			.map((importedMail) => elementIdPart(importedMail.mailSetEntry))
 			.filter((importedEntry) => deconstructMailSetEntryId(importedEntry).receiveDate.getTime() >= this._currentIndexTimestamp)
 		return this.entityClient
-			.loadMultiple(MailSetEntryTypeRef, importedMailSetEntryListId, dateRangeFilteredMailSetEntryIds)
+			.loadMultiple(tutanotaTypeRefs.MailSetEntryTypeRef, importedMailSetEntryListId, dateRangeFilteredMailSetEntryIds)
 			.then((entries) => entries.map((entry) => entry.mail))
 	}
 
 	/**
 	 * Prepare IndexUpdate in response to the new entity events.
 	 */
-	async processEntityEvents(events: readonly EntityUpdateData[], _groupId: Id, _batchId: Id): Promise<void> {
+	async processEntityEvents(events: readonly entityUpdateUtils.EntityUpdateData[], _groupId: Id, _batchId: Id): Promise<void> {
 		await this.initialized.promise
 		if (!this._mailIndexingEnabled) return
 
 		for (const event of events) {
-			if (isUpdateForTypeRef(ImportMailStateTypeRef, event)) {
+			if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ImportMailStateTypeRef, event)) {
 				await this.processImportStateEntityEvents(event.operation, [event.instanceListId, event.instanceId])
 			}
 		}
@@ -610,7 +608,7 @@ export class MailIndexer {
 		await this.initialized.promise
 		if (!this._mailIndexingEnabled) return
 
-		const newMail = await this.entityClient.load(MailTypeRef, mailId)
+		const newMail = await this.entityClient.load(tutanotaTypeRefs.MailTypeRef, mailId)
 		if (!this.canIndexMail(newMail)) {
 			return
 		}
@@ -631,12 +629,12 @@ export class MailIndexer {
 		if (!this._mailIndexingEnabled) return
 
 		// If this is being called from offline storage, then the mail is cached. Otherwise, this can throw (which should be handled by the caller)!
-		const updatedMail = await this.entityClient.load(MailTypeRef, mailId)
+		const updatedMail = await this.entityClient.load(tutanotaTypeRefs.MailTypeRef, mailId)
 		if (!this.canIndexMail(updatedMail)) {
 			return
 		}
 
-		if (updatedMail.state === MailState.DRAFT) {
+		if (isDraft(updatedMail)) {
 			const newMailData = await this.downloadNewMailData(mailId)
 			if (newMailData) {
 				await this.backend.onMailUpdated(newMailData)
@@ -646,13 +644,26 @@ export class MailIndexer {
 		}
 	}
 
-	private canIndexMail(mail: Mail): boolean {
+	private canIndexMail(mail: tutanotaTypeRefs.Mail): boolean {
 		// currentIndexTimestamp should be set at this point, or else backend would still be null
 		return mail.receivedDate.getTime() >= this.currentIndexTimestamp
 	}
 
 	private get backend(): MailIndexerBackend {
 		return assertNotNull(this._backend)
+	}
+
+	async rebuildIndex(user: sysTypeRefs.User) {
+		if (!this._mailIndexingEnabled) {
+			return
+		}
+		if (this._isIndexing) {
+			this.cancelMailIndexing()
+		}
+		const currentIndexTimestamp = this._currentIndexTimestamp
+		await this.backend.resetIndex()
+		await this.updateCurrentIndexTimestamp(user)
+		await this.indexMailboxes(user, currentIndexTimestamp)
 	}
 }
 
@@ -685,7 +696,7 @@ type TimeRange = [number, number]
 interface MailSetListData {
 	listId: Id
 	lastLoadedId: Id | null
-	loadedButUnusedEntries: MailSetEntry[]
+	loadedButUnusedEntries: tutanotaTypeRefs.MailSetEntry[]
 	loadedCompletely: boolean
 }
 

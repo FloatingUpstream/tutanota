@@ -1,7 +1,7 @@
 import o from "@tutao/otest"
-import { OutOfOfficeNotificationTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { mockAttribute, unmockAttribute } from "@tutao/tutanota-test-utils"
-import { getDayShifted, getStartOfDay, getStartOfNextDay } from "@tutao/tutanota-utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { mockAttribute, unmockAttribute } from "@tutao/otest"
+import { getDayShifted, getStartOfDay, getStartOfNextDay } from "@tutao/utils"
 import { lang } from "../../../src/common/misc/LanguageViewModel.js"
 import { formatActivateState, isNotificationCurrentlyActive } from "../../../src/common/misc/OutOfOfficeNotificationUtils.js"
 import { createTestEntity } from "../TestUtils.js"
@@ -29,26 +29,26 @@ o.spec("OutOfOfficeNotificationTest", function () {
 	o("Active state formatting", function () {
 		lang._setLanguageTag("en")
 
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: null,
 			endDate: null,
 		})
 		o(formatActivateState(notification)).equals("Activated")
-		notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: new Date(2020, 11, 15),
 			endDate: null,
 		})
 		o(formatActivateState(notification)).equals("Activated (12/15/2020)")
-		notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: new Date(2020, 11, 15),
 			endDate: new Date(2021, 0, 9),
 		})
 		o(formatActivateState(notification)).equals("Activated (12/15/2020 - 1/8/2021)") // end date should be shifted
 
-		notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: false,
 			startDate: new Date(2020, 11, 15),
 			endDate: new Date(2021, 0, 10),
@@ -59,7 +59,7 @@ o.spec("OutOfOfficeNotificationTest", function () {
 		const now = new Date()
 		const oneDayBefore = getDayShifted(now, -1)
 		const oneDayAfter = getDayShifted(now, +1)
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: null,
 			endDate: null,
@@ -72,7 +72,7 @@ o.spec("OutOfOfficeNotificationTest", function () {
 		const now = new Date()
 		const oneDayBefore = getDayShifted(now, -1)
 		const oneDayAfter = getDayShifted(now, +1)
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: false,
 			startDate: null,
 			endDate: null,
@@ -85,7 +85,7 @@ o.spec("OutOfOfficeNotificationTest", function () {
 		const now = new Date()
 		const oneDayBefore = getDayShifted(now, -1)
 		const oneDayAfter = getDayShifted(now, +1)
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: getStartOfDay(now),
 			endDate: null,
@@ -98,7 +98,7 @@ o.spec("OutOfOfficeNotificationTest", function () {
 		const now = new Date()
 		const oneDayBefore = getDayShifted(now, -1)
 		const oneDayAfter = getDayShifted(now, +1)
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: getStartOfDay(now),
 			endDate: getStartOfNextDay(now),
@@ -111,7 +111,7 @@ o.spec("OutOfOfficeNotificationTest", function () {
 		const now = new Date()
 		const activeUntil = getDayShifted(now, +5)
 		const oneDayAfter = getStartOfNextDay(activeUntil)
-		let notification = createTestEntity(OutOfOfficeNotificationTypeRef, {
+		let notification = createTestEntity(tutanotaTypeRefs.OutOfOfficeNotificationTypeRef, {
 			enabled: true,
 			startDate: getStartOfDay(now),
 			endDate: getStartOfNextDay(activeUntil),

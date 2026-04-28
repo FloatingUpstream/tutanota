@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -96,6 +97,7 @@ import de.tutao.calendar.widget.error.WidgetErrorType
 import de.tutao.calendar.widget.model.WidgetConfigModel
 import de.tutao.calendar.widget.model.WidgetConfigViewModel
 import de.tutao.calendar.widget.style.AppTheme
+import de.tutao.calendar.widget.style.Dimensions
 import de.tutao.calendar.widget.test.WidgetConfigTestViewModel
 import de.tutao.tutasdk.CalendarRenderData
 import de.tutao.tutasdk.GeneratedId
@@ -121,6 +123,10 @@ const val BIRTHDAY_CALENDAR_BASE_ID = "clientOnly_birthdays"
 
 class WidgetConfigActivity : AppCompatActivity() {
 	private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+
+	companion object {
+		private val TAG = "WidgetConfigActivity"
+	}
 
 	@OptIn(ExperimentalMaterial3Api::class)
 	val rippleConfiguration =
@@ -251,6 +257,7 @@ class WidgetConfigActivity : AppCompatActivity() {
 								val storeJob = viewModel.storeSettings(this, appWidgetId)
 								storeJob.invokeOnCompletion {
 									lifecycleScope.launch {
+										Log.i(TAG, "Asking for widget reload after user change its settings")
 										val manager = GlanceAppWidgetManager(activityContext)
 										val widget = Agenda()
 										val glanceIds = manager.getGlanceIds(widget.javaClass)
@@ -409,7 +416,7 @@ class WidgetConfigActivity : AppCompatActivity() {
 						Text(
 							context.getString(R.string.widgetNoCredentialsInfo_msg),
 							fontWeight = FontWeight.Bold,
-							fontSize = 24.sp,
+							fontSize = Dimensions.FontSize.font_20.sp,
 							modifier = Modifier.padding(bottom = 16.dp)
 						)
 						Button(
@@ -440,7 +447,7 @@ class WidgetConfigActivity : AppCompatActivity() {
 					context.getString(R.string.account_label).uppercase(),
 					color = MaterialTheme.colorScheme.onBackground,
 					fontWeight = FontWeight.Bold,
-					fontSize = 12.sp,
+					fontSize = Dimensions.FontSize.font_12.sp,
 					lineHeight = 12.sp,
 					modifier = Modifier.padding(bottom = 4.dp)
 				)
@@ -497,7 +504,7 @@ class WidgetConfigActivity : AppCompatActivity() {
 					context.getString(R.string.calendars_label).uppercase(),
 					color = MaterialTheme.colorScheme.onBackground,
 					fontWeight = FontWeight.Bold,
-					fontSize = 12.sp,
+					fontSize = Dimensions.FontSize.font_12.sp,
 					lineHeight = 12.sp,
 					modifier = Modifier.padding(bottom = 4.dp)
 				)
@@ -635,7 +642,10 @@ class WidgetConfigActivity : AppCompatActivity() {
 				Text(
 					WidgetErrorHandler.getErrorMessage(LocalContext.current, error),
 					modifier = Modifier.padding(vertical = 16.dp),
-					style = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp)
+					style = TextStyle(
+						color = MaterialTheme.colorScheme.onBackground,
+						fontSize = Dimensions.FontSize.font_16.sp
+					)
 				)
 				Button(
 					action,

@@ -1,6 +1,5 @@
-import { getMailFolderType, MailSetKind, MailState, ReplyType } from "../../../common/api/common/TutanotaConstants"
 import { FontIcons } from "../../../common/gui/base/icons/FontIcons"
-import type { Mail, MailSet } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { getMailFolderType, tutanotaTypeRefs } from "@tutao/typerefs"
 import { formatTimeOrDateOrYesterday } from "../../../common/misc/Formatter.js"
 import m, { Children } from "mithril"
 import Badge from "../../../common/gui/base/Badge"
@@ -15,7 +14,7 @@ import {
 	shouldAlwaysShowMultiselectCheckbox,
 } from "../../../common/gui/SelectableRowContainer.js"
 import { component_size, px, size } from "../../../common/gui/size.js"
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
 import { setHTMLElementTextWithHighlighting, VirtualRow } from "../../../common/gui/base/ListUtils.js"
 import { companyTeamLabel } from "../../../common/misc/ClientConstants.js"
 import { getConfidentialFontIcon } from "./MailGuiUtils.js"
@@ -29,21 +28,22 @@ import { lang } from "../../../common/misc/LanguageViewModel"
 import { getFolderName } from "../model/MailUtils"
 import { client } from "../../../common/misc/ClientDetector"
 import { isTutaTeamMail } from "../../../common/mailFunctionality/SharedMailUtils"
-import { isEditableDraft, isMailScheduled } from "../model/MailChecks"
+import { isEditableDraft } from "../model/MailChecks"
+import { MailSetKind, ReplyType } from "@tutao/app-env"
 
 const iconMap: Record<MailSetKind, string> = {
-	[MailSetKind.CUSTOM]: FontIcons.Folder,
-	[MailSetKind.INBOX]: FontIcons.Inbox,
-	[MailSetKind.SENT]: FontIcons.Sent,
-	[MailSetKind.TRASH]: FontIcons.Trash,
-	[MailSetKind.ARCHIVE]: FontIcons.Archive,
-	[MailSetKind.SPAM]: FontIcons.Spam,
-	[MailSetKind.DRAFT]: FontIcons.Draft,
+	[MailSetKind.CUSTOM]: FontIcons.FolderFilled,
+	[MailSetKind.INBOX]: FontIcons.InboxFilled,
+	[MailSetKind.SENT]: FontIcons.SendFilled,
+	[MailSetKind.TRASH]: FontIcons.TrashFilled,
+	[MailSetKind.ARCHIVE]: FontIcons.ArchiveFilled,
+	[MailSetKind.SPAM]: FontIcons.BugFilled,
+	[MailSetKind.DRAFT]: FontIcons.DraftFilled,
 	[MailSetKind.SCHEDULED]: FontIcons.ScheduleMail,
 	// The ones below will never show a folder icon, but we need them to complete the set
-	[MailSetKind.ALL]: FontIcons.Folder,
-	[MailSetKind.LABEL]: FontIcons.Folder,
-	[MailSetKind.IMPORTED]: FontIcons.Folder,
+	[MailSetKind.ALL]: FontIcons.FolderFilled,
+	[MailSetKind.LABEL]: FontIcons.FolderFilled,
+	[MailSetKind.IMPORTED]: FontIcons.FolderFilled,
 }
 
 export const MAIL_ROW_V_MARGIN = 3
@@ -56,11 +56,11 @@ const ELLIPSIS = "\u2026"
 
 const MAX_DISPLAYED_LABELS = 6
 
-export class MailRow implements VirtualRow<Mail> {
+export class MailRow implements VirtualRow<tutanotaTypeRefs.Mail> {
 	top: number
 	private domElement: HTMLElement | null = null
 
-	entity: Mail | null = null
+	entity: tutanotaTypeRefs.Mail | null = null
 	private subjectDom!: HTMLElement
 	private senderDom!: HTMLElement
 
@@ -78,15 +78,15 @@ export class MailRow implements VirtualRow<Mail> {
 
 	constructor(
 		private readonly showFolderIcon: boolean,
-		private readonly getLabelsForMail: (mail: Mail) => ReadonlyArray<MailSet>,
-		private readonly onSelected: (mail: Mail, selected: boolean) => unknown,
+		private readonly getLabelsForMail: (mail: tutanotaTypeRefs.Mail) => ReadonlyArray<tutanotaTypeRefs.MailSet>,
+		private readonly onSelected: (mail: tutanotaTypeRefs.Mail, selected: boolean) => unknown,
 		private readonly getHighlightedStrings?: () => readonly SearchToken[],
 	) {
 		this.top = 0
 		this.entity = null
 	}
 
-	update(mail: Mail, selected: boolean, isInMultiSelect: boolean): void {
+	update(mail: tutanotaTypeRefs.Mail, selected: boolean, isInMultiSelect: boolean): void {
 		const oldEntity = this.entity
 		this.entity = mail
 		const oldHighlightedStrings = this.highlightedStrings
@@ -140,12 +140,13 @@ export class MailRow implements VirtualRow<Mail> {
 			// Some other readers e.g. TalkBack need aria-description instead
 			// (at least if it's a child of <li>).
 			if (!client.isIos()) {
+				// @ts-ignore
 				this.domElement.ariaDescription = description
 			}
 		}
 	}
 
-	private updateLabels(mail: Mail): readonly MailSet[] {
+	private updateLabels(mail: tutanotaTypeRefs.Mail): readonly tutanotaTypeRefs.MailSet[] {
 		const labels = this.getLabelsForMail(mail)
 
 		for (const [i, element] of this.labelsDom.entries()) {
@@ -248,6 +249,7 @@ export class MailRow implements VirtualRow<Mail> {
 		return m(
 			SelectableRowContainer,
 			{
+				class: "pt-12 pb-12 pl-12 pr-12",
 				onSelectedChangeRef: (changer) => {
 					this.selectionSetter = changer
 				},
@@ -398,7 +400,7 @@ export class MailRow implements VirtualRow<Mail> {
 		)
 	}
 
-	private iconsText(mail: Mail): { iconText: string; description: string } {
+	private iconsText(mail: tutanotaTypeRefs.Mail): { iconText: string; description: string } {
 		let iconText = ""
 		let description = ""
 
@@ -411,29 +413,29 @@ export class MailRow implements VirtualRow<Mail> {
 		}
 
 		if (mail._errors) {
-			iconText += FontIcons.Warning
+			iconText += FontIcons.ExclamationFilled
 			description += lang.get("corrupted_msg") + " "
 		}
 
 		if (isEditableDraft(mail)) {
-			iconText += FontIcons.Edit
+			iconText += FontIcons.PenFilled
 			description += lang.get("draft_label") + " "
 		}
 
 		switch (mail.replyType) {
 			case ReplyType.REPLY:
-				iconText += FontIcons.Reply
+				iconText += FontIcons.ArrowBackFilled
 				description += lang.get("replied_label") + " "
 				break
 
 			case ReplyType.FORWARD:
-				iconText += FontIcons.Forward
+				iconText += FontIcons.ArrowForwardFilled
 				description += lang.get("forwarded_label") + " "
 				break
 
 			case ReplyType.REPLY_FORWARD:
-				iconText += FontIcons.Reply
-				iconText += FontIcons.Forward
+				iconText += FontIcons.ArrowBackFilled
+				iconText += FontIcons.ArrowForwardFilled
 				description += lang.get("replied_label") + " "
 				description += lang.get("forwarded_label") + " "
 				break
@@ -445,7 +447,7 @@ export class MailRow implements VirtualRow<Mail> {
 		}
 
 		if (mail.attachments.length > 0) {
-			iconText += FontIcons.Attach
+			iconText += FontIcons.Paperclip
 			description += lang.get("attachment_label")
 		}
 
@@ -453,6 +455,6 @@ export class MailRow implements VirtualRow<Mail> {
 	}
 
 	private folderIcon(type: MailSetKind): string {
-		return iconMap[type] ?? FontIcons.Folder
+		return iconMap[type] ?? FontIcons.FolderFilled
 	}
 }

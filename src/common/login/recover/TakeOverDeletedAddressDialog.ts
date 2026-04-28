@@ -1,13 +1,13 @@
 import m from "mithril"
 import stream from "mithril/stream"
-import { AccessBlockedError, AccessDeactivatedError, InvalidDataError, NotAuthenticatedError, TooManyRequestsError } from "../../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
 import { isMailAddress } from "../../misc/FormatValidator.js"
 import { InfoLink, lang } from "../../misc/LanguageViewModel.js"
 import { Autocomplete, TextField, TextFieldType } from "../../gui/base/TextField.js"
 import { Dialog, DialogType } from "../../gui/base/Dialog"
 import { locator } from "../../api/main/CommonLocator"
-import { assertMainOrNode } from "../../api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { MoreInfoLink } from "../../misc/news/MoreInfoLink.js"
 import { RecoverCodeInput } from "../../settings/login/RecoverCodeDialog.js"
 
@@ -69,13 +69,13 @@ export function showTakeOverDialog(mailAddress: string, password: string): Dialo
 }
 
 function handleError(e: Error) {
-	if (e instanceof NotAuthenticatedError) {
+	if (e instanceof restError.NotAuthenticatedError) {
 		Dialog.message("loginFailed_msg")
-	} else if (e instanceof AccessBlockedError || e instanceof AccessDeactivatedError) {
+	} else if (e instanceof restError.TooManyRequestsError || e instanceof restError.AccessDeactivatedError) {
 		Dialog.message("loginFailedOften_msg")
-	} else if (e instanceof InvalidDataError) {
+	} else if (e instanceof restError.AccessBlockedError) {
 		Dialog.message("takeoverAccountInvalid_msg")
-	} else if (e instanceof TooManyRequestsError) {
+	} else if (e instanceof restError.InvalidDataError) {
 		Dialog.message("tooManyAttempts_msg")
 	} else {
 		throw e

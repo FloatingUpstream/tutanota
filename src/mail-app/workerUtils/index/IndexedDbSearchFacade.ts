@@ -1,7 +1,19 @@
-import { Contact, ContactTypeRef, MailTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import type { TypeModel } from "@tutao/typerefs"
+import {
+	AssociationType,
+	Cardinality,
+	ClientTypeModelResolver,
+	compareNewestFirst,
+	elementIdPart,
+	firstBiggerThanSecond,
+	timestampToGeneratedId,
+	tutanotaTypeRefs,
+	ValueType,
+} from "@tutao/typerefs"
 import { DbTransaction } from "../../../common/api/worker/search/DbFacade.js"
 import {
 	arrayHashSigned,
+	assertNotNull,
 	asyncFind,
 	contains,
 	downcast,
@@ -16,7 +28,7 @@ import {
 	tokenize,
 	TypeRef,
 	uint8ArrayToBase64,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import type {
 	DecryptedSearchIndexEntry,
 	ElementDataDbRow,
@@ -32,28 +44,25 @@ import type {
 	SearchRestriction,
 	SearchResult,
 } from "../../../common/api/worker/search/SearchTypes.js"
-import type { TypeInfo } from "../../../common/api/common/utils/IndexUtils.js"
 import {
 	getIdFromEncSearchIndexEntry,
+	getMailIndexTimestampForSearch,
 	getPerformanceTimestamp,
 	getSearchEndTimestamp,
 	markEnd,
 	markStart,
 	printMeasure,
+	TypeInfo,
 	typeRefToTypeInfo,
 } from "../../../common/api/common/utils/IndexUtils.js"
-import { compareNewestFirst, elementIdPart, firstBiggerThanSecond, timestampToGeneratedId } from "../../../common/api/common/utils/EntityUtils.js"
 import { MailIndexer } from "./MailIndexer.js"
 import { SuggestionFacade } from "./SuggestionFacade.js"
-import { AssociationType, Cardinality, ValueType } from "../../../common/api/common/EntityConstants.js"
-import { NotAuthorizedError, NotFoundError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { iterateBinaryBlocks } from "../../../common/api/worker/search/SearchIndexEncoding.js"
 import type { BrowserData } from "../../../common/misc/ClientConstants.js"
-import type { TypeModel } from "../../../common/api/common/EntityTypes.js"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
 import { UserFacade } from "../../../common/api/worker/facades/UserFacade.js"
 import { ElementDataOS, SearchIndexMetaDataOS, SearchIndexOS, SearchIndexWordsIndex } from "../../../common/api/worker/search/IndexTables.js"
-import { ClientTypeModelResolver } from "../../../common/api/common/EntityFunctions"
 import { EncryptedDbWrapper } from "../../../common/api/worker/search/EncryptedDbWrapper"
 import { SearchFacade } from "./SearchFacade"
 import { SearchToken, splitQuery } from "../../../common/api/common/utils/QueryTokenUtils"
@@ -71,7 +80,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 		private readonly userFacade: UserFacade,
 		private readonly db: EncryptedDbWrapper,
 		private readonly mailIndexer: MailIndexer,
-		private readonly contactSuggestionFacade: SuggestionFacade<Contact>,
+		private readonly contactSuggestionFacade: SuggestionFacade<tutanotaTypeRefs.Contact>,
 		browserData: BrowserData,
 		private readonly entityClient: EntityClient,
 		private readonly typeModelResolver: ClientTypeModelResolver,
@@ -94,7 +103,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 			tokens: await this.tokenize(query),
 			restriction,
 			results: [],
-			currentIndexTimestamp: getSearchEndTimestamp(this.mailIndexer.currentIndexTimestamp, restriction),
+			currentIndexTimestamp: getMailIndexTimestampForSearch(this.mailIndexer.currentIndexTimestamp),
 			lastReadSearchIndexRow: searchTokens.map((token) => [token, null]),
 			matchWordOrder: searchTokens.length > 1 && query.startsWith('"') && query.endsWith('"'),
 			moreResults: [],
@@ -107,7 +116,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 
 			let searchPromise
 
-			if (minSuggestionCount > 0 && isFirstWordSearch && isSameTypeRef(ContactTypeRef, restriction.type)) {
+			if (minSuggestionCount > 0 && isFirstWordSearch && isSameTypeRef(tutanotaTypeRefs.ContactTypeRef, restriction.type)) {
 				let addSuggestionBefore = getPerformanceTimestamp()
 				searchPromise = this.addSuggestions(searchTokens[0], this.contactSuggestionFacade, minSuggestionCount, result).then(() => {
 					if (result.results.length < minSuggestionCount) {
@@ -122,7 +131,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 						})
 					}
 				})
-			} else if (minSuggestionCount > 0 && !isFirstWordSearch && isSameTypeRef(ContactTypeRef, restriction.type)) {
+			} else if (minSuggestionCount > 0 && !isFirstWordSearch && isSameTypeRef(tutanotaTypeRefs.ContactTypeRef, restriction.type)) {
 				let suggestionToken = neverNull(result.lastReadSearchIndexRow.pop())[0]
 				searchPromise = this.startOrContinueSearch(result).then(() => {
 					// we now filter for the suggestion token manually because searching for suggestions for the last word and reducing the initial search result with them can lead to
@@ -143,6 +152,22 @@ export class IndexedDbSearchFacade implements SearchFacade {
 		}
 	}
 
+	extendSearchResult(result: SearchResult, extensionEnd: number): Promise<SearchResult> {
+		const restrictionEnd = assertNotNull(result.restriction.end, "null end restriction when extending search")
+		result.restriction = {
+			...result.restriction,
+			end: extensionEnd,
+		}
+
+		return this.startOrContinueSearch(result).then(() => {
+			result.restriction.end = Math.min(restrictionEnd, extensionEnd)
+			result.currentIndexTimestamp = getMailIndexTimestampForSearch(this.mailIndexer.currentIndexTimestamp)
+			result.results.sort(compareNewestFirst)
+
+			return result
+		})
+	}
+
 	private async loadAndReduce(restriction: SearchRestriction, result: SearchResult, suggestionToken: string, minSuggestionCount: number): Promise<void> {
 		if (result.results.length > 0) {
 			const model = await this.typeModelResolver.resolveClientTypeReference(restriction.type)
@@ -160,7 +185,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 					try {
 						entity = await this.entityClient.load(restriction.type, id)
 					} catch (e) {
-						if (e instanceof NotFoundError || e instanceof NotAuthorizedError) {
+						if (e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError) {
 							continue
 						} else {
 							throw e
@@ -266,7 +291,7 @@ export class IndexedDbSearchFacade implements SearchFacade {
 				markStart("_filterByListIdAndGroupSearchResults")
 				return this.filterByListIdAndGroupSearchResults(searchIndexEntries, searchResult, maxResults)
 			})
-			.then((result) => {
+			.then(() => {
 				markEnd("_filterByListIdAndGroupSearchResults")
 				if (typeof self !== "undefined") {
 					printMeasure("query: " + searchResult.query + ", maxResults: " + String(maxResults), [
@@ -279,7 +304,6 @@ export class IndexedDbSearchFacade implements SearchFacade {
 						"_filterByListIdAndGroupSearchResults",
 					])
 				}
-				return result
 			})
 	}
 
@@ -583,7 +607,11 @@ export class IndexedDbSearchFacade implements SearchFacade {
 	private reduceToUniqueElementIds(results: ReadonlyArray<DecryptedSearchIndexEntry>, previousResult: SearchResult): ReadonlyArray<MoreResultsIndexEntry> {
 		const uniqueIds = new Set<string>()
 		return results.filter((entry) => {
-			if (!uniqueIds.has(entry.id) && !previousResult.results.some((r) => r[1] === entry.id)) {
+			if (
+				!uniqueIds.has(entry.id) &&
+				!previousResult.results.some((r) => r[1] === entry.id) &&
+				!previousResult.moreResults.some((r) => r.id === entry.id)
+			) {
 				uniqueIds.add(entry.id)
 				return true
 			} else {
@@ -643,8 +671,8 @@ export class IndexedDbSearchFacade implements SearchFacade {
 					// in order to check in which mailSet (folder) a mail is included in.
 					const mails = await Promise.all(
 						intermediateResults.map((intermediateResultId) =>
-							this.entityClient.load(MailTypeRef, intermediateResultId).catch(
-								ofClass(NotFoundError, () => {
+							this.entityClient.load(tutanotaTypeRefs.MailTypeRef, intermediateResultId).catch(
+								ofClass(restError.NotFoundError, () => {
 									console.log(`Could not find updated mail ${JSON.stringify(intermediateResultId)}`)
 									return null
 								}),

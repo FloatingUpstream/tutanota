@@ -6,7 +6,7 @@ import Foundation
 /**
  * implementation of the WebAuthn protocol
  */
-public protocol WebAuthnFacade {
+public protocol WebAuthnFacade : Sendable {
 	/**
 	 * register for webauthn
 	 */
@@ -23,7 +23,7 @@ public protocol WebAuthnFacade {
 	 * cancels the current sign/registration operation
 	 */
 	func abortCurrentOperation(
-	) async throws
+	) async throws -> Void
 	/**
 	 * return whether this platform supports webAuthn
 	 */

@@ -1,8 +1,8 @@
 import m, { Children, Component, VnodeDOM } from "mithril"
 import { LayerType } from "../../../RootView"
-import { lazy, makeSingleUse, newPromise } from "@tutao/tutanota-utils"
-import { assertMainOrNodeBoot } from "../../api/common/Env"
-import { component_size, px, size } from "../size.js"
+import { lazy, makeSingleUse, newPromise } from "@tutao/utils"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
+import { component_size, px } from "../size.js"
 import { styles } from "../styles.js"
 import { getSafeAreaInsetBottom } from "../HtmlUtils.js"
 
@@ -81,7 +81,6 @@ export const overlay: Component<OverlayParentAttrs> = {
 			{
 				inert: !visible,
 				style: {
-					display: visible ? "" : "none",
 					"margin-top": "env(safe-area-inset-top)", // insets for iPhone X
 					// keep the bottom nav bar clear & inset for iOS
 					"margin-bottom": styles.isUsingBottomNavigation() ? px(component_size.bottom_nav_bar + getSafeAreaInsetBottom()) : "unset",

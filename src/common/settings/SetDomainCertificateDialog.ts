@@ -1,16 +1,15 @@
 import m from "mithril"
-import { lang } from "../misc/LanguageViewModel.js"
 import { Dialog } from "../gui/base/Dialog.js"
-import { InvalidDataError, LockedError, PreconditionFailedError } from "../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog.js"
 import { isDomainName } from "../misc/FormatValidator.js"
 import stream from "mithril/stream"
-import type { CustomerInfo } from "../api/entities/sys/TypeRefs.js"
 import { TextField } from "../gui/base/TextField.js"
-import { ofClass } from "@tutao/tutanota-utils"
+import { ofClass } from "@tutao/utils"
 import { locator } from "../api/main/CommonLocator.js"
-import { assertMainOrNode } from "../api/common/Env.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { getWhitelabelDomainInfo } from "../api/common/utils/CustomerUtils.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -23,13 +22,13 @@ function orderWhitelabelCertificate(domain: string, dialog: Dialog) {
 				dialog.close()
 			})
 			.catch(
-				ofClass(InvalidDataError, (e) => {
+				ofClass(restError.TooManyRequestsError, (e) => {
 					Dialog.message("certificateError_msg")
 				}),
 			)
-			.catch(ofClass(LockedError, (e) => Dialog.message("operationStillActive_msg")))
+			.catch(ofClass(restError.LockedError, (e) => Dialog.message("operationStillActive_msg")))
 			.catch(
-				ofClass(PreconditionFailedError, (e) => {
+				ofClass(restError.PreconditionFailedError, (e) => {
 					switch (e.data) {
 						case "lock.locked":
 							Dialog.message("operationStillActive_msg")
@@ -56,7 +55,7 @@ function orderWhitelabelCertificate(domain: string, dialog: Dialog) {
 	)
 }
 
-export function show(customerInfo: CustomerInfo): void {
+export function show(customerInfo: sysTypeRefs.CustomerInfo): void {
 	// only show a dropdown if a domain is already selected for tutanota login or if there is exactly one domain available
 	const whitelabelDomainInfo = getWhitelabelDomainInfo(customerInfo)
 	const domain = whitelabelDomainInfo ? stream(whitelabelDomainInfo.domain) : stream("")

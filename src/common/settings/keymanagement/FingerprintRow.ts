@@ -6,7 +6,7 @@ import { ButtonSize } from "../../gui/base/ButtonSize"
 import { MonospaceTextDisplay } from "../../gui/base/MonospaceTextDisplay"
 
 import { AllIcons, Icon, IconSize } from "../../gui/base/Icon"
-import { Hex } from "@tutao/tutanota-utils"
+import { Hex } from "@tutao/utils"
 import { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { theme } from "../../gui/theme"
 
@@ -44,7 +44,7 @@ export class FingerprintRow implements Component<FingerprintRowAttrs> {
 		return m(Card, [
 			m(".flex.items-center.selectable.pl-8.mb-8.gap-4", [
 				m(Icon, {
-					icon: Icons.Shield,
+					icon: Icons.ShieldFilled,
 					size: IconSize.PX20,
 					style: { fill: theme.success },
 				}),

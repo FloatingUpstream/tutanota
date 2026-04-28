@@ -2,30 +2,29 @@ import m, { Children, ClassComponent, Vnode } from "mithril"
 import { WizardStepComponentAttrs } from "../gui/base/wizard/WizardStep"
 import { SignupViewModel } from "./SignupView"
 import { lang } from "../misc/LanguageViewModel"
-import { PaymentMethodType } from "../api/common/TutanotaConstants"
-import { Countries, Country, CountryType } from "../api/common/CountryList"
-import { LocationServiceGetReturn } from "../api/entities/sys/TypeRefs"
+import { countryList } from "@tutao/app-env"
 import { locator } from "../api/main/CommonLocator"
 import { Dialog } from "../gui/base/Dialog"
-import { assertNotNull, LazyLoaded, neverNull } from "@tutao/tutanota-utils"
+import { assertNotNull, LazyLoaded, neverNull } from "@tutao/utils"
 import { getLazyLoadedPayPalUrl, UpgradeType } from "../subscription/utils/SubscriptionUtils"
 import { RadioSelectorOption } from "../gui/base/RadioSelectorItem"
 import { RadioSelector, RadioSelectorAttrs } from "../gui/base/RadioSelector"
 import { getVisiblePaymentMethods, updatePaymentData, validateInvoiceData, validatePaymentData } from "../subscription/utils/PaymentUtils"
 import { WizardStepContext } from "../gui/base/wizard/WizardController"
-import { ProgrammingError } from "../api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
 import { LoginButton } from "../gui/base/buttons/LoginButton"
 import { theme } from "../gui/theme"
 import { CreditCardInput } from "../subscription/CreditCardInput"
 import { renderCountryDropdownNew } from "../gui/base/GuiUtils"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog"
 import { px, size } from "../gui/size"
-import { LocationService } from "../api/entities/sys/Services"
+import { sysServices, sysTypeRefs } from "@tutao/typerefs"
 import { LoginTextField } from "../gui/base/LoginTextField"
-import { BootIcons } from "../gui/base/icons/BootIcons"
 import { PaypalButtonNew } from "../subscription/PaypalButtonNew"
 import { styles } from "../gui/styles"
 import { TextFieldType } from "../gui/base/TextField"
+import { Icons } from "../gui/base/icons/Icons"
+import { PaymentMethodType } from "@tutao/app-env"
 
 class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponentAttrs<SignupViewModel>> {
 	private _hasClickedNext: boolean = false
@@ -41,9 +40,9 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 	}
 
 	oncreate(vnode: Vnode<WizardStepComponentAttrs<SignupViewModel>>) {
-		locator.serviceExecutor.get(LocationService, null).then((location: LocationServiceGetReturn) => {
+		locator.serviceExecutor.get(sysServices.LocationService, null).then((location: sysTypeRefs.LocationServiceGetReturn) => {
 			if (!vnode.attrs.ctx.viewModel.invoiceData.country) {
-				const country = Countries.find((c) => c.a === location.country)
+				const country = countryList.Countries.find((c) => c.a === location.country)
 
 				if (country) {
 					vnode.attrs.ctx.viewModel.invoiceData.country = country
@@ -132,12 +131,12 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 			}),
 			renderCountryDropdownNew({
 				selectedCountry: ctx.viewModel.invoiceData.country,
-				onSelectionChanged: (country: Country | null) => {
+				onSelectionChanged: (country: countryList.Country | null) => {
 					if (country == null) return
 					ctx.viewModel.updateInvoiceCountry(country)
 					ctx.markComplete(false)
 
-					if (country.t !== CountryType.EU) {
+					if (country.t !== countryList.CountryType.EU) {
 						ctx.viewModel.invoiceData.vatNumber = ""
 					}
 				},
@@ -233,11 +232,11 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 			m(`.flex.col${styles.isMobileLayout() ? ".items-center" : ".items-end"}${this.formGap}`, [
 				renderCountryDropdownNew({
 					selectedCountry: ctx.viewModel.invoiceData.country,
-					onSelectionChanged: (country: Country | null) => {
+					onSelectionChanged: (country: countryList.Country | null) => {
 						if (country == null) return
 						ctx.viewModel.updateInvoiceCountry(country)
 						ctx.markComplete(false)
-						if (country.t !== CountryType.EU) {
+						if (country.t !== countryList.CountryType.EU) {
 							ctx.viewModel.invoiceData.vatNumber = ""
 						}
 					},
@@ -255,7 +254,7 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 								isReadOnly: true,
 								class: "",
 								leadingIcon: {
-									icon: BootIcons.Mail,
+									icon: Icons.MailFilled,
 									color: theme.on_surface_variant,
 								},
 							}),
@@ -304,11 +303,11 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 		return m(`.flex.col${this.formGap}`, [
 			renderCountryDropdownNew({
 				selectedCountry: ctx.viewModel.invoiceData.country,
-				onSelectionChanged: (country: Country | null) => {
+				onSelectionChanged: (country: countryList.Country | null) => {
 					if (country == null) return
 					ctx.viewModel.updateInvoiceCountry(country)
 					ctx.markComplete(false)
-					if (country.t !== CountryType.EU) {
+					if (country.t !== countryList.CountryType.EU) {
 						ctx.viewModel.invoiceData.vatNumber = ""
 					}
 				},
@@ -362,7 +361,7 @@ class InvoiceAndPaymentDataPageNew implements ClassComponent<WizardStepComponent
 
 	private isVatIdFieldVisible(ctx: WizardStepContext<SignupViewModel>): boolean {
 		const selectedCountry = ctx.viewModel.invoiceData.country
-		return ctx.viewModel.options.businessUse() && selectedCountry != null && selectedCountry.t === CountryType.EU
+		return ctx.viewModel.options.businessUse() && selectedCountry != null && selectedCountry.t === countryList.CountryType.EU
 	}
 }
 

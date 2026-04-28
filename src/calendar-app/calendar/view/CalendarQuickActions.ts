@@ -11,8 +11,9 @@ import { showNotAvailableForFreeDialog } from "../../../common/misc/Subscription
 import { type CalendarProperties, showCreateEditCalendarDialog } from "../gui/EditCalendarDialog"
 import { CalendarType } from "../../../common/calendar/date/CalendarUtils"
 import { Dialog } from "../../../common/gui/base/Dialog"
-import { CalendarEvent, Mail, MailboxProperties } from "../../../common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { QuickAction } from "../../../common/misc/quickactions/QuickActionsModel"
+import { UpgradePromptType } from "@tutao/app-env"
 
 export async function quickCalendarActions(
 	router: Router,
@@ -21,10 +22,10 @@ export async function quickCalendarActions(
 	logins: LoginController,
 	createEventModel: (
 		editMode: CalendarOperation,
-		event: Partial<CalendarEvent>,
+		event: Partial<tutanotaTypeRefs.CalendarEvent>,
 		mailboxDetail: MailboxDetail,
-		mailboxProperties: MailboxProperties,
-		responseTo: Mail | null,
+		mailboxProperties: tutanotaTypeRefs.MailboxProperties,
+		responseTo: tutanotaTypeRefs.Mail | null,
 	) => Promise<CalendarEventModel | null>,
 ): Promise<readonly QuickAction[]> {
 	const newEventAction: QuickAction = {
@@ -45,7 +46,7 @@ export async function quickCalendarActions(
 		exec: () => {
 			const userController = logins.getUserController()
 			if (userController.isFreeAccount()) {
-				showNotAvailableForFreeDialog()
+				showNotAvailableForFreeDialog(UpgradePromptType.MULTIPLE_CALENDARS)
 			} else {
 				showCreateEditCalendarDialog({
 					calendarType: CalendarType.Private,

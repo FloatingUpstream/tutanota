@@ -6,9 +6,9 @@ import {
 	EntityRestInterface,
 	OwnerEncSessionKeyProvider,
 } from "../worker/rest/EntityRestClient"
-import type { RootInstance } from "../entities/sys/TypeRefs.js"
-import { RootInstanceTypeRef } from "../entities/sys/TypeRefs.js"
+import type { ElementEntity, ListElementEntity, SomeEntity } from "@tutao/typerefs"
 import {
+	ClientTypeModelResolver,
 	CUSTOM_MIN_ID,
 	elementIdPart,
 	firstBiggerThanSecond,
@@ -17,13 +17,13 @@ import {
 	getLetId,
 	listIdPart,
 	RANGE_ITEM_LIMIT,
-} from "./utils/EntityUtils"
-import { Type, ValueType } from "./EntityConstants.js"
-import { downcast, groupByAndMap, last, promiseMap, TypeRef } from "@tutao/tutanota-utils"
-import type { ElementEntity, ListElementEntity, SomeEntity } from "./EntityTypes"
-import { NotAuthorizedError, NotFoundError } from "./error/RestError.js"
-import { ProgrammingError } from "./error/ProgrammingError"
-import { ClientTypeModelResolver } from "./EntityFunctions"
+	sysTypeRefs,
+	Type,
+	ValueType,
+} from "@tutao/typerefs"
+import { downcast, groupByAndMap, last, promiseMap, TypeRef } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
+import { ProgrammingError } from "@tutao/app-env"
 
 export class EntityClient {
 	_target: EntityRestInterface
@@ -141,7 +141,7 @@ export class EntityClient {
 	async loadRoot<T extends ElementEntity>(typeRef: TypeRef<T>, groupId: Id, opts: EntityRestClientLoadOptions = {}): Promise<T> {
 		const typeModel = await this.typeModelResolver.resolveClientTypeReference(typeRef)
 		const rootId = [groupId, typeModel.rootId] as const
-		const root = await this.load<RootInstance>(RootInstanceTypeRef, rootId, opts)
+		const root = await this.load<sysTypeRefs.RootInstance>(sysTypeRefs.RootInstanceTypeRef, rootId, opts)
 		return this.load<T>(typeRef, downcast(root.reference), opts)
 	}
 }
@@ -186,7 +186,7 @@ export async function loadMultipleFromLists<T extends ListElementEntity>(
 				} catch (e) {
 					// these are thrown if the list itself is inaccessible. elements will just be missing
 					// in the loadMultiple result.
-					if (e instanceof NotFoundError || e instanceof NotAuthorizedError) {
+					if (e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError) {
 						console.log(`could not load entities of type ${type} from list ${listId}: ${e.name}`)
 						return []
 					} else {

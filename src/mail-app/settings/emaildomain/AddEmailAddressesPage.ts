@@ -2,8 +2,7 @@ import { SelectMailAddressForm, SelectMailAddressFormAttrs } from "../../../comm
 import m, { Children, Component, Vnode, VnodeDOM } from "mithril"
 import { getAliasLineAttrs } from "../../../common/settings/mailaddress/MailAddressTable.js"
 import type { AddDomainData } from "./AddDomainWizard"
-import { CustomerTypeRef, GroupInfoTypeRef } from "../../../common/api/entities/sys/TypeRefs.js"
-import { neverNull } from "@tutao/tutanota-utils"
+import { neverNull } from "@tutao/utils"
 import { Dialog } from "../../../common/gui/base/Dialog"
 import { locator } from "../../../common/api/main/CommonLocator"
 import type { TranslationKey } from "../../../common/misc/LanguageViewModel"
@@ -13,13 +12,14 @@ import { ColumnWidth, Table } from "../../../common/gui/base/Table.js"
 import type { WizardPageAttrs } from "../../../common/gui/base/WizardDialog.js"
 import { emitWizardEvent, WizardEventType } from "../../../common/gui/base/WizardDialog.js"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog"
-import { InvalidDataError, LimitReachedError } from "../../../common/api/common/error/RestError"
-import { assertMainOrNode } from "../../../common/api/common/Env"
+import * as restError from "@tutao/rest-client/error"
+import { assertMainOrNode, UpgradePromptType } from "@tutao/app-env"
 import { Icons } from "../../../common/gui/base/icons/Icons"
 import { ButtonSize } from "../../../common/gui/base/ButtonSize.js"
 import { UpgradeRequiredError } from "../../../common/api/main/UpgradeRequiredError.js"
 import { showPlanUpgradeRequiredDialog } from "../../../common/misc/SubscriptionDialogs.js"
 import { LoginButton } from "../../../common/gui/base/buttons/LoginButton.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -65,7 +65,7 @@ export class AddEmailAddressesPage implements Component<AddEmailAddressesPageAtt
 			onBusyStateChanged: (isBusy) => (a.isMailVerificationBusy = isBusy),
 			injectionsRightButtonAttrs: {
 				title: "addEmailAlias_label",
-				icon: Icons.Add,
+				icon: Icons.Plus,
 				size: ButtonSize.Compact,
 				click: () =>
 					vnode.attrs.addAliasFromInput().then(() => {
@@ -128,8 +128,8 @@ export class AddEmailAddressesPageAttrs implements WizardPageAttrs<AddDomainData
 				return true
 			} else {
 				return locator.entityClient
-					.load(CustomerTypeRef, neverNull(locator.logins.getUserController().user.customer))
-					.then((customer) => locator.entityClient.loadAll(GroupInfoTypeRef, customer.userGroups))
+					.load(sysTypeRefs.CustomerTypeRef, neverNull(locator.logins.getUserController().user.customer))
+					.then((customer) => locator.entityClient.loadAll(sysTypeRefs.GroupInfoTypeRef, customer.userGroups))
 					.then((allUserGroupInfos) => {
 						return allUserGroupInfos.some(
 							(u) =>
@@ -172,12 +172,12 @@ export class AddEmailAddressesPageAttrs implements WizardPageAttrs<AddDomainData
 				)
 				return true
 			} catch (e) {
-				if (e instanceof InvalidDataError) {
+				if (e instanceof restError.InvalidDataError) {
 					await Dialog.message("mailAddressNA_msg")
-				} else if (e instanceof LimitReachedError) {
+				} else if (e instanceof restError.LimitReachedError) {
 					// ignore
 				} else if (e instanceof UpgradeRequiredError) {
-					await showPlanUpgradeRequiredDialog(e.plans, e.message)
+					await showPlanUpgradeRequiredDialog(UpgradePromptType.MORE_ALIASES_NEEDED, e.plans, e.message)
 				} else {
 					throw e
 				}

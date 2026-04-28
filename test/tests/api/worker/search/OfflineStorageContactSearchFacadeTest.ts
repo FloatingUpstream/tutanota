@@ -2,7 +2,7 @@ import o from "@tutao/otest"
 import { OfflineStorageContactSearchFacade } from "../../../../../src/mail-app/workerUtils/index/OfflineStorageContactSearchFacade"
 import { OfflineStorageSearchFacade } from "../../../../../src/mail-app/workerUtils/index/OfflineStorageSearchFacade"
 import { object, when } from "testdouble"
-import { ContactTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { SearchRestriction, SearchResult } from "../../../../../src/common/api/worker/search/SearchTypes"
 
 o.spec("OfflineStorageContactSearchFacade", () => {
@@ -16,7 +16,7 @@ o.spec("OfflineStorageContactSearchFacade", () => {
 
 	o.test("findContacts with restriction", async () => {
 		const expectedRestriction: SearchRestriction = {
-			type: ContactTypeRef,
+			type: tutanotaTypeRefs.ContactTypeRef,
 			field: "mailAddresses",
 			attributeIds: null,
 			start: null,
@@ -36,7 +36,7 @@ o.spec("OfflineStorageContactSearchFacade", () => {
 
 	o.test("findContacts without restriction", async () => {
 		const expectedRestriction: SearchRestriction = {
-			type: ContactTypeRef,
+			type: tutanotaTypeRefs.ContactTypeRef,
 			field: null,
 			attributeIds: null,
 			start: null,

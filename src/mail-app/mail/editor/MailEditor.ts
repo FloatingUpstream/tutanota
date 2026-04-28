@@ -20,15 +20,22 @@ import {
 	ConversationType,
 	ExternalImageRule,
 	FeatureType,
+	isApp,
+	isBrowser,
+	isDesktop,
+	isIOSApp,
 	Keys,
 	MailAuthenticationStatus,
 	MailMethod,
-} from "../../../common/api/common/TutanotaConstants"
-import { TooManyRequestsError } from "../../../common/api/common/error/RestError"
+	minutesToMillis,
+	secondsToMillis,
+	UNDO_SEND_TIMEOUT_SECONDS,
+	UpgradePromptType,
+} from "@tutao/app-env"
+import * as restError from "@tutao/rest-client/error"
 import type { DialogHeaderBarAttrs } from "../../../common/gui/base/DialogHeaderBar"
 import { Button, ButtonColor, ButtonType } from "../../../common/gui/base/Button.js"
 import { attachDropdown, createDropdown, DropdownChildAttrs } from "../../../common/gui/base/Dropdown.js"
-import { isApp, isBrowser, isDesktop } from "../../../common/api/common/Env"
 import { Icons } from "../../../common/gui/base/icons/Icons"
 import { AnimationPromise, animations, height, opacity } from "../../../common/gui/animation/Animations"
 import type { TextFieldAttrs } from "../../../common/gui/base/TextField.js"
@@ -40,32 +47,16 @@ import { UserError } from "../../../common/api/main/UserError"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog"
 import { getHtmlSanitizer, HtmlSanitizer } from "../../../common/misc/HtmlSanitizer"
 import { DropDownSelector } from "../../../common/gui/base/DropDownSelector.js"
-import {
-	Contact,
-	ContactTypeRef,
-	ConversationEntry,
-	createTranslationGetIn,
-	File as TutanotaFile,
-	Mail,
-	MailboxProperties,
-	MailDetails,
-} from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaServices, tutanotaTypeRefs } from "@tutao/typerefs"
 import { FileOpenError } from "../../../common/api/common/error/FileOpenError"
+import { assertNotNull, cleanMatch, debounce, downcast, isNotNull, lazy, noOp, ofClass, throttle, typedValues } from "@tutao/utils"
 import {
-	assertNotNull,
-	cleanMatch,
-	debounce,
-	downcast,
-	isNotNull,
-	lazy,
-	minutesToMillis,
-	noOp,
-	ofClass,
-	secondsToMillis,
-	throttle,
-	typedValues,
-} from "@tutao/tutanota-utils"
-import { createInlineImage, replaceCidsWithInlineImages, replaceInlineImagesWithCids, showDownloadProgressDialog } from "../view/MailGuiUtils"
+	createInlineImage,
+	replaceCidsWithInlineImages,
+	replaceInlineImagesWithCids,
+	showDownloadProgressDialog,
+	showUndoMailSnackbar,
+} from "../view/MailGuiUtils"
 import { client } from "../../../common/misc/ClientDetector"
 import { appendEmailSignature } from "../signature/Signature"
 import { showTemplatePopupInEditor } from "../../templates/view/TemplatePopup"
@@ -90,7 +81,6 @@ import { animateToolbar, RichTextToolbar } from "../../../common/gui/base/RichTe
 import { readLocalFiles } from "../../../common/file/FileController"
 import { IconButton, IconButtonAttrs } from "../../../common/gui/base/IconButton.js"
 import { ToggleButton, ToggleButtonAttrs } from "../../../common/gui/base/buttons/ToggleButton.js"
-import { BootIcons } from "../../../common/gui/base/icons/BootIcons.js"
 import { ButtonSize } from "../../../common/gui/base/ButtonSize.js"
 import { DialogInjectionRightAttrs } from "../../../common/gui/base/DialogInjectionRight.js"
 import { KnowledgebaseDialogContentAttrs } from "../../knowledgebase/view/KnowledgeBaseDialogContent.js"
@@ -102,7 +92,6 @@ import { canSeeTutaLinks } from "../../../common/gui/base/GuiUtils.js"
 import { BannerButtonAttrs, InfoBanner } from "../../../common/gui/base/InfoBanner.js"
 import { isCustomizationEnabledForCustomer } from "../../../common/api/common/utils/CustomerUtils.js"
 import { isOfflineError } from "../../../common/api/common/utils/ErrorUtils.js"
-import { TranslationService } from "../../../common/api/entities/tutanota/Services.js"
 import { PasswordField } from "../../../common/misc/passwords/PasswordField.js"
 import { InlineImages } from "../../../common/mailFunctionality/inlineImagesUtils.js"
 import {
@@ -126,6 +115,9 @@ import { Time } from "../../../common/calendar/date/Time"
 import { getStartOfTheWeekOffsetForUser } from "../../../common/misc/weekOffset"
 import { getTimeFormatForUser } from "../../../common/api/common/utils/UserUtils"
 import { showNotAvailableForFreeDialog } from "../../../common/misc/SubscriptionDialogs"
+import { deviceConfig } from "../../../common/misc/DeviceConfig"
+import { showInfoSnackbar } from "../../../common/gui/base/SnackBar"
+import { loadMailDetails } from "../view/MailViewerUtils"
 
 // Interval where we save drafts locally.
 //
@@ -135,6 +127,9 @@ const AUTOSAVE_LOCAL_TIMEOUT: number = secondsToMillis(5)
 
 // If the editor is left untouched for this amount of time, then the draft will automatically save to the server.
 const AUTOSAVE_REMOTE_TIMEOUT: number = minutesToMillis(5)
+
+// Maximum allowed time before the undo button hides.
+const UNDO_SEND_TIMEOUT: number = secondsToMillis(UNDO_SEND_TIMEOUT_SECONDS)
 
 export type MailEditorAttrs = {
 	model: SendMailModel
@@ -184,8 +179,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 		bcc: stream(""),
 	}
 
-	mentionedInlineImages: Array<string>
-	inlineImageElements: Array<HTMLElement>
+	mentionedInlineImages: Array<{ cid: string; url: string }>
 	templateModel: TemplatePopupModel | null
 	knowledgeBaseInjection: DialogInjectionRightAttrs<KnowledgebaseDialogContentAttrs> | null = null
 	sendMailModel: SendMailModel
@@ -205,7 +199,6 @@ export class MailEditor implements Component<MailEditorAttrs> {
 	constructor(vnode: Vnode<MailEditorAttrs>) {
 		const a = vnode.attrs
 		this.attrs = a
-		this.inlineImageElements = []
 		this.mentionedInlineImages = []
 		const model = a.model
 		this.sendMailModel = model
@@ -222,16 +215,39 @@ export class MailEditor implements Component<MailEditorAttrs> {
 				const sanitized = this.htmlSanitizer.sanitizeFragment(html, {
 					blockExternalContent: !isPaste && this.blockExternalContent,
 				})
+
+				if (isPaste && isIOSApp()) {
+					// For iOS, we want to clear styling because WebKit, when copying, includes way more styling than
+					// desired (regardless of the origin of the text) and all of this styling is then pasted in. This
+					// results in emails being sent with light text and sans-serif fonts that the user did not manually
+					// put in.
+					function stripStylingFromNode(n: HTMLElement | Node) {
+						if (!("style" in n)) {
+							// likely a text node (and either way won't have children)
+							return
+						}
+
+						n.removeAttribute("style")
+
+						for (const childElement of Array.from(n.children)) {
+							stripStylingFromNode(childElement)
+						}
+					}
+
+					for (const childElement of Array.from(sanitized.fragment.childNodes)) {
+						stripStylingFromNode(childElement)
+					}
+				}
+
 				this.blockedExternalContent = sanitized.blockedExternalContent
 
-				this.mentionedInlineImages = sanitized.inlineImageCids
 				return sanitized.fragment
 			},
 			null,
 		)
 
 		const onEditorChanged = () => {
-			cleanupInlineAttachments(this.editor.getDOM(), this.inlineImageElements, model.getAttachments())
+			cleanupInlineAttachments(this.editor.getDOM(), this.mentionedInlineImages, model.getAttachments())
 			model.markAsChangedIfNecessary(true)
 			m.redraw()
 		}
@@ -244,7 +260,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 
 			this.processInlineImages()
 			const htmlBeforeProcessQuotedReply = editorDom.innerHTML
-			this.editor.squire.modifyDocument(() => {
+			this.editor.squire!.modifyDocument(() => {
 				this.processQuotedReply(editorDom)
 			})
 
@@ -263,7 +279,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 					this.shouldCollapseQuotedReply = true
 					this.collapsedReply = null
 				}
-				this.editor.squire.modifyDocument(() => {
+				this.editor.squire!.modifyDocument(() => {
 					// We process with modifyDocument to not raise an input event as that would cause an infinite loop
 					this.processQuotedReply(editorDom)
 				})
@@ -429,6 +445,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 					icon: Icons.More,
 					title: "showText_action",
 					size: ButtonSize.Normal,
+					colors: ButtonColor.MailTextEditor,
 					click: () => this.expandQuotedReply(quoteWrap),
 				}),
 			),
@@ -439,7 +456,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 
 	private expandQuotedReply(quoteWrap: HTMLElement): void {
 		this.shouldCollapseQuotedReply = false
-		this.editor.squire.modifyDocument(() => {
+		this.editor.squire!.modifyDocument(() => {
 			quoteWrap.replaceWith(assertNotNull(this.collapsedReply))
 		})
 	}
@@ -454,12 +471,12 @@ export class MailEditor implements Component<MailEditorAttrs> {
 		return modifiedDom.innerHTML
 	}
 
-	private downloadInlineImage(model: SendMailModel, cid: string) {
+	private async downloadInlineImage(model: SendMailModel, cid: string) {
 		const tutanotaFiles = model.getAttachments().filter((attachment) => isTutanotaFile(attachment))
 		const inlineAttachment = tutanotaFiles.find((attachment) => attachment.cid === cid)
 
 		if (inlineAttachment && isTutanotaFile(inlineAttachment)) {
-			showDownloadProgressDialog(locator.transferProgressDispatcher, [inlineAttachment], locator.fileController.open(inlineAttachment)).catch(
+			showDownloadProgressDialog(locator.transferProgressDispatcher, [inlineAttachment], await locator.fileController.open(inlineAttachment)).catch(
 				ofClass(FileOpenError, () => Dialog.message("canNotOpenFileOnDevice_msg")),
 			)
 		}
@@ -479,7 +496,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 				e.stopPropagation()
 				model.setConfidential(!model.isConfidential())
 			},
-			icon: model.isConfidential() ? Icons.Lock : Icons.Unlock,
+			icon: model.isConfidential() ? Icons.GenericLockFilled : Icons.LockOpenFilled,
 			toggled: model.isConfidential(),
 			size: ButtonSize.Compact,
 		}
@@ -489,7 +506,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 		const attachFilesButtonAttrs: IconButtonAttrs = {
 			title: "attachFiles_action",
 			click: (ev, dom) => chooseAndAttachFile(model, dom.getBoundingClientRect()).then(() => m.redraw()),
-			icon: Icons.Attachment,
+			icon: Icons.Paperclip,
 			size: ButtonSize.Compact,
 		}
 
@@ -506,7 +523,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 			!plaintextFormatting
 				? m(ToggleButton, {
 						title: "showRichTextToolbar_action",
-						icon: Icons.FontSize,
+						icon: Icons.TextHeight,
 						size: ButtonSize.Compact,
 						toggled: a.doShowToolbar(),
 						onToggled: (_, e) => {
@@ -525,7 +542,9 @@ export class MailEditor implements Component<MailEditorAttrs> {
 			oninput: (val) => model.setSubject(val),
 		}
 
-		const attachmentBubbleAttrs = createAttachmentBubbleAttrs(model, this.inlineImageElements)
+		const attachmentBubbleAttrs = createAttachmentBubbleAttrs(model, this.mentionedInlineImages, () => {
+			return this.editor.getDOM()
+		})
 
 		let editCustomNotificationMailAttrs: IconButtonAttrs | null = null
 
@@ -752,7 +771,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 									m.redraw()
 								},
 								// reflect the current mode in the bulb
-								icon: forcedLightMode ? Icons.Bulb : Icons.BulbOutline,
+								icon: forcedLightMode ? Icons.LightbulbFilled : Icons.LightbulbOutline,
 								size: ButtonSize.Compact,
 							})
 						: null,
@@ -769,10 +788,10 @@ export class MailEditor implements Component<MailEditorAttrs> {
 											model.setDefaultSendAtDate()
 										}
 									} else {
-										showNotAvailableForFreeDialog()
+										showNotAvailableForFreeDialog(UpgradePromptType.SEND_LATER)
 									}
 								},
-								icon: Icons.ScheduleMail,
+								icon: Icons.SendlaterFilled,
 								size: ButtonSize.Compact,
 								toggled: model.getSendAtDate() != null,
 							})
@@ -834,7 +853,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 
 		return m(InfoBanner, {
 			message: "contentBlocked_msg",
-			icon: Icons.Picture,
+			icon: Icons.PictureFilled,
 			helpLink: canSeeTutaLinks(attrs.model.logins) ? InfoLink.LoadImages : null,
 			buttons: [showButton],
 		})
@@ -851,7 +870,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 	}
 
 	private processInlineImages() {
-		this.inlineImageElements = replaceCidsWithInlineImages(this.editor.getDOM(), this.sendMailModel.loadedInlineImages, (cid, event, dom) => {
+		this.mentionedInlineImages = replaceCidsWithInlineImages(this.editor.getDOM(), this.sendMailModel.loadedInlineImages, (cid, event, dom) => {
 			const downloadClickHandler = createDropdown({
 				lazyButtons: () => [
 					{
@@ -877,7 +896,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 					knowledgeBaseInjection.componentAttrs.model.init()
 				}
 			},
-			icon: Icons.Book,
+			icon: Icons.BookFilled,
 			size: ButtonSize.Compact,
 		})
 	}
@@ -903,7 +922,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 									click: () => {
 										this.openTemplates()
 									},
-									icon: Icons.ListAlt,
+									icon: Icons.Template,
 									size: ButtonSize.Compact,
 								},
 							]
@@ -924,12 +943,11 @@ export class MailEditor implements Component<MailEditorAttrs> {
 		for (const file of files) {
 			const img = createInlineImage(file as DataFile)
 			model.loadedInlineImages.set(img.cid, img)
-			this.inlineImageElements.push(
-				this.editor.insertImage(img.objectUrl, {
-					cid: img.cid,
-					style: "max-width: 100%",
-				}),
-			)
+			this.mentionedInlineImages.push({ cid: img.cid, url: img.objectUrl })
+			this.editor.insertImage(img.objectUrl, {
+				cid: img.cid,
+				style: "max-width: 100%",
+			})
 		}
 		m.redraw()
 	}
@@ -981,14 +999,14 @@ export class MailEditor implements Component<MailEditorAttrs> {
 				} catch (e) {
 					if (isOfflineError(e)) {
 						// we are offline but we want to show the error dialog only when we click on send.
-					} else if (e instanceof TooManyRequestsError) {
+					} else if (e instanceof restError.TooManyRequestsError) {
 						await Dialog.message("tooManyAttempts_msg")
 					} else {
 						throw e
 					}
 				}
 			},
-			onRecipientRemoved: (address) => this.sendMailModel.removeRecipientByAddress(address, field),
+			onRecipientRemoved: (address) => this.sendMailModel.removeRecipientByAddress(address, [field]),
 			getRecipientClickedDropdownAttrs: (address) => {
 				const recipient = this.sendMailModel.getRecipient(field, address)!
 				return this.getRecipientClickedContextButtons(recipient, field)
@@ -1000,7 +1018,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 							"",
 							m(ToggleButton, {
 								title: "show_action",
-								icon: BootIcons.Expand,
+								icon: Icons.PaddedArrowDown,
 								size: ButtonSize.Compact,
 								toggled: this.areDetailsExpanded,
 								onToggled: (_, e) => {
@@ -1027,7 +1045,7 @@ export class MailEditor implements Component<MailEditorAttrs> {
 			contactModel.getContactListId().then((contactListId: string) => {
 				if (!contactListId) return
 				const id: IdTuple = [contactListId, contactElementId]
-				entity.load(ContactTypeRef, id).then((contact: Contact) => {
+				entity.load(tutanotaTypeRefs.ContactTypeRef, id).then((contact: tutanotaTypeRefs.Contact) => {
 					if (contact.mailAddresses.some((ma) => cleanMatch(ma.address, mailAddress))) {
 						recipient.setName(getContactDisplayName(contact))
 						recipient.setContact(contact)
@@ -1222,16 +1240,56 @@ async function createMailEditorDialog(model: SendMailModel, blockExternalContent
 			// Note: model.send() will save without checking for conflicts, but unlike saving, send() will only ever be
 			// triggered by the user, so this is acceptable.
 			const sendAtDate = model.getSendAtDate()
-			const success = await model.send(
+			const allowUndo = model.undoModel != null && deviceConfig.getIsUndoSendEnabled()
+
+			const { success, sendJob } = await model.send(
 				MailMethod.NONE,
 				Dialog.confirm,
 				showProgressDialog,
 				sendAtDate,
 				sendAtDate ? "tooManyScheduledMails_msg" : undefined,
+				allowUndo,
 			)
 			if (success) {
 				dispose()
 				dialog.close()
+
+				// Undoing is not possible for approval mails, and scheduled mails (should just go to the scheduled folder and cancel it)
+				// But for consistency we always show something to confirm the email was sent/scheduled, since it will be expected for a snackbar to appear
+				if (allowUndo && sendJob != null) {
+					// sent mail that can be undone
+					const sentMail = assertNotNull(model.draft?._id)
+
+					showUndoMailSnackbar(
+						model.undoModel,
+						async () => {
+							if (model.draft) {
+								await model.mailFacade.undoSendMail(sentMail, sendJob)
+								const conversationEntry = await model.entity.load(tutanotaTypeRefs.ConversationEntryTypeRef, model.draft.conversationEntry)
+								// blockExternalContent is just passed as true here, this should be fine as the lookup should find the actual setting and this is just used as a fallback
+								const editorDialog = await newMailEditorFromDraft(
+									model.draft,
+									await loadMailDetails(model.mailFacade, model.draft),
+									conversationEntry,
+									model.getAttachments(),
+									model.loadedInlineImages,
+									true,
+									undefined,
+									model.mailboxDetails,
+								)
+								editorDialog?.show()
+							}
+						},
+						lang.getTranslation("emailSent_msg"),
+						UNDO_SEND_TIMEOUT,
+					)
+				} else if (sendAtDate) {
+					// scheduled mail
+					showInfoSnackbar("emailScheduled_msg")
+				} else {
+					// sent mail that cannot be undone, like approval mail
+					showInfoSnackbar("emailSent_msg")
+				}
 
 				const { handleRatingByEvent } = await import("../../../common/ratings/UserSatisfactionDialog.js")
 				void handleRatingByEvent("Mail")
@@ -1307,7 +1365,7 @@ async function createMailEditorDialog(model: SendMailModel, blockExternalContent
 						m(IconButton, {
 							title: "close_alt",
 							click: () => minimize(),
-							icon: Icons.XCross,
+							icon: Icons.X,
 							colors: ButtonColor.Primary,
 						}),
 					)
@@ -1325,7 +1383,7 @@ async function createMailEditorDialog(model: SendMailModel, blockExternalContent
 						click: () => {
 							send()
 						},
-						icon: scheduledMail ? Icons.ScheduleMail : Icons.Send,
+						icon: scheduledMail ? Icons.SendlaterFilled : Icons.SendFilled,
 						colors: ButtonColor.Primary,
 					})
 				: m(Button, {
@@ -1359,7 +1417,7 @@ async function createMailEditorDialog(model: SendMailModel, blockExternalContent
 
 	const createKnowledgebaseButtonAttrs = async (editor: Editor) => {
 		if (locator.logins.isInternalUserLoggedIn()) {
-			const customer = await locator.logins.getUserController().loadCustomer()
+			const customer = await locator.logins.getUserController().reloadCustomer()
 			// only create knowledgebase button for internal users with valid template group and enabled KnowledgebaseFeature
 			if (
 				styles.isDesktopLayout() &&
@@ -1524,10 +1582,10 @@ export async function newMailEditorAsResponse(
 }
 
 export async function newMailEditorFromDraft(
-	mail: Mail,
-	mailDetails: MailDetails,
-	conversationEntry: ConversationEntry,
-	attachments: TutanotaFile[],
+	mail: tutanotaTypeRefs.Mail,
+	mailDetails: tutanotaTypeRefs.MailDetails,
+	conversationEntry: tutanotaTypeRefs.ConversationEntry,
+	attachments: Attachment[],
 	inlineImages: InlineImages,
 	blockExternalContent: boolean,
 	localDraftData?: LocalAutosavedDraftData,
@@ -1695,7 +1753,10 @@ export async function writeInviteMail(referralLink: string) {
 		"{registrationLink}": referralLink,
 		"{username}": username,
 	})
-	const { invitationSubject } = await locator.serviceExecutor.get(TranslationService, createTranslationGetIn({ lang: lang.code }))
+	const { invitationSubject } = await locator.serviceExecutor.get(
+		tutanotaServices.TranslationService,
+		tutanotaTypeRefs.createTranslationGetIn({ lang: lang.code }),
+	)
 	const dialog = await newMailEditorFromTemplate(detailsProperties.mailboxDetails, {}, invitationSubject, body, [], false)
 	dialog?.show()
 }
@@ -1715,7 +1776,10 @@ export async function writeGiftCardMail(link: string, mailboxDetails?: MailboxDe
 		})
 		.split("\n")
 		.join("<br />")
-	const { giftCardSubject } = await locator.serviceExecutor.get(TranslationService, createTranslationGetIn({ lang: lang.code }))
+	const { giftCardSubject } = await locator.serviceExecutor.get(
+		tutanotaServices.TranslationService,
+		tutanotaTypeRefs.createTranslationGetIn({ lang: lang.code }),
+	)
 	locator
 		.sendMailModel(detailsProperties.mailboxDetails, detailsProperties.mailboxProperties)
 		.then((model) => model.initWithTemplate({}, giftCardSubject, appendEmailSignature(bodyText, locator.logins.getUserController().props), [], false))
@@ -1725,7 +1789,7 @@ export async function writeGiftCardMail(link: string, mailboxDetails?: MailboxDe
 
 async function getMailboxDetailsAndProperties(
 	mailboxDetails: MailboxDetail | null | undefined,
-): Promise<{ mailboxDetails: MailboxDetail; mailboxProperties: MailboxProperties }> {
+): Promise<{ mailboxDetails: MailboxDetail; mailboxProperties: tutanotaTypeRefs.MailboxProperties }> {
 	mailboxDetails = mailboxDetails ?? (await locator.mailboxModel.getUserMailboxDetails())
 	const mailboxProperties = await locator.mailboxModel.getMailboxProperties(mailboxDetails.mailboxGroupRoot)
 	return { mailboxDetails, mailboxProperties }

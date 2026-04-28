@@ -54,17 +54,7 @@
  *     * etc.
  */
 
-import { AccountType } from "../../../../common/api/common/TutanotaConstants.js"
-import {
-	CalendarEvent,
-	CalendarEventAttendee,
-	createCalendarEvent,
-	createEncryptedMailAddress,
-	EncryptedMailAddress,
-	Mail,
-	MailboxProperties,
-} from "../../../../common/api/entities/tutanota/TypeRefs.js"
-import { User } from "../../../../common/api/entities/sys/TypeRefs.js"
+import { getStrippedClone, Stripped, StrippedEntity, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import type { MailboxDetail } from "../../../../common/mailFunctionality/MailboxModel.js"
 import {
 	AlarmInterval,
@@ -75,10 +65,10 @@ import {
 	incrementSequence,
 	parseAlarmInterval,
 } from "../../../../common/calendar/date/CalendarUtils.js"
-import { arrayEqualsWithPredicate, assertNonNull, assertNotNull, identity, lazy, Require } from "@tutao/tutanota-utils"
-import { cleanMailAddress } from "../../../../common/api/common/utils/CommonCalendarUtils.js"
+import { arrayEqualsWithPredicate, assertNonNull, assertNotNull, identity, lazy, Require } from "@tutao/utils"
+import { cleanMailAddress, makeEmptyCalendarEvent } from "../../../../common/api/common/utils/CommonCalendarUtils.js"
 import { assertEventValidity, CalendarInfo, CalendarModel } from "../../model/CalendarModel.js"
-import { NotFoundError, PayloadTooLargeError } from "../../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { CalendarNotificationSender } from "../../view/CalendarNotificationSender.js"
 import { SendMailModel } from "../../../../common/mailFunctionality/SendMailModel.js"
 import { UserError } from "../../../../common/api/main/UserError.js"
@@ -92,15 +82,16 @@ import { CalendarEventWhenModel } from "./CalendarEventWhenModel.js"
 import { CalendarEventWhoModel } from "./CalendarEventWhoModel.js"
 import { CalendarEventAlarmModel } from "./CalendarEventAlarmModel.js"
 import { SanitizedTextViewModel } from "../../../../common/misc/SanitizedTextViewModel.js"
-import { getStrippedClone, Stripped, StrippedEntity } from "../../../../common/api/common/utils/EntityUtils.js"
 import { UserController } from "../../../../common/api/main/UserController.js"
 import { CalendarNotificationModel, CalendarNotificationSendModels } from "./CalendarNotificationModel.js"
 import { CalendarEventApplyStrategies, CalendarEventModelStrategy } from "./CalendarEventModelStrategy.js"
-import { ProgrammingError } from "../../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { SimpleTextViewModel } from "../../../../common/misc/SimpleTextViewModel.js"
 import { AlarmInfoTemplate } from "../../../../common/api/worker/facades/lazy/CalendarFacade.js"
 import { getEventType } from "../CalendarGuiUtils.js"
 import { getDefaultSender } from "../../../../common/mailFunctionality/SharedMailUtils.js"
+import { CalendarInviteHandler } from "../../view/CalendarInvites"
+import { AccountType } from "@tutao/app-env"
 
 /** the type of the event determines which edit operations are available to us. */
 export const enum EventType {
@@ -136,12 +127,12 @@ export const enum ReadonlyReason {
  * when the excluded fields are added, this type can be used to set up a series, update a series or reschedule an instance of a series
  * hashedUid is excluded separately since it's not really relevant to the client's logic.
  */
-export type CalendarEventValues = Omit<Stripped<CalendarEvent>, EventIdentityFieldNames | "hashedUid">
+export type CalendarEventValues = Omit<Stripped<tutanotaTypeRefs.CalendarEvent>, EventIdentityFieldNames | "hashedUid">
 
 /**
  * the parts of a calendar event that define the identity of the event instance.
  */
-export type CalendarEventIdentity = Pick<Stripped<CalendarEvent>, EventIdentityFieldNames>
+export type CalendarEventIdentity = Pick<Stripped<tutanotaTypeRefs.CalendarEvent>, EventIdentityFieldNames>
 
 /**
  * which parts of a calendar event series to apply an edit operation to.
@@ -168,16 +159,17 @@ export const enum CalendarOperation {
  */
 export async function makeCalendarEventModel(
 	operation: CalendarOperation,
-	initialValues: Partial<CalendarEvent>,
+	initialValues: Partial<tutanotaTypeRefs.CalendarEvent>,
 	recipientsModel: RecipientsModel,
 	calendarModel: CalendarModel,
 	logins: LoginController,
 	mailboxDetail: MailboxDetail,
-	mailboxProperties: MailboxProperties,
+	mailboxProperties: tutanotaTypeRefs.MailboxProperties,
 	sendMailModelFactory: lazy<SendMailModel>,
 	notificationSender: CalendarNotificationSender,
 	entityClient: EntityClient,
-	responseTo: Mail | null,
+	responseTo: tutanotaTypeRefs.Mail | null,
+	calendarInviteHandler: CalendarInviteHandler,
 	zone: string = getTimeZone(),
 	showProgress: ShowProgressCallback = identity,
 	uiUpdateCallback: () => void = m.redraw,
@@ -192,9 +184,8 @@ export async function makeCalendarEventModel(
 		}
 	}
 
-	const user = logins.getUserController().user
 	const [alarms, calendars] = await Promise.all([
-		resolveAlarmsForEvent(initialValues.alarmInfos ?? [], calendarModel, user),
+		resolveAlarmsForEvent(initialValues.alarmInfos ?? [], calendarModel, logins.getUserController().user),
 		calendarModel.getCalendarInfos(),
 	])
 	const selectedCalendar = getPreselectedCalendar(calendars, initialValues)
@@ -208,7 +199,7 @@ export async function makeCalendarEventModel(
 		logins.getUserController(),
 	)
 
-	const makeEditModels = (initializationEvent: CalendarEvent) => ({
+	const makeEditModels = (initializationEvent: tutanotaTypeRefs.CalendarEvent) => ({
 		whenModel: new CalendarEventWhenModel(initializationEvent, zone, uiUpdateCallback),
 		whoModel: new CalendarEventWhoModel(
 			initializationEvent,
@@ -235,7 +226,16 @@ export async function makeCalendarEventModel(
 	const recurrenceIds = async (uid?: string) =>
 		uid == null ? [] : ((await calendarModel.getEventsByUid(uid))?.alteredInstances.map((i) => i.recurrenceId) ?? [])
 	const notificationModel = new CalendarNotificationModel(notificationSender, logins)
-	const applyStrategies = new CalendarEventApplyStrategies(calendarModel, logins, notificationModel, recurrenceIds, showProgress, zone)
+	const applyStrategies = new CalendarEventApplyStrategies(
+		calendarModel,
+		logins,
+		notificationModel,
+		makeEditModels,
+		recurrenceIds,
+		showProgress,
+		zone,
+		calendarInviteHandler,
+	)
 	const initialOrDefaultValues = Object.assign(makeEmptyCalendarEvent(), initialValues)
 	const cleanInitialValues = cleanupInitialValuesForEditing(initialOrDefaultValues)
 	const progenitor = () => calendarModel.resolveCalendarEventProgenitor(cleanInitialValues)
@@ -244,19 +244,19 @@ export async function makeCalendarEventModel(
 		applyStrategies,
 		operation,
 		progenitor,
-		createCalendarEvent(initialOrDefaultValues),
+		tutanotaTypeRefs.createCalendarEvent(initialOrDefaultValues),
 		cleanInitialValues,
 	)
 	return strategy && new CalendarEventModel(strategy, eventType, operation, logins.getUserController(), notificationSender, entityClient, calendars)
 }
 
 async function selectStrategy(
-	makeEditModels: (i: StrippedEntity<CalendarEvent>) => CalendarEventEditModels,
+	makeEditModels: (i: StrippedEntity<tutanotaTypeRefs.CalendarEvent>) => CalendarEventEditModels,
 	applyStrategies: CalendarEventApplyStrategies,
 	operation: CalendarOperation,
-	resolveProgenitor: () => Promise<CalendarEvent | null>,
-	existingInstanceIdentity: CalendarEvent,
-	cleanInitialValues: StrippedEntity<CalendarEvent>,
+	resolveProgenitor: () => Promise<tutanotaTypeRefs.CalendarEvent | null>,
+	existingInstanceIdentity: tutanotaTypeRefs.CalendarEvent,
+	cleanInitialValues: StrippedEntity<tutanotaTypeRefs.CalendarEvent>,
 ): Promise<CalendarEventModelStrategy | null> {
 	let editModels: CalendarEventEditModels
 	let apply: () => Promise<void>
@@ -283,7 +283,7 @@ async function selectStrategy(
 			mayRequireSendingUpdates = () => true
 			editModels = makeEditModels(cleanInitialValues)
 		} else {
-			editModels = makeEditModels(cleanInitialValues)
+			editModels = makeEditModels(existingInstanceIdentity)
 			apply = () => applyStrategies.saveExistingAlteredInstance(editModels, existingInstanceIdentity)
 			mayRequireSendingUpdates = () => assembleEditResultAndAssignFromExisting(existingInstanceIdentity, editModels, operation).hasUpdateWorthyChanges
 		}
@@ -298,7 +298,7 @@ async function selectStrategy(
 			mayRequireSendingUpdates = () => true
 		} else {
 			editModels = makeEditModels(cleanInitialValues)
-			apply = () => applyStrategies.deleteAlteredInstance(editModels, existingInstanceIdentity)
+			apply = () => applyStrategies.handleDeleteAlteredInstance(editModels, existingInstanceIdentity)
 			mayRequireSendingUpdates = () => true
 		}
 	} else if (operation === CalendarOperation.EditAll) {
@@ -306,7 +306,7 @@ async function selectStrategy(
 		if (progenitor == null) {
 			return null
 		}
-		editModels = makeEditModels(cleanInitialValues)
+		editModels = makeEditModels(progenitor)
 		apply = () => applyStrategies.saveEntireExistingEvent(editModels, progenitor)
 		mayRequireSendingUpdates = () => assembleEditResultAndAssignFromExisting(existingInstanceIdentity, editModels, operation).hasUpdateWorthyChanges
 	} else if (operation === CalendarOperation.DeleteAll) {
@@ -328,7 +328,7 @@ async function selectStrategy(
 export function getNonOrganizerAttendees({
 	organizer,
 	attendees,
-}: Partial<Pick<Readonly<CalendarEvent>, "attendees" | "organizer">>): ReadonlyArray<CalendarEventAttendee> {
+}: Partial<Pick<Readonly<tutanotaTypeRefs.CalendarEvent>, "attendees" | "organizer">>): ReadonlyArray<tutanotaTypeRefs.CalendarEventAttendee> {
 	if (attendees == null) return []
 	if (organizer == null) return attendees
 	const organizerAddress = cleanMailAddress(organizer.address)
@@ -373,9 +373,9 @@ export class CalendarEventModel {
 			await this.strategy.apply()
 			return EventSaveResult.Saved
 		} catch (e) {
-			if (e instanceof PayloadTooLargeError) {
+			if (e instanceof restError.PayloadTooLargeError) {
 				throw new UserError("requestTooLarge_msg")
-			} else if (e instanceof NotFoundError) {
+			} else if (e instanceof restError.NotFoundError) {
 				return EventSaveResult.NotFound
 			} else {
 				throw e
@@ -441,7 +441,7 @@ export class CalendarEventModel {
  * @returns {boolean} true if changes were made to the event that justify sending updates to attendees.
  * exported for testing
  */
-export function eventHasChanged(now: CalendarEvent, previous: Partial<CalendarEvent> | null): boolean {
+export function eventHasChanged(now: tutanotaTypeRefs.CalendarEvent, previous: Partial<tutanotaTypeRefs.CalendarEvent> | null): boolean {
 	if (previous == null) return true
 	// we do not check for the sequence number (as it should be changed with every update) or the default instance properties such as _id
 	return (
@@ -500,6 +500,8 @@ export function assembleCalendarEventEditResult(models: CalendarEventEditModels)
 			// fields related to the event instance's identity are excluded.
 			// reminders. will be set up separately.
 			alarmInfos: [],
+			pendingInvitation: null,
+			sender: null,
 		},
 		newAlarms: alarmResult.alarms,
 		sendModels: whoResult,
@@ -512,7 +514,11 @@ export function assembleCalendarEventEditResult(models: CalendarEventEditModels)
  * @param editModels the editModels providing the values for the new event.
  * @param operation determines the source of the recurrenceId - in the case of EditThis it's the start time of the original event, otherwise existingEvents' recurrenceId is used.
  */
-export function assembleEditResultAndAssignFromExisting(existingEvent: CalendarEvent, editModels: CalendarEventEditModels, operation: CalendarOperation) {
+export function assembleEditResultAndAssignFromExisting(
+	existingEvent: tutanotaTypeRefs.CalendarEvent,
+	editModels: CalendarEventEditModels,
+	operation: CalendarOperation,
+) {
 	const assembleResult = assembleCalendarEventEditResult(editModels)
 	const { uid: oldUid, sequence: oldSequence, recurrenceId } = existingEvent
 	const newEvent = assignEventIdentity(assembleResult.eventValues, {
@@ -520,6 +526,10 @@ export function assembleEditResultAndAssignFromExisting(existingEvent: CalendarE
 		sequence: incrementSequence(oldSequence),
 		recurrenceId: operation === CalendarOperation.EditThis && recurrenceId == null ? existingEvent.startTime : recurrenceId,
 	})
+
+	if (editModels.whoModel.canModifyGuests && newEvent.startTime.getTime() !== existingEvent.startTime.getTime()) {
+		editModels.whoModel.resetGuestsStatus()
+	}
 
 	assertEventValidity(newEvent)
 
@@ -541,8 +551,8 @@ export function assembleEditResultAndAssignFromExisting(existingEvent: CalendarE
  * @param values
  * @param identity sequence (default "0") and recurrenceId (default null) are optional, but the uid must be specified.
  */
-export function assignEventIdentity(values: CalendarEventValues, identity: Require<"uid", Partial<CalendarEventIdentity>>): CalendarEvent {
-	return createCalendarEvent({
+export function assignEventIdentity(values: CalendarEventValues, identity: Require<"uid", Partial<CalendarEventIdentity>>): tutanotaTypeRefs.CalendarEvent {
+	return tutanotaTypeRefs.createCalendarEvent({
 		sequence: "0",
 		recurrenceId: null,
 		hashedUid: null,
@@ -551,34 +561,19 @@ export function assignEventIdentity(values: CalendarEventValues, identity: Requi
 	})
 }
 
-async function resolveAlarmsForEvent(alarms: CalendarEvent["alarmInfos"], calendarModel: CalendarModel, user: User): Promise<Array<AlarmInterval>> {
+async function resolveAlarmsForEvent(
+	alarms: tutanotaTypeRefs.CalendarEvent["alarmInfos"],
+	calendarModel: CalendarModel,
+	user: sysTypeRefs.User,
+): Promise<Array<AlarmInterval>> {
 	const alarmInfos = await calendarModel.loadAlarms(alarms, user)
 	return alarmInfos.map(({ alarmInfo }) => parseAlarmInterval(alarmInfo.trigger))
 }
 
-function makeEmptyCalendarEvent(): StrippedEntity<CalendarEvent> {
-	return {
-		alarmInfos: [],
-		invitedConfidentially: null,
-		hashedUid: null,
-		uid: null,
-		recurrenceId: null,
-		endTime: new Date(),
-		summary: "",
-		startTime: new Date(),
-		location: "",
-		repeatRule: null,
-		description: "",
-		attendees: [],
-		organizer: null,
-		sequence: "",
-	}
-}
-
-function cleanupInitialValuesForEditing(initialValues: StrippedEntity<CalendarEvent>): CalendarEvent {
+function cleanupInitialValuesForEditing(initialValues: StrippedEntity<tutanotaTypeRefs.CalendarEvent>): tutanotaTypeRefs.CalendarEvent {
 	// the event we got passed may already have some technical fields assigned, so we remove them.
-	const stripped = getStrippedClone<CalendarEvent>(initialValues)
-	const result = createCalendarEvent(stripped)
+	const stripped = getStrippedClone<tutanotaTypeRefs.CalendarEvent>(initialValues)
+	const result = tutanotaTypeRefs.createCalendarEvent(stripped)
 
 	// remove the alarm infos from the result, they don't contain any useful information for the editing operation.
 	// selected alarms are returned in the edit result separate from the event.
@@ -616,7 +611,7 @@ type EventIdentityFieldNames = "uid" | "sequence" | "recurrenceId"
  * @param calendars must contain at least one calendar
  * @param event
  */
-function getPreselectedCalendar(calendars: ReadonlyMap<Id, CalendarInfo>, event?: Partial<CalendarEvent> | null): CalendarInfo {
+function getPreselectedCalendar(calendars: ReadonlyMap<Id, CalendarInfo>, event?: Partial<tutanotaTypeRefs.CalendarEvent> | null): CalendarInfo {
 	const ownerGroup: string | null = event?._ownerGroup ?? null
 	if (ownerGroup == null || !calendars.has(ownerGroup)) {
 		const calendar = findFirstPrivateCalendar(calendars)
@@ -633,11 +628,11 @@ function getPreselectedCalendar(calendars: ReadonlyMap<Id, CalendarInfo>, event?
 function getOwnMailAddressesWithDefaultSenderInFront(
 	logins: LoginController,
 	mailboxDetail: MailboxDetail,
-	mailboxProperties: MailboxProperties,
-): Array<EncryptedMailAddress> {
+	mailboxProperties: tutanotaTypeRefs.MailboxProperties,
+): Array<tutanotaTypeRefs.EncryptedMailAddress> {
 	const defaultSender = getDefaultSender(logins, mailboxDetail)
 	const ownMailAddresses = mailboxProperties.mailAddressProperties.map(({ mailAddress, senderName }) =>
-		createEncryptedMailAddress({
+		tutanotaTypeRefs.createEncryptedMailAddress({
 			address: mailAddress,
 			name: senderName,
 		}),

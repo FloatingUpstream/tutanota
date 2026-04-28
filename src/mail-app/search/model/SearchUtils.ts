@@ -1,5 +1,6 @@
 import m from "mithril"
 import {
+	arrayEquals,
 	assertNotNull,
 	base64ToBase64Url,
 	base64UrlToBase64,
@@ -9,16 +10,17 @@ import {
 	getEndOfDay,
 	getStartOfDay,
 	incrementMonth,
+	isEmpty,
 	isSameTypeRef,
 	stringToBase64,
 	TypeRef,
-} from "@tutao/tutanota-utils"
+} from "@tutao/utils"
 import { RouteSetFn, throttleRoute } from "../../../common/misc/RouteChange"
-import { SearchRestriction } from "../../../common/api/worker/search/SearchTypes"
-import { assertMainOrNode } from "../../../common/api/common/Env"
+import { SearchRestriction, type SearchResult } from "../../../common/api/worker/search/SearchTypes"
+import { assertMainOrNode } from "@tutao/app-env"
 import { TranslationKey } from "../../../common/misc/LanguageViewModel"
-import { CalendarEvent, CalendarEventTypeRef, Contact, ContactTypeRef, Mail, MailTypeRef } from "../../../common/api/entities/tutanota/TypeRefs"
-import { typeModels } from "../../../common/api/entities/tutanota/TypeModels.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { tutanotaTypeModels } from "@tutao/typerefs"
 import { locator } from "../../../common/api/main/CommonLocator.js"
 import {
 	ATTACHMENTS_ID,
@@ -29,7 +31,8 @@ import {
 	LEGACY_TO_RECIPIENTS_ID,
 	SENDER_ID,
 	SUBJECT_ID,
-} from "../../../common/api/common/utils/EntityUtils.js"
+} from "@tutao/typerefs"
+import { SearchQuery } from "./SearchModel"
 
 assertMainOrNode()
 
@@ -44,20 +47,20 @@ export const enum SearchCategoryTypes {
 const SEARCH_CATEGORIES = [
 	{
 		name: SearchCategoryTypes.mail,
-		typeRef: MailTypeRef,
+		typeRef: tutanotaTypeRefs.MailTypeRef,
 	},
 	{
 		name: SearchCategoryTypes.contact,
-		typeRef: ContactTypeRef,
+		typeRef: tutanotaTypeRefs.ContactTypeRef,
 	},
 	{
 		name: SearchCategoryTypes.calendar,
-		typeRef: CalendarEventTypeRef,
+		typeRef: tutanotaTypeRefs.CalendarEventTypeRef,
 	},
 ] as const
 
 /** get the TypeRef that corresponds to the selected category (as taken from the URL: <host>/search/<category>?<query> */
-export function getSearchType(category: string): TypeRef<CalendarEvent> | TypeRef<Mail> | TypeRef<Contact> {
+export function getSearchType(category: string): TypeRef<tutanotaTypeRefs.CalendarEvent> | TypeRef<tutanotaTypeRefs.Mail> | TypeRef<tutanotaTypeRefs.Contact> {
 	return assertNotNull(SEARCH_CATEGORIES.find((c) => c.name === category)).typeRef
 }
 
@@ -76,7 +79,7 @@ export const SEARCH_MAIL_FIELDS: ReadonlyArray<SearchMailField> = [
 	{
 		textId: "subject_label",
 		field: "subject",
-		attributeIds: [typeModels[MailTypeRef.typeId].values[SUBJECT_ID] as number],
+		attributeIds: [tutanotaTypeModels[tutanotaTypeRefs.MailTypeRef.typeId].values[SUBJECT_ID] as number],
 	},
 	{
 		textId: "mailBody_label",
@@ -86,7 +89,7 @@ export const SEARCH_MAIL_FIELDS: ReadonlyArray<SearchMailField> = [
 	{
 		textId: "from_label",
 		field: "from",
-		attributeIds: [typeModels[MailTypeRef.typeId].associations[SENDER_ID].id as number],
+		attributeIds: [tutanotaTypeModels[tutanotaTypeRefs.MailTypeRef.typeId].associations[SENDER_ID].id as number],
 	},
 	{
 		textId: "to_label",
@@ -100,7 +103,7 @@ export const SEARCH_MAIL_FIELDS: ReadonlyArray<SearchMailField> = [
 	{
 		textId: "attachmentName_label",
 		field: "attachment",
-		attributeIds: [typeModels[MailTypeRef.typeId].associations[ATTACHMENTS_ID].id as number],
+		attributeIds: [tutanotaTypeModels[tutanotaTypeRefs.MailTypeRef.typeId].associations[ATTACHMENTS_ID].id as number],
 	},
 ]
 
@@ -208,13 +211,13 @@ export function createRestriction(
 		if (field === "recipient") {
 			r.field = field
 			r.attributeIds = [
-				typeModels[ContactTypeRef.typeId].values["firstName"].id,
-				typeModels[ContactTypeRef.typeId].values["lastName"].id,
-				typeModels[ContactTypeRef.typeId].associations["mailAddresses"].id,
+				tutanotaTypeModels[tutanotaTypeRefs.ContactTypeRef.typeId].values["firstName"].id,
+				tutanotaTypeModels[tutanotaTypeRefs.ContactTypeRef.typeId].values["lastName"].id,
+				tutanotaTypeModels[tutanotaTypeRefs.ContactTypeRef.typeId].associations["mailAddresses"].id,
 			]
 		} else if (field === "mailAddress") {
 			r.field = field
-			r.attributeIds = [typeModels[ContactTypeRef.typeId].associations["mailAddresses"].id]
+			r.attributeIds = [tutanotaTypeModels[tutanotaTypeRefs.ContactTypeRef.typeId].associations["mailAddresses"].id]
 		}
 	}
 
@@ -319,7 +322,65 @@ export function decodeCalendarSearchKey(searchKey: string): { id: Id; start: num
 	return JSON.parse(decodeBase64("utf-8", base64UrlToBase64(searchKey))) as { id: Id; start: number }
 }
 
-export function encodeCalendarSearchKey(event: CalendarEvent): string {
+export function encodeCalendarSearchKey(event: tutanotaTypeRefs.CalendarEvent): string {
 	const eventStartTime = event.startTime.getTime()
 	return base64ToBase64Url(stringToBase64(JSON.stringify({ start: eventStartTime, id: getElementId(event) })))
+}
+
+export function searchQueryEquals(a: SearchQuery, b: SearchQuery) {
+	return (
+		a.query === b.query &&
+		isSameSearchRestriction(a.restriction, b.restriction) &&
+		a.minSuggestionCount === b.minSuggestionCount &&
+		a.maxResults === b.maxResults
+	)
+}
+
+export function isSameSearchRestriction(a: SearchRestriction, b: SearchRestriction): boolean {
+	const isSameAttributeIds = a.attributeIds === b.attributeIds || (!!a.attributeIds && !!b.attributeIds && arrayEquals(a.attributeIds, b.attributeIds))
+	return (
+		isSameTypeRef(a.type, b.type) &&
+		a.start === b.start &&
+		a.end === b.end &&
+		a.field === b.field &&
+		isSameAttributeIds &&
+		(a.eventSeries === b.eventSeries || (a.eventSeries === null && b.eventSeries === true) || (a.eventSeries === true && b.eventSeries === null)) &&
+		arrayEquals(a.folderIds, b.folderIds)
+	)
+}
+
+/**
+ * Returns true when search results have the same restriction but {@link b}'s restriction end is further in the past.
+ *
+ * @param a search result before possible extension
+ * @param b search result after possible extension
+ */
+export function isSameSearchRestrictionWithRangeExtended(a: SearchRestriction, b: SearchRestriction): boolean {
+	const isSameAttributeIds = a.attributeIds === b.attributeIds || (!!a.attributeIds && !!b.attributeIds && arrayEquals(a.attributeIds, b.attributeIds))
+	const isRangeExtended = a.start === b.start && a.end != null && (b.end == null || b.end < a.end)
+
+	return (
+		isSameTypeRef(a.type, b.type) &&
+		isRangeExtended &&
+		a.field === b.field &&
+		isSameAttributeIds &&
+		(a.eventSeries === b.eventSeries || (a.eventSeries === null && b.eventSeries === true) || (a.eventSeries === true && b.eventSeries === null)) &&
+		arrayEquals(a.folderIds, b.folderIds)
+	)
+}
+
+export function areResultsForTheSameQuery(a: SearchResult, b: SearchResult) {
+	return a.query === b.query && isSameSearchRestriction(a.restriction, b.restriction)
+}
+
+export function areResultsForTheSameQueryWithRangeExtended(oldResult: SearchResult, newResult: SearchResult) {
+	return oldResult.query === newResult.query && isSameSearchRestrictionWithRangeExtended(oldResult.restriction, newResult.restriction)
+}
+
+export function hasMoreResults(searchResult: SearchResult): boolean {
+	return (
+		!isEmpty(searchResult.moreResults) ||
+		!isEmpty(searchResult.moreResultsEntries) ||
+		(!isEmpty(searchResult.lastReadSearchIndexRow) && searchResult.lastReadSearchIndexRow.every(([word, id]) => id !== 0))
+	)
 }

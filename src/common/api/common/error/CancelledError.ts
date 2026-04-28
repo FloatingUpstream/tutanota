@@ -1,14 +1,17 @@
 //@bundleInto:common-min
 
-import { TutanotaError } from "@tutao/tutanota-error"
+import { TutanotaError } from "@tutao/app-env"
 
 export class CancelledError extends TutanotaError {
 	/**
 	 * A cancelled error is thrown when a async action is aborted
 	 * @param message An information about the exception.
-	 * @param error The original error that was thrown.
+	 * @param reason A cancellation reason.
 	 */
-	constructor(message: string) {
+	constructor(
+		message: string,
+		readonly reason: string = "unknown",
+	) {
 		super("CancelledError", message)
 	}
 }

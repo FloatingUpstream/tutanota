@@ -1,5 +1,4 @@
 import { UpdatableSettingsViewer } from "../Interfaces.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils.js"
 import m, { ChildArray, Children } from "mithril"
 import { UserController } from "../../api/main/UserController.js"
 import { lang } from "../../misc/LanguageViewModel"
@@ -9,7 +8,7 @@ import { ButtonSize } from "../../gui/base/ButtonSize"
 import { KeyVerificationFacade, TrustedIdentity } from "../../api/worker/facades/lazy/KeyVerificationFacade"
 import { showKeyVerificationDialog } from "./KeyVerificationDialog"
 import { MobileSystemFacade } from "../../native/common/generatedipc/MobileSystemFacade"
-import { UsageTestController } from "@tutao/tutanota-usagetests"
+import { UsageTestController } from "@tutao/usagetests"
 import { TitleSection } from "../../gui/TitleSection"
 import { Card } from "../../gui/base/Card"
 import { renderFingerprintAsQrCode } from "./FingerprintRenderers"
@@ -20,13 +19,12 @@ import { getDefaultSenderFromUser } from "../../mailFunctionality/SharedMailUtil
 import { ThemeController } from "../../gui/ThemeController"
 import { PublicIdentity } from "./KeyVerificationModel"
 import { PublicIdentityKeyProvider } from "../../api/worker/facades/PublicIdentityKeyProvider"
-import { lazy, Versioned } from "@tutao/tutanota-utils"
+import { lazy, Versioned } from "@tutao/utils"
 import { SigningPublicKey } from "../../api/worker/facades/Ed25519Facade"
-import { showSnackBar } from "../../gui/base/SnackBar"
+import { showInfoSnackbar } from "../../gui/base/SnackBar"
 import { copyToClipboard } from "../../misc/ClipboardUtils"
 import { IdentityKeyCreator } from "../../api/worker/facades/lazy/IdentityKeyCreator"
-import { GroupTypeRef } from "../../api/entities/sys/TypeRefs"
-import { isSameId } from "../../api/common/utils/EntityUtils"
+import { entityUpdateUtils, isSameId, sysTypeRefs } from "@tutao/typerefs"
 import { DesktopSystemFacade } from "../../native/common/generatedipc/DesktopSystemFacade.js"
 
 /**
@@ -91,11 +89,14 @@ export class KeyManagementSettingsViewer implements UpdatableSettingsViewer {
 		}
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		// we only need to listen for updates of new identity keys of the user group
 		// everything else is only stored locally
 		for (const update of updates) {
-			if (isUpdateForTypeRef(GroupTypeRef, update) && isSameId(this.userController.userGroupInfo.group, update.instanceId)) {
+			if (
+				entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.GroupTypeRef, update) &&
+				isSameId(this.userController.userGroupInfo.group, update.instanceId)
+			) {
 				await this.loadIdentityKey()
 				m.redraw()
 			}
@@ -124,7 +125,7 @@ export class KeyManagementSettingsViewer implements UpdatableSettingsViewer {
 				},
 				[
 					m(TitleSection, {
-						icon: Icons.KeyRegular,
+						icon: Icons.KeyOutline,
 						title: lang.get("keyManagement.keyVerification_label"),
 						subTitle: lang.get("keyManagement.keyVerification_subtitle_label"),
 					}),
@@ -148,7 +149,7 @@ export class KeyManagementSettingsViewer implements UpdatableSettingsViewer {
 												() => obj.reload(),
 											)
 										},
-										icon: Icons.Add,
+										icon: Icons.Plus,
 										size: ButtonSize.Compact,
 									}),
 								])
@@ -173,7 +174,7 @@ export class KeyManagementSettingsViewer implements UpdatableSettingsViewer {
 						await this.keyVerificationFacade.untrust(mailAddress)
 						await this.reload()
 					},
-					icon: Icons.Trash,
+					icon: Icons.TrashFilled,
 					tooltip: "delete_action",
 				},
 			})
@@ -214,13 +215,7 @@ export class KeyManagementSettingsViewer implements UpdatableSettingsViewer {
 					action: {
 						onClick: async () => {
 							await copyToClipboard(ownIdentity.fingerprint)
-							await showSnackBar({
-								message: "copied_msg",
-								button: {
-									label: "close_alt",
-									click: () => {},
-								},
-							})
+							showInfoSnackbar("copied_msg")
 						},
 						icon: Icons.CopyOutline,
 						tooltip: "copyToClipboard_action",

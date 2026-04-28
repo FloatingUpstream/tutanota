@@ -1,5 +1,5 @@
 import m, { Children, Component, Vnode } from "mithril"
-import { BookingItemFeatureType, FeatureType, GroupType } from "../../../common/api/common/TutanotaConstants.js"
+import { assertMainOrNode, BookingItemFeatureType, FeatureType, GroupType, UpgradePromptType } from "@tutao/app-env"
 import { Dialog } from "../../../common/gui/base/Dialog.js"
 import type { ValidationResult } from "../../../common/settings/SelectMailAddressForm.js"
 import { SelectMailAddressForm } from "../../../common/settings/SelectMailAddressForm.js"
@@ -7,15 +7,14 @@ import { getGroupTypeDisplayName } from "../../../common/settings/groups/GroupDe
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog.js"
 import { InfoLink, lang, TranslationKey } from "../../../common/misc/LanguageViewModel.js"
 import { showBuyDialog } from "../../../common/subscription/BuyDialog.js"
-import { PreconditionFailedError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { showPlanUpgradeRequiredDialog } from "../../../common/misc/SubscriptionDialogs.js"
 import { TemplateGroupPreconditionFailedReason } from "../../../common/sharing/GroupUtils.js"
 import { DropDownSelector } from "../../../common/gui/base/DropDownSelector.js"
 import { TextField } from "../../../common/gui/base/TextField.js"
-import { getFirstOrThrow, ofClass } from "@tutao/tutanota-utils"
+import { getFirstOrThrow, ofClass } from "@tutao/utils"
 import type { GroupManagementFacade } from "../../../common/api/worker/facades/lazy/GroupManagementFacade.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
-import { assertMainOrNode } from "../../../common/api/common/Env.js"
 import { EmailDomainData, getAvailableDomains } from "../../../common/settings/mailaddress/MailAddressesUtils.js"
 import { getAvailablePlansWithTemplates, toFeatureType } from "../../../common/subscription/utils/SubscriptionUtils.js"
 import { MoreInfoLink } from "../../../common/misc/news/MoreInfoLink.js"
@@ -202,13 +201,13 @@ function addTemplateGroup(name: string): Promise<boolean> {
 			.createTemplateGroup(name)
 			.then(() => true)
 			.catch(
-				ofClass(PreconditionFailedError, async (e) => {
+				ofClass(restError.PreconditionFailedError, async (e) => {
 					if (
 						e.data === TemplateGroupPreconditionFailedReason.BUSINESS_FEATURE_REQUIRED ||
 						e.data === TemplateGroupPreconditionFailedReason.UNLIMITED_REQUIRED
 					) {
 						const plans = await getAvailablePlansWithTemplates()
-						showPlanUpgradeRequiredDialog(plans)
+						showPlanUpgradeRequiredDialog(UpgradePromptType.TEMPLATE_LIST, plans)
 					} else {
 						Dialog.message(lang.makeTranslation("confirm_msg", e.message))
 					}

@@ -15,12 +15,10 @@
  */
 import { LoginController } from "../../api/main/LoginController"
 import { EntityClient } from "../../api/common/EntityClient"
-import { GroupInfo, GroupTypeRef } from "../../api/entities/sys/TypeRefs"
+import { getEtId, isSameId, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { getCustomSharedGroupName, getSharedGroupName, isSharedGroupOwner, loadGroupMembers } from "../GroupUtils"
-import { getEtId, isSameId } from "../../api/common/utils/EntityUtils"
-import { noOp, ofClass } from "@tutao/tutanota-utils"
-import { createGroupSettings, GroupSettings } from "../../api/entities/tutanota/TypeRefs"
-import { LockedError } from "../../api/common/error/RestError"
+import { noOp, ofClass } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
 
 /** When there is only a single name that can be edited */
 export interface SingleGroupNameData {
@@ -44,8 +42,8 @@ export class GroupSettingsModel {
 		private readonly loginController: LoginController,
 	) {}
 
-	async getGroupNameData(groupInfo: GroupInfo): Promise<Readonly<GroupNameData>> {
-		const group = await this.entityClient.load(GroupTypeRef, groupInfo.group)
+	async getGroupNameData(groupInfo: sysTypeRefs.GroupInfo): Promise<Readonly<GroupNameData>> {
+		const group = await this.entityClient.load(sysTypeRefs.GroupTypeRef, groupInfo.group)
 		const groupMembers = await loadGroupMembers(group, this.entityClient)
 
 		const userSettingsGroupRoot = this.loginController.getUserController().userSettingsGroupRoot
@@ -74,7 +72,7 @@ export class GroupSettingsModel {
 		}
 	}
 
-	async updateGroupNameData(groupInfo: GroupInfo, data: GroupNameData): Promise<void> {
+	async updateGroupNameData(groupInfo: sysTypeRefs.GroupInfo, data: GroupNameData): Promise<void> {
 		switch (data.kind) {
 			case "single": {
 				await this.updateGroupInfoName(groupInfo, data.name)
@@ -96,19 +94,19 @@ export class GroupSettingsModel {
 		}
 	}
 
-	async updateGroupInfoName(groupInfo: GroupInfo, newName: string) {
+	async updateGroupInfoName(groupInfo: sysTypeRefs.GroupInfo, newName: string) {
 		groupInfo.name = newName
 		await this.entityClient.update(groupInfo)
 	}
 
-	async updateGroupSettings(groupInfo: GroupInfo, newSettings: Partial<GroupSettings>) {
+	async updateGroupSettings(groupInfo: sysTypeRefs.GroupInfo, newSettings: Partial<tutanotaTypeRefs.GroupSettings>) {
 		const { userSettingsGroupRoot } = this.loginController.getUserController()
 		const existingGroupSettings = userSettingsGroupRoot.groupSettings.find((gc) => isSameId(gc.group, groupInfo.group)) ?? null
 
 		if (existingGroupSettings) {
 			Object.assign(existingGroupSettings, newSettings)
 		} else {
-			const newGroupSettings = createGroupSettings({
+			const newGroupSettings = tutanotaTypeRefs.createGroupSettings({
 				group: groupInfo.group,
 				color: "",
 				name: "",
@@ -119,6 +117,6 @@ export class GroupSettingsModel {
 			userSettingsGroupRoot.groupSettings.push(newGroupSettings)
 		}
 
-		await this.entityClient.update(userSettingsGroupRoot).catch(ofClass(LockedError, noOp))
+		await this.entityClient.update(userSettingsGroupRoot).catch(ofClass(restError.LockedError, noOp))
 	}
 }

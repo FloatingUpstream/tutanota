@@ -1,8 +1,8 @@
 import type { Dialog } from "../../../common/gui/base/Dialog"
 import type { SendMailModel } from "../../../common/mailFunctionality/SendMailModel.js"
-import { lastThrow, remove } from "@tutao/tutanota-utils"
-import type { Mail } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { isSameId } from "../../../common/api/common/utils/EntityUtils"
+import { lastThrow, remove } from "@tutao/utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { isSameId } from "@tutao/typerefs"
 import Stream from "mithril/stream"
 
 export const enum SaveStatusEnum {
@@ -90,7 +90,7 @@ export class MinimizedMailEditorViewModel {
 		return this._minimizedEditors
 	}
 
-	getEditorForDraft(mail: Mail): MinimizedEditor | null {
+	getEditorForDraft(mail: tutanotaTypeRefs.Mail): MinimizedEditor | null {
 		return this.getEditorForDraftById(mail._id)
 	}
 

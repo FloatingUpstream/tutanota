@@ -1,5 +1,5 @@
-import { assert } from "@tutao/tutanota-utils"
-import { assertMainOrNodeBoot } from "../../api/common/Env"
+import { assert } from "@tutao/utils"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 

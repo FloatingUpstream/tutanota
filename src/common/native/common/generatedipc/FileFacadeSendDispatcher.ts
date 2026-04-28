@@ -37,8 +37,14 @@ export class FileFacadeSendDispatcher implements FileFacade {
 	async upload(...args: Parameters<FileFacade["upload"]>) {
 		return this.transport.invokeNative("ipc", ["FileFacade", "upload", ...args])
 	}
+	async abortUpload(...args: Parameters<FileFacade["abortUpload"]>) {
+		return this.transport.invokeNative("ipc", ["FileFacade", "abortUpload", ...args])
+	}
 	async download(...args: Parameters<FileFacade["download"]>) {
 		return this.transport.invokeNative("ipc", ["FileFacade", "download", ...args])
+	}
+	async abortDownload(...args: Parameters<FileFacade["abortDownload"]>) {
+		return this.transport.invokeNative("ipc", ["FileFacade", "abortDownload", ...args])
 	}
 	async hashFile(...args: Parameters<FileFacade["hashFile"]>) {
 		return this.transport.invokeNative("ipc", ["FileFacade", "hashFile", ...args])
@@ -60,6 +66,9 @@ export class FileFacadeSendDispatcher implements FileFacade {
 	}
 	async readFromAppDir(...args: Parameters<FileFacade["readFromAppDir"]>) {
 		return this.transport.invokeNative("ipc", ["FileFacade", "readFromAppDir", ...args])
+	}
+	async deleteFromAppDir(...args: Parameters<FileFacade["deleteFromAppDir"]>) {
+		return this.transport.invokeNative("ipc", ["FileFacade", "deleteFromAppDir", ...args])
 	}
 	async readDataFile(...args: Parameters<FileFacade["readDataFile"]>) {
 		return this.transport.invokeNative("ipc", ["FileFacade", "readDataFile", ...args])

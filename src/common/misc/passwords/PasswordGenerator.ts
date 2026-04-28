@@ -1,5 +1,5 @@
-import { assertMainOrNode } from "../../api/common/Env"
-import { assert } from "@tutao/tutanota-utils"
+import { assertMainOrNode } from "@tutao/app-env"
+import { assert } from "@tutao/utils"
 import { WorkerRandomizer } from "../../api/worker/workerInterfaces.js"
 
 assertMainOrNode()

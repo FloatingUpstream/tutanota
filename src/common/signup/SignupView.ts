@@ -1,5 +1,5 @@
 import m, { Vnode } from "mithril"
-import { assertMainOrNode, isDesktop, isIOSApp } from "../api/common/Env"
+import { assertMainOrNode, AvailablePlanType, isDesktop, isIOSApp, PlanType, SubscriptionType } from "@tutao/app-env"
 import { InfoLink, lang, MaybeTranslation, Translation, TranslationKey } from "../misc/LanguageViewModel.js"
 import { BaseTopLevelView } from "../gui/BaseTopLevelView.js"
 import { TopLevelAttrs, TopLevelView } from "../../TopLevelView.js"
@@ -8,7 +8,7 @@ import { NewAccountData, ReferralData, SubscriptionParameters } from "../subscri
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import { asPaymentInterval, PaymentInterval, PriceAndConfigProvider, SubscriptionPrice } from "../subscription/utils/PriceUtils"
-import { AvailablePlanType, getDefaultPaymentMethod, InvoiceData, PaymentData, PlanType, SubscriptionType } from "../api/common/TutanotaConstants"
+import { InvoiceData } from "@tutao/app-env"
 import { canSubscribeToPlan, queryAppStoreSubscriptionOwnership, UpgradeType } from "../subscription/utils/SubscriptionUtils"
 import { locator } from "../api/main/CommonLocator"
 import {
@@ -21,7 +21,6 @@ import {
 } from "../misc/LoginUtils"
 import { FeatureListProvider, SelectedSubscriptionOptions, UpgradePriceType } from "../subscription/FeatureListProvider"
 import { MobilePaymentSubscriptionOwnership } from "../native/common/generatedipc/MobilePaymentSubscriptionOwnership"
-import { AccountingInfo, Customer } from "../api/entities/sys/TypeRefs"
 import { PowSolution } from "../api/common/pow-worker"
 import { PlanSelectorPage } from "./PlanSelectorPage"
 import { SignupFormPage } from "./SignupFormPage"
@@ -29,15 +28,16 @@ import InvoiceAndPaymentDataPageNew from "./InvoiceAndPaymentDataPageNew"
 import { SimplifiedCreditCardViewModel } from "../subscription/SimplifiedCreditCardInputModel"
 import { IconMessageBox, InfoMessaggeBoxAttrs } from "../gui/base/ColumnEmptyMessageBox"
 import { theme } from "../gui/theme"
-import { BootIcons } from "../gui/base/icons/BootIcons"
-import { Country } from "../api/common/CountryList"
+import { countryList } from "@tutao/app-env"
 import { RecoveryKitPage } from "../subscription/RecoveryKitPage"
 import { UpgradeConfirmSubscriptionPageNew } from "../subscription/UpgradeConfirmSubscriptionPageNew"
 import { ReferralType, SignupFlowStage, SignupFlowUsageTestController } from "../subscription/usagetest/UpgradeSubscriptionWizardUsageTestUtils"
 import { completeUpgradeStage } from "../ratings/UserSatisfactionUtils"
 import { windowFacade } from "../misc/WindowFacade"
 import SignupWizardLayout from "./SignupWizardLayout"
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
+import { Icons } from "../gui/base/icons/Icons"
+import { getDefaultPaymentMethod, PaymentData, sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -56,8 +56,8 @@ export class SignupViewModel {
 	public targetPlanType: PlanType
 	public price: SubscriptionPrice | null
 	public nextYearPrice: SubscriptionPrice | null
-	public accountingInfo: AccountingInfo | null
-	public customer: Customer | null
+	public accountingInfo: sysTypeRefs.AccountingInfo | null
+	public customer: sysTypeRefs.Customer | null
 	public newAccountData: NewAccountData | null
 	public registrationDataId: string | null
 	public priceInfoTextId?: TranslationKey | null
@@ -113,7 +113,7 @@ export class SignupViewModel {
 		}
 		this.price = null
 		this.nextYearPrice = null
-		this.targetPlanType = PlanType.Revolutionary
+		this.targetPlanType = PlanType.Legend
 		this.accountingInfo = null
 		this.customer = null
 		this.newAccountData = null
@@ -148,7 +148,7 @@ export class SignupViewModel {
 		this.nextYearPrice = this.price.rawPrice !== nextYear.rawPrice ? nextYear : null
 	}
 
-	public updateInvoiceCountry(country: Country) {
+	public updateInvoiceCountry(country: countryList.Country) {
 		this.invoiceData.country = country
 		// We overwrite this flag only for th UI change, this does not affect anything for the stored data in the server.
 		// Actual paymentBillingAgreement is removed in PaymentDataService.put if the updated payment method is not PayPal.
@@ -248,7 +248,7 @@ export class SignupView extends BaseTopLevelView implements TopLevelView<SignupV
 					? m(
 							".flex-grow.flex.col.justify-center",
 							m(IconMessageBox, {
-								icon: BootIcons.Progress,
+								icon: Icons.Sync,
 								message: "pleaseWait_msg",
 								color: theme.on_surface_variant,
 							} satisfies InfoMessaggeBoxAttrs),
@@ -272,13 +272,21 @@ export class SignupView extends BaseTopLevelView implements TopLevelView<SignupV
 								{
 									title: "Create Account",
 									content: SignupFormPage,
-									onNext: () =>
+									onNext: () => {
 										SignupFlowUsageTestController.completeStage(
 											SignupFlowStage.CREATE_ACCOUNT,
 											this.wizardViewModel.targetPlanType,
 											this.wizardViewModel.options.paymentInterval(),
-										),
-									onPrev: () => SignupFlowUsageTestController.deletePing(SignupFlowStage.SELECT_PLAN),
+										)
+										if (isIOSApp()) {
+											SignupFlowUsageTestController.completeStage(
+												SignupFlowStage.SELECT_PAYMENT_METHOD,
+												this.wizardViewModel.targetPlanType,
+												this.wizardViewModel.options.paymentInterval(),
+												this.wizardViewModel.paymentData.paymentMethod,
+											)
+										}
+									},
 								},
 								{
 									title: "Payment",
@@ -290,9 +298,6 @@ export class SignupView extends BaseTopLevelView implements TopLevelView<SignupV
 											this.wizardViewModel.options.paymentInterval(),
 											this.wizardViewModel.paymentData.paymentMethod,
 										)
-									},
-									onPrev: () => {
-										SignupFlowUsageTestController.deletePing(SignupFlowStage.CREATE_ACCOUNT)
 									},
 									isEnabled: (ctx) => ctx.viewModel.targetPlanType !== PlanType.Free && !isIOSApp(),
 								},
@@ -316,10 +321,6 @@ export class SignupView extends BaseTopLevelView implements TopLevelView<SignupV
 										if (this.wizardViewModel.isCalledBySatisfactionDialog) {
 											completeUpgradeStage(this.wizardViewModel.currentPlan!, this.wizardViewModel.targetPlanType)
 										}
-									},
-									onPrev: (ctx) => {
-										SignupFlowUsageTestController.deletePing(SignupFlowStage.SELECT_PAYMENT_METHOD)
-										ctx.controller.setStepUnreachable(ctx.controller.currentStep)
 									},
 									isEnabled: (ctx) => ctx.viewModel.targetPlanType !== PlanType.Free,
 								},
