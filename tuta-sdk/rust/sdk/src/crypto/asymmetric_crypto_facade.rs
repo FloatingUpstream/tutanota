@@ -12,6 +12,7 @@ use crate::crypto::tuta_crypt::{TutaCryptError, TutaCryptMessage, TutaCryptPubli
 use crate::crypto::x25519::{X25519KeyPair, X25519PublicKey};
 use crate::crypto::Aes256Key;
 use crate::entities::generated::sys::{PubEncKeyData, PublicKeyPutIn};
+use crate::entities::generated::tutanota::InternalRecipientKeyData;
 #[cfg_attr(test, mockall_double::double)]
 use crate::key_loader_facade::KeyLoaderFacade;
 use crate::services::generated::sys::PublicKeyService;
@@ -20,10 +21,14 @@ use crate::services::service_executor::ServiceExecutor;
 use crate::services::ExtraServiceParams;
 use crate::tutanota_constants::CryptoProtocolVersion;
 use crate::tutanota_constants::EncryptionAuthStatus;
+use crate::tutanota_constants::PublicKeyIdentifierType;
 use crate::util::ArrayCastingError;
 use crate::util::{convert_version_to_u64, Versioned};
 use crate::ApiCallError;
+use crate::CustomId;
 use crate::GeneratedId;
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
 use crypto_primitives::randomizer_facade::RandomizerFacade;
 use std::sync::Arc;
 use zeroize::Zeroizing;
@@ -287,6 +292,35 @@ impl AsymmetricCryptoFacade {
 				}
 			},
 		}
+	}
+
+	pub async fn create_internal_recipient_key_data(
+		&self,
+		bucket_key: GenericAesKey,
+		recipient_mail_address: &str,
+		sender_group_id: &GeneratedId,
+	) -> Result<InternalRecipientKeyData, AsymmetricCryptoError> {
+		let recipient_public_keys = self
+			.public_key_provider
+			.load_current_pub_key(&PublicKeyIdentifier {
+				identifier: recipient_mail_address.to_string(),
+				identifier_type: PublicKeyIdentifierType::MailAddress,
+			})
+			.await?;
+		let encrypted = self
+			.asym_encrypt_sym_key(bucket_key, recipient_public_keys, sender_group_id)
+			.await?;
+
+		Ok(InternalRecipientKeyData {
+			_id: Some(CustomId(
+				BASE64_URL_SAFE_NO_PAD.encode(self.randomizer_facade.generate_random_array::<4>()),
+			)),
+			mailAddress: recipient_mail_address.to_string(),
+			pubEncBucketKey: encrypted.pub_enc_sym_key_bytes,
+			recipientKeyVersion: encrypted.recipient_key_version as i64,
+			protocolVersion: encrypted.crypto_protocol_version as i64,
+			senderKeyVersion: encrypted.sender_key_version.map(|v| v as i64),
+		})
 	}
 
 	/// Encrypts the symKey asymmetrically with the provided public keys using the TutaCrypt protocol.

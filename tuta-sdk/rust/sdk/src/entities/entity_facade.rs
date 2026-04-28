@@ -150,9 +150,6 @@ impl EntityFacadeImpl {
 
 			let encrypted_value = if !value_type.encrypted {
 				instance_value.clone()
-			} else if instance_value.eq(&value_type.value_type.get_default()) {
-				// If the value is a default value and encrypted, we restore an empty string (default for encrypted fields)
-				ElementValue::String(String::new())
 			} else {
 				Self::encrypt_value(
 					value_type,
