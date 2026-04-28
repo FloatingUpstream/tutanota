@@ -13,7 +13,7 @@ use crate::element_value::{ElementValue, ParsedEntity};
 use crate::entities::entity_facade::{EntityFacade, ID_FIELD};
 use crate::entities::generated::base::PersistenceResourcePostReturn;
 use crate::entities::generated::sys::BucketKey;
-use crate::entities::generated::tutanota::{Mail, MailAddress};
+use crate::entities::generated::tutanota::{InternalRecipientKeyData, Mail, MailAddress};
 use crate::entities::Entity;
 #[cfg_attr(test, mockall_double::double)]
 use crate::entity_client::EntityClient;
@@ -66,6 +66,17 @@ impl CryptoEntityClient {
 	#[must_use]
 	pub fn get_crypto_facade(&self) -> &Arc<CryptoFacade> {
 		&self.crypto_facade
+	}
+
+	pub async fn create_internal_recipient_key_data(
+		&self,
+		bucket_key: GenericAesKey,
+		recipient_mail_address: &str,
+		sender_group_id: &GeneratedId,
+	) -> Result<InternalRecipientKeyData, AsymmetricCryptoError> {
+		self.asymmetric_crypto_facade
+			.create_internal_recipient_key_data(bucket_key, recipient_mail_address, sender_group_id)
+			.await
 	}
 
 	pub async fn load<T: Entity + DeserializeOwned, ID: IdType>(
