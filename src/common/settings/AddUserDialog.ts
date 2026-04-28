@@ -1,16 +1,15 @@
 import m from "mithril"
 import { lang, MaybeTranslation, TranslationKey } from "../misc/LanguageViewModel.js"
-import { BookingItemFeatureType } from "../api/common/TutanotaConstants.js"
+import { assertMainOrNode, BookingItemFeatureType, UpgradePromptType } from "@tutao/app-env"
 import { Dialog } from "../gui/base/Dialog.js"
 import { PasswordForm, PasswordModel } from "./PasswordForm.js"
 import { SelectMailAddressForm } from "./SelectMailAddressForm.js"
-import { assertNotNull, getFirstOrThrow, ofClass } from "@tutao/tutanota-utils"
+import { assertNotNull, getFirstOrThrow, ofClass } from "@tutao/utils"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog.js"
-import { PreconditionFailedError } from "../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { showBuyDialog } from "../subscription/BuyDialog.js"
 import { TextField } from "../gui/base/TextField.js"
 import { locator } from "../api/main/CommonLocator.js"
-import { assertMainOrNode } from "../api/common/Env.js"
 import { getAvailableDomains } from "./mailaddress/MailAddressesUtils.js"
 import { toFeatureType } from "../subscription/utils/SubscriptionUtils.js"
 import { showUpgradeWizard } from "../subscription/UpgradeSubscriptionWizard.js"
@@ -45,6 +44,7 @@ export async function show(): Promise<void> {
 					onDomainChanged: (domain) => {
 						if (domain.isPaid && !onNewPaidPlan) {
 							showUpgradeWizard({
+								upgradePromptType: UpgradePromptType.ADD_USER_WITH_NEW_DOMAIN,
 								logins: locator.logins,
 								msg: lang.makeTranslation("change_to_new_plan", `${lang.get("paidEmailDomainLegacy_msg")}\n${lang.get("changePaidPlan_msg")}`),
 							})
@@ -113,7 +113,7 @@ export async function show(): Promise<void> {
 					p,
 					operation.progress,
 				)
-					.catch(ofClass(PreconditionFailedError, (e) => Dialog.message("createUserFailed_msg")))
+					.catch(ofClass(restError.PreconditionFailedError, (e) => Dialog.message("createUserFailed_msg")))
 					.then(() => dialog.close())
 					.finally(() => operation.done())
 			}

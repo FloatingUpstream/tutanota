@@ -46,6 +46,9 @@ pub struct TutanotaFile {
 	pub cid: Option<String>,
 	#[serde(rename = "1391")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1831")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "25")]
 	pub parent: Option<IdTupleGenerated>,
 	#[serde(rename = "26")]
@@ -82,6 +85,9 @@ pub struct FileSystem {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1392")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1834")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "35")]
 	pub files: GeneratedId,
 
@@ -246,6 +252,9 @@ pub struct Contact {
 	pub department: Option<String>,
 	#[serde(rename = "1394")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1837")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "80")]
 	pub mailAddresses: Vec<ContactMailAddress>,
 	#[serde(rename = "81")]
@@ -381,14 +390,17 @@ pub struct Mail {
 	pub encryptionAuthStatus: Option<i64>,
 	#[serde(rename = "1395")]
 	pub _ownerKeyVersion: Option<i64>,
-	#[serde(rename = "1677")]
-	pub keyVerificationState: Option<i64>,
 	#[serde(rename = "1728")]
 	pub processingState: i64,
 	#[serde(rename = "1769")]
 	pub processNeeded: bool,
 	#[serde(rename = "1784")]
 	pub sendAt: Option<DateTime>,
+	#[serde(rename = "1814")]
+	pub serverClassificationData: Option<String>,
+	#[serde(rename = "1839")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "111")]
 	pub sender: MailAddress,
 	#[serde(rename = "115")]
@@ -439,6 +451,9 @@ pub struct MailBox {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1396")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1840")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "133")]
 	pub sentAttachments: GeneratedId,
 	#[serde(rename = "134")]
@@ -568,6 +583,9 @@ pub struct ContactList {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1397")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1843")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "160")]
 	pub contacts: GeneratedId,
 	#[serde(rename = "856")]
@@ -725,6 +743,9 @@ pub struct TutanotaProperties {
 	pub userKeyVersion: Option<i64>,
 	#[serde(rename = "1510")]
 	pub defaultLabelCreated: bool,
+	#[serde(rename = "1851")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "221")]
 	pub lastPushedMail: Option<IdTupleGenerated>,
 	#[serde(rename = "222")]
@@ -813,6 +834,9 @@ pub struct MailSet {
 	pub _ownerKeyVersion: Option<i64>,
 	#[serde(rename = "1479")]
 	pub color: Option<String>,
+	#[serde(rename = "1847")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "439")]
 	pub parentFolder: Option<IdTupleGenerated>,
 	#[serde(rename = "1459")]
@@ -1294,6 +1318,8 @@ pub struct SendDraftData {
 	pub sessionEncEncryptionAuthStatus: Option<Vec<u8>>,
 	#[serde(rename = "1809")]
 	pub sendAt: Option<DateTime>,
+	#[serde(rename = "1822")]
+	pub allowUndo: bool,
 	#[serde(rename = "553")]
 	pub internalRecipientKeyData: Vec<InternalRecipientKeyData>,
 	#[serde(rename = "554")]
@@ -1330,6 +1356,8 @@ pub struct SendDraftReturn {
 	pub notifications: Vec<NotificationMail>,
 	#[serde(rename = "562")]
 	pub sentMail: IdTupleGenerated,
+	#[serde(rename = "1823")]
+	pub sendJob: Option<IdTupleGenerated>,
 }
 
 impl Entity for SendDraftReturn {
@@ -1843,6 +1871,13 @@ pub struct CalendarEvent {
 	pub recurrenceId: Option<DateTime>,
 	#[serde(rename = "1401")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1812")]
+	pub sender: Option<String>,
+	#[serde(rename = "1813")]
+	pub pendingInvitation: Option<bool>,
+	#[serde(rename = "1845")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "945")]
 	pub repeatRule: Option<CalendarRepeatRule>,
 	#[serde(rename = "946")]
@@ -1881,6 +1916,9 @@ pub struct CalendarGroupRoot {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1402")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1848")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "954")]
 	pub shortEvents: GeneratedId,
 	#[serde(rename = "955")]
@@ -2011,6 +2049,9 @@ pub struct UserSettingsGroupRoot {
 	pub _ownerKeyVersion: Option<i64>,
 	#[serde(rename = "1735")]
 	pub birthdayCalendarColor: Option<String>,
+	#[serde(rename = "1850")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "979")]
 	pub groupSettings: Vec<GroupSettings>,
 
@@ -2029,14 +2070,14 @@ impl Entity for UserSettingsGroupRoot {
 
 #[derive(uniffi::Record, Clone, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(PartialEq, Debug))]
-pub struct CalendarDeleteData {
+pub struct CalendarDeleteIn {
 	#[serde(rename = "983")]
 	pub _format: i64,
 	#[serde(rename = "984")]
 	pub groupRootId: GeneratedId,
 }
 
-impl Entity for CalendarDeleteData {
+impl Entity for CalendarDeleteIn {
 	fn type_ref() -> TypeRef {
 		TypeRef {
 			app: AppName::Tutanota,
@@ -2346,6 +2387,9 @@ pub struct CalendarEventUpdate {
 	pub sender: String,
 	#[serde(rename = "1405")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1838")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1112")]
 	pub file: IdTupleGenerated,
 
@@ -2536,6 +2580,9 @@ pub struct EmailTemplate {
 	pub tag: String,
 	#[serde(rename = "1406")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1841")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1167")]
 	pub contents: Vec<EmailTemplateContent>,
 
@@ -2593,6 +2640,9 @@ pub struct KnowledgeBaseEntry {
 	pub description: String,
 	#[serde(rename = "1413")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1842")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1180")]
 	pub keywords: Vec<KnowledgeBaseEntryKeyword>,
 
@@ -2625,6 +2675,9 @@ pub struct TemplateGroupRoot {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1412")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1844")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1188")]
 	pub templates: GeneratedId,
 	#[serde(rename = "1189")]
@@ -2679,6 +2732,9 @@ pub struct MailboxProperties {
 	pub reportMovedMails: i64,
 	#[serde(rename = "1411")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1846")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1267")]
 	pub mailAddressProperties: Vec<MailAddressProperties>,
 
@@ -2904,6 +2960,9 @@ pub struct MailDetailsDraft {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1407")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1830")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1297")]
 	pub details: MailDetails,
 
@@ -2936,6 +2995,9 @@ pub struct MailDetailsBlob {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1408")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1833")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1305")]
 	pub details: MailDetails,
 
@@ -3008,6 +3070,9 @@ pub struct ContactListEntry {
 	pub emailAddress: String,
 	#[serde(rename = "1409")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1835")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 
 	#[serde(default)]
 	pub _errors: Errors,
@@ -3038,6 +3103,9 @@ pub struct ContactListGroupRoot {
 	pub _ownerEncSessionKey: Option<Vec<u8>>,
 	#[serde(rename = "1410")]
 	pub _ownerKeyVersion: Option<i64>,
+	#[serde(rename = "1836")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 	#[serde(rename = "1340")]
 	pub entries: GeneratedId,
 
@@ -4071,7 +4139,13 @@ pub struct ClientSpamTrainingDatum {
 	pub spamDecision: i64,
 	#[serde(rename = "1746")]
 	#[serde(with = "serde_bytes")]
-	pub vector: Vec<u8>,
+	pub vectorLegacy: Vec<u8>,
+	#[serde(rename = "1817")]
+	#[serde(with = "serde_bytes")]
+	pub vectorWithServerClassifiers: Option<Vec<u8>>,
+	#[serde(rename = "1849")]
+	#[serde(with = "serde_bytes")]
+	pub _kdfNonce: Option<Vec<u8>>,
 
 	#[serde(default)]
 	pub _errors: Errors,
@@ -4124,7 +4198,10 @@ pub struct ProcessInboxDatum {
 	pub classifierType: Option<i64>,
 	#[serde(rename = "1763")]
 	#[serde(with = "serde_bytes")]
-	pub encVector: Vec<u8>,
+	pub encVectorLegacy: Vec<u8>,
+	#[serde(rename = "1815")]
+	#[serde(with = "serde_bytes")]
+	pub encVectorWithServerClassifiers: Option<Vec<u8>>,
 	#[serde(rename = "1760")]
 	pub mailId: IdTupleGenerated,
 	#[serde(rename = "1761")]
@@ -4178,7 +4255,10 @@ pub struct PopulateClientSpamTrainingDatum {
 	pub confidence: i64,
 	#[serde(rename = "1777")]
 	#[serde(with = "serde_bytes")]
-	pub encVector: Vec<u8>,
+	pub encVectorLegacy: Vec<u8>,
+	#[serde(rename = "1816")]
+	#[serde(with = "serde_bytes")]
+	pub encVectorWithServerClassifiers: Option<Vec<u8>>,
 	#[serde(rename = "1774")]
 	pub mailId: IdTupleGenerated,
 }
@@ -4219,6 +4299,8 @@ pub struct SendDraftDeleteIn {
 	pub _format: i64,
 	#[serde(rename = "1787")]
 	pub mail: IdTupleGenerated,
+	#[serde(rename = "1824")]
+	pub sendJob: Option<IdTupleGenerated>,
 }
 
 impl Entity for SendDraftDeleteIn {

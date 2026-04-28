@@ -2,8 +2,7 @@ import m, { ChildArray, Children } from "mithril"
 import { Dialog } from "../../gui/base/Dialog.js"
 import { formatDateWithMonth, formatStorageSize } from "../../misc/Formatter.js"
 import { lang } from "../../misc/LanguageViewModel.js"
-import { getFirstOrThrow, neverNull } from "@tutao/tutanota-utils"
-import { GroupType } from "../../api/common/TutanotaConstants.js"
+import { getFirstOrThrow, neverNull } from "@tutao/utils"
 import type { TableAttrs } from "../../gui/base/Table.js"
 import { ColumnWidth, Table, TableLineAttrs } from "../../gui/base/Table.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
@@ -11,13 +10,13 @@ import { showProgressDialog } from "../../gui/dialogs/ProgressDialog.js"
 import { TextField } from "../../gui/base/TextField.js"
 import type { DropDownSelectorAttrs } from "../../gui/base/DropDownSelector.js"
 import { DropDownSelector } from "../../gui/base/DropDownSelector.js"
-import { assertMainOrNode } from "../../api/common/Env.js"
+import { assertMainOrNode, GroupType } from "@tutao/app-env"
 import { IconButton, IconButtonAttrs } from "../../gui/base/IconButton.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
 import { GroupDetailsModel } from "../../../mail-app/settings/groups/GroupDetailsModel.js"
 import { showBuyDialog } from "../../subscription/BuyDialog.js"
-import { EntityUpdateData } from "../../api/common/utils/EntityUpdateUtils.js"
 import { UpdatableSettingsDetailsViewer } from "../Interfaces.js"
+import { entityUpdateUtils } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -66,7 +65,7 @@ export class GroupDetailsView implements UpdatableSettingsDetailsViewer {
 				isReadOnly: true,
 				injectionsRight: () =>
 					m(IconButton, {
-						icon: Icons.Edit,
+						icon: Icons.PenFilled,
 						title: "setSenderName_action",
 						click: () => {
 							this.showChangeSenderNameDialog()
@@ -112,7 +111,7 @@ export class GroupDetailsView implements UpdatableSettingsDetailsViewer {
 				m(IconButton, {
 					title: "edit_action",
 					click: () => this.showChangeNameDialog(),
-					icon: Icons.Edit,
+					icon: Icons.PenFilled,
 					size: ButtonSize.Compact,
 				}),
 		})
@@ -182,7 +181,7 @@ export class GroupDetailsView implements UpdatableSettingsDetailsViewer {
 		})
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		return this.model.entityEventsReceived(updates)
 	}
 
@@ -192,7 +191,7 @@ export class GroupDetailsView implements UpdatableSettingsDetailsViewer {
 		const addUserButtonAttrs: IconButtonAttrs = {
 			title: "addUserToGroup_label",
 			click: () => this.showAddMemberDialog(),
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			size: ButtonSize.Compact,
 		} as const
 
@@ -200,7 +199,7 @@ export class GroupDetailsView implements UpdatableSettingsDetailsViewer {
 			const removeButtonAttrs: IconButtonAttrs = {
 				title: "remove_action",
 				click: () => showProgressDialog("pleaseWait_msg", this.model.removeGroupMember(userGroupInfo)),
-				icon: Icons.Cancel,
+				icon: Icons.X,
 				size: ButtonSize.Compact,
 			}
 			return {

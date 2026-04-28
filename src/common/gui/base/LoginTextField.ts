@@ -4,9 +4,9 @@ import { DefaultAnimationTime } from "../animation/Animations"
 import { theme } from "../theme"
 import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
-import type { lazy } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
 import { isKeyPressed, keyHandler, useKeyHandler } from "../../misc/KeyManager"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { ClickHandler, getOperatingClasses } from "./GuiUtils"
 import { AriaPopupType } from "../AriaUtils.js"
 import { AllIcons, Icon, IconSize } from "./Icon"
@@ -264,8 +264,8 @@ export class LoginTextField implements ClassComponent<LoginTextFieldAttrs> {
 						class: getOperatingClasses(a.disabled) + " text",
 						oncreate: (vnode) => {
 							this.domInput = vnode.dom as HTMLInputElement
-							a.onDomInputCreated?.(this.domInput)
 							this.domInput.value = a.value
+							a.onDomInputCreated?.(this.domInput)
 							if (a.type !== TextFieldType.Area) {
 								;(vnode.dom as HTMLElement).addEventListener("animationstart", (e: AnimationEvent) => {
 									if (e.animationName === "onAutoFillStart") {

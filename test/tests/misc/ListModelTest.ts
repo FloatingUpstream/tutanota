@@ -1,20 +1,19 @@
 import o from "@tutao/otest"
 import { ListModel, ListModelConfig } from "../../../src/common/misc/ListModel.js"
-import { getElementId, sortCompareById, timestampToGeneratedId } from "../../../src/common/api/common/utils/EntityUtils.js"
-import { defer, DeferredObject, getFirstOrThrow, lastThrow } from "@tutao/tutanota-utils"
-import { KnowledgeBaseEntry, KnowledgeBaseEntryTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { getElementId, sortCompareById, timestampToGeneratedId, tutanotaTypeRefs } from "@tutao/typerefs"
+import { defer, DeferredObject, getFirstOrThrow, lastThrow } from "@tutao/utils"
 import { ListFetchResult } from "../../../src/common/gui/base/ListUtils.js"
 import { ListLoadingState } from "../../../src/common/gui/base/List.js"
-import { ConnectionError } from "../../../src/common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { createTestEntity } from "../TestUtils.js"
 import { ListAutoSelectBehavior } from "../../../src/common/misc/DeviceConfig.js"
 
 o.spec("ListModel", function () {
 	const listId = "listId"
-	let fetchDefer: DeferredObject<ListFetchResult<KnowledgeBaseEntry>>
-	let listModel: ListModel<KnowledgeBaseEntry, Id>
+	let fetchDefer: DeferredObject<ListFetchResult<tutanotaTypeRefs.KnowledgeBaseEntry>>
+	let listModel: ListModel<tutanotaTypeRefs.KnowledgeBaseEntry, Id>
 	let currentSelectBehavior = ListAutoSelectBehavior.OLDER
-	const defaultListConfig: ListModelConfig<KnowledgeBaseEntry, Id> = {
+	const defaultListConfig: ListModelConfig<tutanotaTypeRefs.KnowledgeBaseEntry, Id> = {
 		fetch: () => fetchDefer.promise,
 		sortCompare: (l, r) => l.title.localeCompare(r.title),
 		autoSelectBehavior: () => currentSelectBehavior,
@@ -22,33 +21,33 @@ o.spec("ListModel", function () {
 		isSameId: (id1: string, id2: string) => id1 === id2,
 	}
 
-	const itemA = createTestEntity(KnowledgeBaseEntryTypeRef, {
+	const itemA = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 		_id: [listId, "a"],
 		title: "a",
 	})
-	const itemB = createTestEntity(KnowledgeBaseEntryTypeRef, {
+	const itemB = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 		_id: [listId, "b"],
 		title: "b",
 	})
-	const itemC = createTestEntity(KnowledgeBaseEntryTypeRef, {
+	const itemC = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 		_id: [listId, "c"],
 		title: "c",
 	})
-	const itemD = createTestEntity(KnowledgeBaseEntryTypeRef, {
+	const itemD = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 		_id: [listId, "d"],
 		title: "d",
 	})
 
 	const items = Object.freeze([itemA, itemB, itemC, itemD])
 
-	async function setItems(items: readonly KnowledgeBaseEntry[]) {
+	async function setItems(items: readonly tutanotaTypeRefs.KnowledgeBaseEntry[]) {
 		fetchDefer.resolve({ items: items.slice(), complete: true })
 		await listModel.loadInitial()
 	}
 
 	o.beforeEach(function () {
-		fetchDefer = defer<ListFetchResult<KnowledgeBaseEntry>>()
-		listModel = new ListModel<KnowledgeBaseEntry, Id>(defaultListConfig)
+		fetchDefer = defer<ListFetchResult<tutanotaTypeRefs.KnowledgeBaseEntry>>()
+		listModel = new ListModel<tutanotaTypeRefs.KnowledgeBaseEntry, Id>(defaultListConfig)
 	})
 
 	o.spec("loading states", function () {
@@ -63,7 +62,7 @@ o.spec("ListModel", function () {
 		o("when connection error occurs it wil set state to connectionLost", async function () {
 			const loading = listModel.loadInitial()
 			o(listModel.state.loadingStatus).equals(ListLoadingState.Loading)
-			fetchDefer.reject(new ConnectionError("oops"))
+			fetchDefer.reject(new restError.ConnectionError("oops"))
 			await loading
 			o(listModel.state.loadingStatus).equals(ListLoadingState.ConnectionLost)
 		})
@@ -85,7 +84,7 @@ o.spec("ListModel", function () {
 			const moreLoading = listModel.loadMore()
 			o(listModel.state.loadingStatus).equals(ListLoadingState.Loading)
 
-			const knowledgeBaseEntry = createTestEntity(KnowledgeBaseEntryTypeRef, {
+			const knowledgeBaseEntry = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 				_id: [listId, timestampToGeneratedId(10)],
 			})
 			fetchDefer.resolve({
@@ -96,10 +95,9 @@ o.spec("ListModel", function () {
 			o(listModel.state.loadingStatus).equals(ListLoadingState.Done)
 			o(listModel.state.items).deepEquals([knowledgeBaseEntry])
 		})
-
 		o("when called with retryLoading after connection error it will set state to loading and will load again", async function () {
 			const initialLoading = listModel.loadInitial()
-			fetchDefer.reject(new ConnectionError("oops"))
+			fetchDefer.reject(new restError.ConnectionError("oops"))
 			await initialLoading
 
 			fetchDefer = defer()
@@ -108,6 +106,79 @@ o.spec("ListModel", function () {
 
 			fetchDefer.resolve({ items: [], complete: true })
 			await retryLoading
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Done)
+		})
+
+		o("when reload is called it reloads if the list model is in Idle or Done state", async function () {
+			const initialLoading = listModel.loadInitial()
+			fetchDefer.resolve({ items: [], complete: false })
+			await initialLoading
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Idle)
+			fetchDefer = defer()
+			const reloading1 = listModel.reload()
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Loading)
+
+			const knowledgeBaseEntry1 = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
+				_id: [listId, timestampToGeneratedId(10)],
+			})
+
+			fetchDefer.resolve({
+				items: [knowledgeBaseEntry1],
+				complete: true,
+			})
+
+			await reloading1
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Done)
+			o(listModel.state.items).deepEquals([knowledgeBaseEntry1])
+
+			fetchDefer = defer()
+			const reloading2 = listModel.reload()
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Loading)
+
+			const knowledgeBaseEntry2 = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
+				_id: [listId, timestampToGeneratedId(20)],
+			})
+
+			fetchDefer.resolve({
+				items: [knowledgeBaseEntry2],
+				complete: true,
+			})
+
+			await reloading2
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Done)
+			o(listModel.state.items).deepEquals([knowledgeBaseEntry2])
+		})
+
+		o("when reload is called and initialLoading is null it does do the initial load", async function () {
+			const result = listModel.reload()
+			fetchDefer.resolve({ items: [], complete: false })
+
+			await result
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Idle)
+		})
+
+		o("when reload is called on already loading list model it does start another load after the current one is done", async function () {
+			const initialLoading = listModel.loadInitial()
+			fetchDefer.resolve({ items: [], complete: false })
+			await initialLoading
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Idle)
+			fetchDefer = defer()
+
+			const reload1 = listModel.reload()
+			const reload2 = listModel.reload()
+
+			o(listModel.state.loadingStatus).equals(ListLoadingState.Loading)
+
+			fetchDefer.resolve({ items: [], complete: true })
+
+			await reload1
+			await reload2
 
 			o(listModel.state.loadingStatus).equals(ListLoadingState.Done)
 		})
@@ -154,7 +225,7 @@ o.spec("ListModel", function () {
 			})
 
 			o("when selectNext and the next item has the same sorting order it gets selected", async function () {
-				const itemAWithTitleB = createTestEntity(KnowledgeBaseEntryTypeRef, {
+				const itemAWithTitleB = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 					_id: itemB._id,
 					title: itemA.title,
 				})
@@ -184,7 +255,7 @@ o.spec("ListModel", function () {
 			})
 
 			o("when selectPrevious and the next item has the same sorting order it gets selected", async function () {
-				const itemCWithTitleB = createTestEntity(KnowledgeBaseEntryTypeRef, {
+				const itemCWithTitleB = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 					_id: itemC._id,
 					title: itemB.title,
 				})
@@ -480,7 +551,7 @@ o.spec("ListModel", function () {
 		})
 
 		o("when selectPrevious the item with the same sorting order above the anchor it gets selected", async function () {
-			const itemBWithTitleC = createTestEntity(KnowledgeBaseEntryTypeRef, {
+			const itemBWithTitleC = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 				_id: itemB._id,
 				title: itemC.title,
 			})
@@ -493,7 +564,7 @@ o.spec("ListModel", function () {
 		})
 
 		o("when selectPrevious the item with the same sorting order below the anchor it gets deselected", async function () {
-			const itemDWithTitleC = createTestEntity(KnowledgeBaseEntryTypeRef, {
+			const itemDWithTitleC = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 				_id: itemD._id,
 				title: itemC.title,
 			})
@@ -507,7 +578,7 @@ o.spec("ListModel", function () {
 		})
 
 		o("when selectNext the item with the same sorting order below the anchor it gets selected", async function () {
-			const itemCWithTitleB = createTestEntity(KnowledgeBaseEntryTypeRef, {
+			const itemCWithTitleB = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 				_id: itemC._id,
 				title: itemB.title,
 			})
@@ -520,7 +591,7 @@ o.spec("ListModel", function () {
 		})
 
 		o("when selectNext the item with the same sorting order above the anchor it gets deselected", async function () {
-			const itemDWithTitleC = createTestEntity(KnowledgeBaseEntryTypeRef, {
+			const itemDWithTitleC = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 				_id: itemD._id,
 				title: itemC.title,
 			})
@@ -720,7 +791,7 @@ o.spec("ListModel", function () {
 
 			o.test("when ListAutoSelectBehavior.NEWER with equally sorted items the previous item is selected", async function () {
 				currentSelectBehavior = ListAutoSelectBehavior.NEWER
-				const itemCWithTitleB = createTestEntity(KnowledgeBaseEntryTypeRef, {
+				const itemCWithTitleB = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 					_id: itemC._id,
 					title: itemB.title,
 				})
@@ -750,7 +821,7 @@ o.spec("ListModel", function () {
 
 			o.test("when ListAutoSelectBehavior.OLDER with equally sorted items the next item is selected", async function () {
 				currentSelectBehavior = ListAutoSelectBehavior.OLDER
-				const itemBWithTitleA = createTestEntity(KnowledgeBaseEntryTypeRef, {
+				const itemBWithTitleA = createTestEntity(tutanotaTypeRefs.KnowledgeBaseEntryTypeRef, {
 					_id: itemB._id,
 					title: itemA.title,
 				})

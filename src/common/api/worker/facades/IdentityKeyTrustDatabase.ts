@@ -1,11 +1,9 @@
-import { isBrowser } from "../../common/Env"
+import { IdentityKeySourceOfTrust, isBrowser } from "@tutao/app-env"
 import { TaggedSqlValue } from "../offline/SqlValue"
 import { SigningKeyPairType, SigningPublicKey } from "./Ed25519Facade"
-import { checkKeyVersionConstraints } from "./KeyLoaderFacade"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
-import { bytesToEd25519PublicKey, ed25519PublicKeyToBytes } from "@tutao/tutanota-crypto"
-import { IdentityKeySourceOfTrust } from "../../common/TutanotaConstants"
-import { lazy, Versioned } from "@tutao/tutanota-utils"
+import { ProgrammingError } from "@tutao/app-env"
+import { bytesToEd25519PublicKey, cryptoUtils, ed25519PublicKeyToBytes } from "@tutao/crypto"
+import { lazy, Versioned } from "@tutao/utils"
 import { sql } from "../offline/Sql"
 import { SqlCipherFacade } from "../../../native/common/generatedipc/SqlCipherFacade"
 import type { OfflineStorageTable } from "../offline/OfflineStorage"
@@ -142,7 +140,7 @@ export class IdentityKeyTrustDatabase {
 		const mailAddress = entry.mailAddress.value as string
 
 		const keyType = entry.identityKeyType.value as SigningKeyPairType
-		const keyVersion = checkKeyVersionConstraints(entry.identityKeyVersion.value as number)
+		const keyVersion = cryptoUtils.checkKeyVersionConstraints(entry.identityKeyVersion.value as number)
 		if (keyType !== SigningKeyPairType.Ed25519) {
 			throw new ProgrammingError("unexpected signing key pair type, " + keyType)
 		}

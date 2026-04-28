@@ -9,12 +9,11 @@ import { LoginButton } from "../../../gui/base/buttons/LoginButton"
 import { KeyVerificationModel } from "../KeyVerificationModel"
 import { Icon, IconSize } from "../../../gui/base/Icon"
 import { theme } from "../../../gui/theme"
-import { debounce } from "@tutao/tutanota-utils"
-import { IdentityKeyVerificationMethod } from "../../../api/common/TutanotaConstants"
+import { debounce } from "@tutao/utils"
 import { getCleanedMailAddress } from "../../../misc/parsing/MailAddressParser"
-import { BootIcons } from "../../../gui/base/icons/BootIcons"
 import { TitleSection } from "../../../gui/TitleSection"
 import { FingerprintRow } from "../FingerprintRow"
+import { IdentityKeyVerificationMethod } from "@tutao/app-env"
 
 type VerificationByTextPageAttrs = {
 	model: KeyVerificationModel
@@ -49,7 +48,7 @@ export class VerificationByManualInputPage implements Component<VerificationByTe
 					disabled: false,
 					classes: ["flex", "gap-8", "items-center", "pl-8"],
 					leadingIcon: {
-						icon: BootIcons.User,
+						icon: Icons.PersonFilled,
 						color: getColors(ButtonColor.Content).button,
 					},
 					value: model.mailAddressInput,
@@ -97,7 +96,7 @@ export class VerificationByManualInputPage implements Component<VerificationByTe
 								goToSuccessPage()
 							},
 							icon: m(Icon, {
-								icon: Icons.XCheckmark,
+								icon: Icons.Checkmark,
 								size: IconSize.PX20,
 								class: "mr-8 flex-center",
 							}),
@@ -109,7 +108,7 @@ export class VerificationByManualInputPage implements Component<VerificationByTe
 								vnode.attrs.gotToMismatchPage()
 							},
 							icon: m(Icon, {
-								icon: Icons.XCross,
+								icon: Icons.X,
 								size: IconSize.PX20,
 								class: "mr-8 flex-center",
 								style: {

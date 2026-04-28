@@ -1,5 +1,5 @@
 // DO NOT EDIT: automatically generated
-// Please edit translations via Phrase: https://tuta.com/blog/tutanota-translation-project
+// Please edit translations via POEditor: https://tuta.com/blog/tutanota-translation-project
 export default {
 	"code": "hu",
 	"keys": {
@@ -449,6 +449,7 @@ export default {
 		"dark_blue_label": "Sötét Kék",
 		"dark_label": "Sötét",
 		"dark_red_label": "Sötét Vörös",
+		"dataExpired_label": "Az adatok lejártak.",
 		"dataExpired_msg": "A betöltött adatok elavultak és nem egyeznek meg a Tuta szerverein található adatokkal. Kérjük, jelentkezzen ki, majd újra be az adatok frissítéséhez!",
 		"dataExpiredOfflineDb_msg": "Az Ön helyi adatai nincsenek szinkronban a Tuta szervereinek adataival. Ki lesz léptetve és helyben tárolt adatai törlődnek, szükség esetén újra letöltődnek.",
 		"dataWillBeStored_msg": "Az adatok az Ön eszközén kerülnek tárolásra.",
@@ -502,7 +503,6 @@ export default {
 		"deleteSharedCalendarConfirm_msg": "A naptár \"{calendar}\" megosztásra került másokkal.",
 		"deleteSingleEventRecurrence_action": "Csak ezt az eseményt törölje!",
 		"deleteTemplate_msg": "Biztos benne, hogy törölni akarja ezt a sablont?",
-		"deleteTemplateGroups_msg": "Továbbra is aktívak a sablonlisták, amelyeket törölni kell, mielőtt vissza tud lépni/minősíteni . Ez magában foglalhatja a felhasználóihoz tartozó megosztott sablonlistákat vagy sablonlistákat.",
 		"deleteThisAndFutureOccurrences_action": "Ennek és a jövőbeni eseményeknek a törlése",
 		"deleteThisAndFutureOccurrencesConfirmation_msg": "Biztos benne, hogy törli ezt és az összes jövőbeni eseményt?",
 		"department_placeholder": "Osztály",
@@ -1261,7 +1261,6 @@ export default {
 		"outOfOfficeTimeRange_msg": "Csak ebben az időszakban küldje:",
 		"outOfOfficeTimeRangeHelp_msg": "Ellenőrizze a választható dátumokat.",
 		"outOfOfficeUnencrypted_msg": "Kérjük, jegyezze meg, hogy az automatikus válaszok (ún. autoresponses-ek) egyszerű szövegben kerülnek megküldésre!",
-		"outOfSync_label": "Az adatok lejártak.",
 		"overwrite_action": "Felülírás",
 		"owner_label": "Tulajdonos.",
 		"pageBackward_label": "Előző lap",
@@ -1797,7 +1796,6 @@ export default {
 		"sortBy_label": "Rendezés szempontja:",
 		"sourceColor_label": "Forrás színe",
 		"spam_action": "Spam",
-		"spam_move_action": "Áthelyezés a spam-be",
 		"spamReports_label": "Jelentse a kéretlen levelet (spam)!",
 		"spamRuleEnterValue_msg": "Kérjük adjon meg egy értéket.",
 		"spelling_label": "Helyesírás",
@@ -2036,7 +2034,7 @@ export default {
 		"updateThisAndFutureEvents_action": "Ennek és a jövő eseményeinek napra késszé tétele",
 		"upgrade_action": "Frissítés",
 		"upgradeConfirm_msg": "Erősítse meg megrendelését!",
-		"upgradeNeeded_msg": "Jelenleg csak a sales@tutao.de címen tud e-mailt váltani, mivel a regisztráció során nem végezte el a fizetős előfizetés foglalását. A foglalást a regisztrációt követő 14 napon belül fejezheti be, ellenkező esetben a fiókja deaktiválásra kerül.",
+		"upgradeNeeded_msg": "Jelenleg csak a invoice@tutao.de címen tud e-mailt váltani, mivel a regisztráció során nem végezte el a fizetős előfizetés foglalását. A foglalást a regisztrációt követő 14 napon belül fejezheti be, ellenkező esetben a fiókja deaktiválásra kerül.",
 		"upgradePlan_msg": "Az előfizetését frissíteni fogjuk {plan}.",
 		"upgradePremium_label": "Prémium",
 		"upgradeReminderCancel_action": "Később",

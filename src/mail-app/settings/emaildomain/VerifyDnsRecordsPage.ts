@@ -1,22 +1,22 @@
 import { DomainDnsStatus } from "../DomainDnsStatus"
 import m, { Children, Vnode, VnodeDOM } from "mithril"
-import { assertEnumValue, CustomDomainCheckResult, DnsRecordType, DnsRecordValidation } from "../../../common/api/common/TutanotaConstants"
+import { CustomDomainCheckResult, DnsRecordType, DnsRecordValidation } from "@tutao/app-env"
 import { InfoLink, lang, TranslationKey } from "../../../common/misc/LanguageViewModel"
 import type { AddDomainData, ValidatedDnSRecord } from "./AddDomainWizard"
 import { ActionDialogProps, Dialog } from "../../../common/gui/base/Dialog"
 import type { WizardPageAttrs } from "../../../common/gui/base/WizardDialog.js"
 import { emitWizardEvent, WizardEventType, WizardPageN } from "../../../common/gui/base/WizardDialog.js"
 import { Button, ButtonType } from "../../../common/gui/base/Button.js"
-import type { DnsRecord } from "../../../common/api/entities/sys/TypeRefs.js"
-import { BootIcons } from "../../../common/gui/base/icons/BootIcons"
-import { assertMainOrNode } from "../../../common/api/common/Env"
-import { downcast } from "@tutao/tutanota-utils"
+import { assertMainOrNode } from "@tutao/app-env"
+import { downcast } from "@tutao/utils"
 import { ButtonSize } from "../../../common/gui/base/ButtonSize.js"
 import { IconButtonAttrs } from "../../../common/gui/base/IconButton.js"
 import { ColumnWidth, Table } from "../../../common/gui/base/Table.js"
 import { DnsRecordTable } from "./DnsRecordTable.js"
 import { LoginButton } from "../../../common/gui/base/buttons/LoginButton.js"
 import { MoreInfoLink } from "../../../common/misc/news/MoreInfoLink.js"
+import { Icons } from "../../../common/gui/base/icons/Icons"
+import { assertEnumValue, sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -90,7 +90,7 @@ function _updateDnsStatus(domainStatus: DomainDnsStatus): Promise<void> {
 	})
 }
 
-function _getDisplayableRecordValue(record: DnsRecord): string {
+function _getDisplayableRecordValue(record: sysTypeRefs.DnsRecord): string {
 	if (
 		!record.value.endsWith(".") &&
 		(record.type === DnsRecordType.DNS_RECORD_TYPE_MX ||
@@ -138,7 +138,7 @@ export function renderCheckResult(domainStatus: DomainDnsStatus, hideRefreshButt
 			const displayableRecordValue = _getDisplayableRecordValue(record)
 
 			const helpInfo: string[] = []
-			let validatedRecord: DnsRecord | null = null
+			let validatedRecord: sysTypeRefs.DnsRecord | null = null
 
 			for (let missingRecord of findDnsRecordInList(record, missingRecords)) {
 				validatedRecord = record
@@ -175,7 +175,7 @@ export function renderCheckResult(domainStatus: DomainDnsStatus, hideRefreshButt
 					? null
 					: {
 							title: "refresh_action",
-							icon: BootIcons.Progress,
+							icon: Icons.Sync,
 							size: ButtonSize.Compact,
 							click: () => _updateDnsStatus(domainStatus),
 						},
@@ -193,7 +193,7 @@ export function renderCheckResult(domainStatus: DomainDnsStatus, hideRefreshButt
 	}
 }
 
-function findDnsRecordInList(record: DnsRecord, recordList: Array<DnsRecord>): Array<DnsRecord> {
+function findDnsRecordInList(record: sysTypeRefs.DnsRecord, recordList: Array<sysTypeRefs.DnsRecord>): Array<sysTypeRefs.DnsRecord> {
 	return recordList.filter((r) => r.type === record.type && r.subdomain === record.subdomain)
 }
 

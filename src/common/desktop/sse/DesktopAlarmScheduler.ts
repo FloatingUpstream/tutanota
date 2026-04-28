@@ -1,12 +1,14 @@
-import { AlarmNotification } from "../../api/entities/sys/TypeRefs.js"
+import { ClientModelUntypedInstance } from "@tutao/typerefs"
 import type { DesktopNotifier } from "../notifications/DesktopNotifier"
 import type { WindowManager } from "../DesktopWindowManager"
 import type { DesktopAlarmStorage } from "./DesktopAlarmStorage"
 import { log } from "../DesktopLog"
 import type { AlarmScheduler } from "../../calendar/date/AlarmScheduler.js"
-import { isSameDay } from "@tutao/tutanota-utils"
-import { formatDateWithWeekdayAndTime, formatTime } from "../../misc/Formatter"
-import { ClientModelUntypedInstance } from "../../api/common/EntityTypes"
+
+import { sysTypeRefs } from "@tutao/typerefs"
+
+import { formatNotificationForDisplay } from "../../misc/Formatter"
+import { isAllDayEvent } from "../../api/common/utils/CommonCalendarUtils"
 
 export class DesktopAlarmScheduler {
 	constructor(
@@ -51,7 +53,7 @@ export class DesktopAlarmScheduler {
 		await this.alarmStorage.deleteAlarm(alarmIdentifier)
 	}
 
-	async handleCreateAlarm(an: AlarmNotification) {
+	async handleCreateAlarm(an: sysTypeRefs.AlarmNotification) {
 		log.debug("creating alarm notification!")
 		this.scheduleAlarms(an)
 		await this.alarmStorage.storeAlarm(an)
@@ -61,7 +63,7 @@ export class DesktopAlarmScheduler {
 		this.alarmScheduler.cancelAlarm(alarmIdentifier)
 	}
 
-	private scheduleAlarms(decAn: AlarmNotification): void {
+	private scheduleAlarms(decAn: sysTypeRefs.AlarmNotification): void {
 		const eventInfo = {
 			startTime: decAn.eventStart,
 			endTime: decAn.eventEnd,
@@ -69,7 +71,7 @@ export class DesktopAlarmScheduler {
 		}
 
 		this.alarmScheduler.scheduleAlarm(eventInfo, decAn.alarmInfo, decAn.repeatRule, (eventTime, summary) => {
-			const { title, body } = formatNotificationForDisplay(eventTime, summary)
+			const { title, body } = formatNotificationForDisplay(eventTime, summary, isAllDayEvent(eventInfo))
 			this.notifier.showCountedUserNotification({
 				title,
 				body,
@@ -82,18 +84,4 @@ export class DesktopAlarmScheduler {
 			})
 		})
 	}
-}
-
-export function formatNotificationForDisplay(eventTime: Date, summary: string): { title: string; body: string } {
-	let dateString: string
-
-	if (isSameDay(eventTime, new Date())) {
-		dateString = formatTime(eventTime)
-	} else {
-		dateString = formatDateWithWeekdayAndTime(eventTime)
-	}
-
-	const body = `${dateString} ${summary}`
-
-	return { body, title: body }
 }

@@ -1,42 +1,30 @@
 import o from "@tutao/otest"
 import td, { instance, matchers, object, when } from "testdouble"
+import { sysServices, sysTypeRefs, tutanotaTypeRefs, TypeModelResolver } from "@tutao/typerefs"
+import { HttpMethod, RestClient, restError } from "@tutao/rest-client"
 import {
-	createSaltReturn,
-	CreateSessionReturnTypeRef,
-	GroupInfoTypeRef,
-	GroupMembershipTypeRef,
-	SaltReturnTypeRef,
-	SessionTypeRef,
-	User,
-	UserExternalAuthInfoTypeRef,
-	UserTypeRef,
-} from "../../../../../src/common/api/entities/sys/TypeRefs"
-import {
+	_encryptString,
 	aes256RandomKey,
 	AesKey,
-	bitArrayToUint8Array,
+	AesKeyLength,
 	createAuthVerifier,
 	encryptKey,
-	KEY_LENGTH_BYTES_AES_256,
+	getKeyLengthInBytes,
+	keyToUint8Array,
 	sha256Hash,
-	uint8ArrayToBitArray,
-} from "@tutao/tutanota-crypto"
+	uint8ArrayToKey,
+} from "@tutao/crypto"
 import { LoginFacade, LoginListener } from "../../../../../src/common/api/worker/facades/LoginFacade"
 import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest"
 import { EntityClient } from "../../../../../src/common/api/common/EntityClient"
-import { RestClient } from "../../../../../src/common/api/worker/rest/RestClient"
 import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade"
 import { CacheStorageLateInitializer } from "../../../../../src/common/api/worker/rest/CacheStorageProxy"
 import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
-import { ChangeKdfService, SaltService, SessionService } from "../../../../../src/common/api/entities/sys/Services"
 import { Credentials } from "../../../../../src/common/misc/credentials/Credentials"
-import { defer, DeferredObject, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
-import { AccountType, Const, DEFAULT_KDF_TYPE, KdfType, RolloutType } from "../../../../../src/common/api/common/TutanotaConstants"
-import { AccessExpiredError, ConnectionError, NotAuthenticatedError } from "../../../../../src/common/api/common/error/RestError"
+import { defer, DeferredObject, uint8ArrayToBase64 } from "@tutao/utils"
+import { AccountType, Const, DEFAULT_KDF_TYPE, KdfType, RolloutType } from "../../../../../src/app-env"
 import { SessionType } from "../../../../../src/common/api/common/SessionType"
-import { HttpMethod, TypeModelResolver } from "../../../../../src/common/api/common/EntityFunctions"
 import { ConnectMode, EventBusClient } from "../../../../../src/common/api/worker/EventBusClient"
-import { TutanotaPropertiesTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs"
 import { BlobAccessTokenFacade } from "../../../../../src/common/api/worker/facades/BlobAccessTokenFacade.js"
 import { EntropyFacade } from "../../../../../src/common/api/worker/facades/EntropyFacade.js"
 import { DatabaseKeyFactory } from "../../../../../src/common/misc/credentials/DatabaseKeyFactory.js"
@@ -44,16 +32,15 @@ import { Argon2idFacade } from "../../../../../src/common/api/worker/facades/Arg
 import { clientInitializedTypeModelResolver, createTestEntity, instancePipelineFromTypeModelResolver } from "../../../TestUtils.js"
 import { KeyRotationFacade, KeyRotationRolloutAction } from "../../../../../src/common/api/worker/facades/KeyRotationFacade.js"
 import { CredentialType } from "../../../../../src/common/misc/credentials/CredentialType.js"
-import { _encryptString } from "../../../../../src/common/api/worker/crypto/CryptoWrapper.js"
+import { InstancePipeline } from "@tutao/instance-pipeline"
 import { CacheManagementFacade } from "../../../../../src/common/api/worker/facades/lazy/CacheManagementFacade.js"
-import { InstancePipeline } from "../../../../../src/common/api/worker/crypto/InstancePipeline"
 import { CacheMode } from "../../../../../src/common/api/worker/rest/EntityRestClient"
 import { RolloutFacade } from "../../../../../src/common/api/worker/facades/RolloutFacade"
 import { LoginFailReason } from "../../../../../src/common/api/main/PageContextLoginListener"
 
 const { anything, argThat } = matchers
 
-const PASSWORD_KEY = uint8ArrayToBitArray(new Uint8Array(Array(KEY_LENGTH_BYTES_AES_256).keys()))
+const PASSWORD_KEY = uint8ArrayToKey(new Uint8Array(Array(getKeyLengthInBytes(AesKeyLength.Aes256)).keys()))
 
 /** Verify using testdouble, but register as an ospec assertion */
 export function verify(demonstration: any, config?: td.VerificationConfig) {
@@ -77,30 +64,30 @@ export function verify(demonstration: any, config?: td.VerificationConfig) {
 
 const SALT = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
-async function makeUser(userId: Id, kdfVersion: KdfType = DEFAULT_KDF_TYPE, userPassphraseKey: AesKey = PASSWORD_KEY): Promise<User> {
+async function makeUser(userId: Id, kdfVersion: KdfType = DEFAULT_KDF_TYPE, userPassphraseKey: AesKey = PASSWORD_KEY): Promise<sysTypeRefs.User> {
 	const groupKey = encryptKey(userPassphraseKey, [3229306880, 2716953871, 4072167920, 3901332676])
 
-	return createTestEntity(UserTypeRef, {
+	return createTestEntity(sysTypeRefs.UserTypeRef, {
 		_id: userId,
 		verifier: sha256Hash(createAuthVerifier(userPassphraseKey)),
-		userGroup: createTestEntity(GroupMembershipTypeRef, {
+		userGroup: createTestEntity(sysTypeRefs.GroupMembershipTypeRef, {
 			group: "groupId",
 			symEncGKey: groupKey,
 			groupInfo: ["groupInfoListId", "groupInfoElId"],
 		}),
 		kdfVersion,
-		externalAuthInfo: createTestEntity(UserExternalAuthInfoTypeRef, {
+		externalAuthInfo: createTestEntity(sysTypeRefs.UserExternalAuthInfoTypeRef, {
 			latestSaltHash: SALT,
 		}),
 	})
 }
 
 async function createSession(userId: string, accessKey: number[], instancePipeline: InstancePipeline) {
-	const session = createTestEntity(SessionTypeRef, {
+	const session = createTestEntity(sysTypeRefs.SessionTypeRef, {
 		user: userId,
-		accessKey: bitArrayToUint8Array(accessKey),
+		accessKey: keyToUint8Array(accessKey),
 	})
-	const untypedSession = await instancePipeline.mapAndEncrypt(SessionTypeRef, session, aes256RandomKey())
+	const untypedSession = await instancePipeline.mapAndEncrypt(sysTypeRefs.SessionTypeRef, session, aes256RandomKey())
 	return untypedSession
 }
 
@@ -129,13 +116,15 @@ o.spec("LoginFacadeTest", function () {
 
 	o.beforeEach(function () {
 		serviceExecutor = object()
-		when(serviceExecutor.get(SaltService, anything()), { ignoreExtraArgs: true }).thenResolve(
-			createTestEntity(SaltReturnTypeRef, { salt: SALT, kdfVersion: DEFAULT_KDF_TYPE }),
+		when(serviceExecutor.get(sysServices.SaltService, anything()), { ignoreExtraArgs: true }).thenResolve(
+			createTestEntity(sysTypeRefs.SaltReturnTypeRef, { salt: SALT, kdfVersion: DEFAULT_KDF_TYPE }),
 		)
 
 		restClientMock = instance(RestClient)
 		entityClientMock = instance(EntityClient)
-		when(entityClientMock.loadRoot(TutanotaPropertiesTypeRef, anything())).thenResolve(createTestEntity(TutanotaPropertiesTypeRef))
+		when(entityClientMock.loadRoot(tutanotaTypeRefs.TutanotaPropertiesTypeRef, anything())).thenResolve(
+			createTestEntity(tutanotaTypeRefs.TutanotaPropertiesTypeRef),
+		)
 
 		loginListener = object()
 		when(loginListener.onPartialLoginSuccess(matchers.anything(), matchers.anything(), matchers.anything())).thenResolve()
@@ -190,6 +179,7 @@ o.spec("LoginFacadeTest", function () {
 			async () => cacheManagmentFacadeMock,
 			typeModelResolver,
 			rolloutFacade,
+			object(),
 		)
 
 		eventBusClientMock = instance(EventBusClient)
@@ -206,14 +196,14 @@ o.spec("LoginFacadeTest", function () {
 			const accessToken = "accessToken"
 
 			o.beforeEach(async function () {
-				when(serviceExecutor.post(SessionService, anything()), { ignoreExtraArgs: true }).thenResolve(
-					createTestEntity(CreateSessionReturnTypeRef, {
+				when(serviceExecutor.post(sysServices.SessionService, anything()), { ignoreExtraArgs: true }).thenResolve(
+					createTestEntity(sysTypeRefs.CreateSessionReturnTypeRef, {
 						user: userId,
 						accessToken: accessToken,
 						challenges: [],
 					}),
 				)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(await makeUser(userId))
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(await makeUser(userId))
 			})
 
 			o.test("When a database key is provided and session is persistent it is passed to the offline storage initializer", async function () {
@@ -228,6 +218,7 @@ o.spec("LoginFacadeTest", function () {
 					}),
 				)
 				verify(databaseKeyFactoryMock.generateKey(), { times: 0 })
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 			o.test("When no database key is provided and session is persistent, a key is generated and we attempt offline db init", async function () {
 				const databaseKey = Uint8Array.from([1, 2, 3, 4])
@@ -243,11 +234,13 @@ o.spec("LoginFacadeTest", function () {
 					}),
 				)
 				verify(databaseKeyFactoryMock.generateKey(), { times: 1 })
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 			o.test("When no database key is provided and session is Login, nothing is passed to the offline storage initialzier", async function () {
 				await facade.createSession(login, passphrase, "client", SessionType.Login, null)
 				verify(cacheStorageInitializerMock.initialize({ type: "ephemeral", userId }))
 				verify(databaseKeyFactoryMock.generateKey(), { times: 0 })
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 			o.test("When no database key is provided and session is persistent, valid credentials are returned", async () => {
 				const result = await facade.createSession(login, passphrase, "client", SessionType.Persistent, null)
@@ -259,6 +252,7 @@ o.spec("LoginFacadeTest", function () {
 				o(credentials.encryptedPassword).notEquals(null)
 				o(credentials.type).equals(CredentialType.Internal)
 				o(credentials.accessToken).equals(accessToken)
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 
 			o.spec("Rollouts are configured", function () {
@@ -272,6 +266,7 @@ o.spec("LoginFacadeTest", function () {
 							argThat((arg) => arg instanceof KeyRotationRolloutAction),
 						),
 					)
+					verify(eventBusClientMock.connect(ConnectMode.Initial))
 				})
 
 				o.test("OtherGroupKeyRotation rollout is configured", async function () {
@@ -284,6 +279,7 @@ o.spec("LoginFacadeTest", function () {
 							argThat((arg) => arg instanceof KeyRotationRolloutAction),
 						),
 					)
+					verify(eventBusClientMock.connect(ConnectMode.Initial))
 				})
 			})
 		})
@@ -298,7 +294,7 @@ o.spec("LoginFacadeTest", function () {
 			const accessToken = "accessToken"
 
 			let credentials: Credentials
-			let user: User
+			let user: sysTypeRefs.User
 
 			o.beforeEach(async function () {
 				user = await makeUser(userId)
@@ -318,8 +314,8 @@ o.spec("LoginFacadeTest", function () {
 					type: CredentialType.Internal,
 				}
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
 				// The call to /sys/session/...
 				when(
@@ -370,6 +366,7 @@ o.spec("LoginFacadeTest", function () {
 				await facade.resumeSession(credentials, null, dbKey, timeRangeDate)
 
 				o(facade.asyncLoginState).deepEquals({ state: "idle" })("Synchronous login occured, so once resume returns we have already logged in")
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 
 			o.test("when resuming a session and the offline initialization has an existing database, we do async login", async function () {
@@ -402,7 +399,7 @@ o.spec("LoginFacadeTest", function () {
 						HttpMethod.GET,
 						anything(),
 					),
-				).thenReject(new NotAuthenticatedError("not your cheese"))
+				).thenReject(new restError.NotAuthenticatedError("not your cheese"))
 
 				const res = await facade.resumeSession(
 					credentials,
@@ -428,6 +425,7 @@ o.spec("LoginFacadeTest", function () {
 						argThat((credentials: Credentials) => credentials.encryptedPassphraseKey != null),
 					),
 				)
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 		})
 
@@ -439,7 +437,7 @@ o.spec("LoginFacadeTest", function () {
 			const accessKey = [3229306880, 2716953871, 4072167920, 3901332677]
 			const accessToken = "accessToken"
 
-			let user: User
+			let user: sysTypeRefs.User
 			let calls: string[]
 			let fullLoginDeferred: DeferredObject<void>
 
@@ -459,8 +457,8 @@ o.spec("LoginFacadeTest", function () {
 					type: "internal",
 				} as Credentials
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
 				calls = []
 				// .thenReturn(sessionServiceDefer)
@@ -547,7 +545,7 @@ o.spec("LoginFacadeTest", function () {
 			async function testConnectionFailingSyncLogin() {
 				when(restClientMock.request(anything(), HttpMethod.GET, anything())).thenDo(async () => {
 					calls.push("sessionService")
-					throw new ConnectionError("Oopsie 3")
+					throw new restError.ConnectionError("Oopsie 3")
 				})
 
 				await o(() =>
@@ -560,7 +558,7 @@ o.spec("LoginFacadeTest", function () {
 						dbKey,
 						timeRangeDate,
 					),
-				).asyncThrows(ConnectionError)
+				).asyncThrows(restError.ConnectionError)
 				o(calls).deepEquals(["sessionService"])
 			}
 
@@ -593,10 +591,11 @@ o.spec("LoginFacadeTest", function () {
 
 				// just wait for the async login to not bleed into other test cases or to not randomly fail
 				await fullLoginDeferred.promise
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			}
 
 			async function testConnectionFailingAsyncLogin() {
-				const connectionError = new ConnectionError("Oopsie 2")
+				const connectionError = new restError.ConnectionError("Oopsie 2")
 				when(restClientMock.request(anything(), HttpMethod.GET, anything())).thenDo(async () => {
 					calls.push("sessionService")
 					throw connectionError
@@ -635,7 +634,7 @@ o.spec("LoginFacadeTest", function () {
 			let calls: string[]
 			let fullLoginDeferred: DeferredObject<void>
 
-			let user: User
+			let user: sysTypeRefs.User
 
 			o.beforeEach(async function () {
 				user = await makeUser(userId)
@@ -656,8 +655,8 @@ o.spec("LoginFacadeTest", function () {
 					type: "internal",
 				} as Credentials
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
 				calls = []
 				// .thenReturn(sessionServiceDefer)
@@ -671,8 +670,8 @@ o.spec("LoginFacadeTest", function () {
 			})
 
 			o("When successfully logged in, userFacade is initialised", async function () {
-				const groupInfo = createTestEntity(GroupInfoTypeRef)
-				when(entityClientMock.load(GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
+				const groupInfo = createTestEntity(sysTypeRefs.GroupInfoTypeRef)
+				when(entityClientMock.load(sysTypeRefs.GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
 				when(restClientMock.request(matchers.contains("sys/session"), HttpMethod.GET, anything())).thenResolve(
 					JSON.stringify(await createSession(userId, accessKey, instancePipeline)),
 				)
@@ -691,16 +690,15 @@ o.spec("LoginFacadeTest", function () {
 
 				verify(userFacade.setAccessToken("accessToken"))
 				verify(userFacade.unlockUserGroupKey(matchers.anything()))
-				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 
 			o("when retrying failed login, userFacade is initialized", async function () {
 				const deferred = defer()
 				when(loginListener.onLoginFailure(matchers.anything())).thenDo(() => deferred.resolve(null))
 
-				const groupInfo = createTestEntity(GroupInfoTypeRef)
-				when(entityClientMock.load(GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
-				const connectionError = new ConnectionError("test")
+				const groupInfo = createTestEntity(sysTypeRefs.GroupInfoTypeRef)
+				when(entityClientMock.load(sysTypeRefs.GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
+				const connectionError = new restError.ConnectionError("test")
 				when(userFacade.isFullyLoggedIn()).thenReturn(false)
 
 				when(restClientMock.request(matchers.contains("sys/session"), HttpMethod.GET, anything()))
@@ -731,7 +729,6 @@ o.spec("LoginFacadeTest", function () {
 
 				verify(userFacade.setAccessToken("accessToken"))
 				verify(userFacade.unlockUserGroupKey(matchers.anything()))
-				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 		})
 
@@ -745,7 +742,7 @@ o.spec("LoginFacadeTest", function () {
 			let calls: string[]
 			let fullLoginDeferred: DeferredObject<void>
 
-			let user: User
+			let user: sysTypeRefs.User
 
 			o.beforeEach(async function () {
 				const passphraseKeyData = { kdfType: KdfType.Bcrypt, passphrase, salt: SALT }
@@ -769,11 +766,11 @@ o.spec("LoginFacadeTest", function () {
 					type: "internal",
 				} as Credentials
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
-				when(serviceExecutor.get(SaltService, anything()), { ignoreExtraArgs: true }).thenResolve(
-					createSaltReturn({ salt: SALT, kdfVersion: KdfType.Bcrypt }),
+				when(serviceExecutor.get(sysServices.SaltService, anything()), { ignoreExtraArgs: true }).thenResolve(
+					sysTypeRefs.createSaltReturn({ salt: SALT, kdfVersion: KdfType.Bcrypt }),
 				)
 
 				calls = []
@@ -788,8 +785,8 @@ o.spec("LoginFacadeTest", function () {
 			})
 
 			o("When successfully logged in, userFacade is initialised", async function () {
-				const groupInfo = createTestEntity(GroupInfoTypeRef)
-				when(entityClientMock.load(GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
+				const groupInfo = createTestEntity(sysTypeRefs.GroupInfoTypeRef)
+				when(entityClientMock.load(sysTypeRefs.GroupInfoTypeRef, user.userGroup.groupInfo)).thenResolve(groupInfo)
 				when(restClientMock.request(matchers.contains("sys/session"), HttpMethod.GET, anything())).thenResolve(
 					JSON.stringify(await createSession(userId, accessKey, instancePipeline)),
 				)
@@ -800,7 +797,6 @@ o.spec("LoginFacadeTest", function () {
 
 				verify(userFacade.setAccessToken("accessToken"))
 				verify(userFacade.unlockUserGroupKey(matchers.anything()))
-				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 		})
 
@@ -810,7 +806,7 @@ o.spec("LoginFacadeTest", function () {
 			const accessKey = [3229306880, 2716953871, 4072167920, 3901332677]
 			const accessToken = "accessToken"
 
-			let user: User
+			let user: sysTypeRefs.User
 			let credentials: Credentials
 
 			o.beforeEach(async function () {
@@ -829,12 +825,12 @@ o.spec("LoginFacadeTest", function () {
 				} as Credentials
 
 				user = await makeUser(userId)
-				user.externalAuthInfo = createTestEntity(UserExternalAuthInfoTypeRef, {
+				user.externalAuthInfo = createTestEntity(sysTypeRefs.UserExternalAuthInfoTypeRef, {
 					latestSaltHash: sha256Hash(SALT),
 				})
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
 				when(restClientMock.request(matchers.contains("sys/session"), HttpMethod.GET, anything())).thenResolve(
 					JSON.stringify(await createSession(userId, accessKey, instancePipeline)),
@@ -853,6 +849,7 @@ o.spec("LoginFacadeTest", function () {
 				)
 
 				o(result.type).equals("success")
+				verify(eventBusClientMock.connect(ConnectMode.Initial))
 			})
 
 			o("when the salt is outdated, AccessExpiredError is thrown", async function () {
@@ -868,7 +865,7 @@ o.spec("LoginFacadeTest", function () {
 						null,
 						timeRangeDate,
 					),
-				).asyncThrows(AccessExpiredError)
+				).asyncThrows(restError.AccessExpiredError)
 				verify(restClientMock.request(matchers.contains("sys/session"), HttpMethod.DELETE, anything()), { times: 0 })
 			})
 
@@ -886,7 +883,7 @@ o.spec("LoginFacadeTest", function () {
 						null,
 						timeRangeDate,
 					),
-				).asyncThrows(NotAuthenticatedError)
+				).asyncThrows(restError.NotAuthenticatedError)
 				verify(restClientMock.request(matchers.contains("sys/session"), HttpMethod.DELETE, anything()))
 			})
 		})
@@ -897,7 +894,7 @@ o.spec("LoginFacadeTest", function () {
 			const accessKey = [3229306880, 2716953871, 4072167920, 3901332677]
 			const accessToken = "accessToken"
 
-			let user: User
+			let user: sysTypeRefs.User
 			let credentials: Credentials
 
 			o.beforeEach(async function () {
@@ -918,12 +915,12 @@ o.spec("LoginFacadeTest", function () {
 				const passphraseKeyData = { kdfType: KdfType.Bcrypt, passphrase, salt: SALT }
 				const userPassphraseKey = await facade.deriveUserPassphraseKey(passphraseKeyData)
 				user = await makeUser(userId, KdfType.Bcrypt, userPassphraseKey)
-				user.externalAuthInfo = createTestEntity(UserExternalAuthInfoTypeRef, {
+				user.externalAuthInfo = createTestEntity(sysTypeRefs.UserExternalAuthInfoTypeRef, {
 					latestSaltHash: sha256Hash(SALT),
 				})
 
-				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
-				when(entityClientMock.load(UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId)).thenResolve(user)
+				when(entityClientMock.load(sysTypeRefs.UserTypeRef, userId, { cacheMode: CacheMode.WriteOnly })).thenResolve(user)
 
 				when(restClientMock.request(matchers.contains("sys/session"), HttpMethod.GET, anything())).thenResolve(
 					JSON.stringify(await createSession(userId, accessKey, instancePipeline)),
@@ -965,7 +962,7 @@ o.spec("LoginFacadeTest", function () {
 			)
 			verify(
 				serviceExecutor.post(
-					ChangeKdfService,
+					sysServices.ChangeKdfService,
 					argThat(({ kdfVersion, oldVerifier, pwEncUserGroupKey, salt, verifier }) => {
 						return kdfVersion === KdfType.Argon2id
 					}),

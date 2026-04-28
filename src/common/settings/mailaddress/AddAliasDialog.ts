@@ -1,12 +1,12 @@
 import { lang, TranslationKey } from "../../misc/LanguageViewModel.js"
 import { Dialog } from "../../gui/base/Dialog.js"
-import { DEFAULT_FREE_MAIL_ADDRESS_SIGNUP_DOMAIN, NewPaidPlans, TUTA_MAIL_ADDRESS_DOMAINS } from "../../api/common/TutanotaConstants.js"
+import { DEFAULT_FREE_MAIL_ADDRESS_SIGNUP_DOMAIN, NewPaidPlans, TUTA_MAIL_ADDRESS_DOMAINS, UpgradePromptType } from "@tutao/app-env"
 import m from "mithril"
 import { SelectMailAddressForm } from "../SelectMailAddressForm.js"
 import { ExpanderPanel } from "../../gui/base/Expander.js"
-import { filterInt, getFirstOrThrow, ofClass } from "@tutao/tutanota-utils"
+import { filterInt, getFirstOrThrow, ofClass } from "@tutao/utils"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog.js"
-import { InvalidDataError, PreconditionFailedError } from "../../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { MailAddressTableModel } from "./MailAddressTableModel.js"
 import { Autocomplete, TextField } from "../../gui/base/TextField.js"
 import { UpgradeRequiredError } from "../../api/main/UpgradeRequiredError.js"
@@ -19,7 +19,14 @@ export function showAddAliasDialog(model: MailAddressTableModel, isNewPaidPlan: 
 		const hasCustomDomains = domains.some((domain) => !TUTA_MAIL_ADDRESS_DOMAINS.includes(domain.domain))
 		if (model.aliasCount && filterInt(model.aliasCount.usedAliases) >= filterInt(model.aliasCount.totalAliases)) {
 			if (!(isNewPaidPlan && hasCustomDomains)) {
-				model.handleTooManyAliases().catch(ofClass(UpgradeRequiredError, (e) => showPlanUpgradeRequiredDialog(e.plans, e.message)))
+				model.handleTooManyAliases().catch(
+					ofClass(UpgradeRequiredError, async (e) => {
+						const upgraded = await showPlanUpgradeRequiredDialog(UpgradePromptType.MORE_ALIASES_NEEDED, e.plans, e.message)
+						if (upgraded) {
+							await model.loadAliasCount()
+						}
+					}),
+				)
 				return
 			}
 		}
@@ -71,7 +78,10 @@ export function showAddAliasDialog(model: MailAddressTableModel, isNewPaidPlan: 
 										lang.makeTranslation("confirm_msg", `${lang.get("paidEmailDomainLegacy_msg")}\n${lang.get("changePaidPlan_msg")}`),
 									).then(async (confirmed) => {
 										if (confirmed) {
-											isNewPaidPlan = await showPlanUpgradeRequiredDialog(NewPaidPlans)
+											const upgraded = await showPlanUpgradeRequiredDialog(UpgradePromptType.ADD_ALIAS_WITH_NEW_DOMAIN, NewPaidPlans)
+											if (upgraded) {
+												await model.loadAliasCount()
+											}
 										}
 									})
 								}
@@ -103,9 +113,9 @@ async function addAlias(model: MailAddressTableModel, alias: string, senderName:
 	try {
 		await showProgressDialog("pleaseWait_msg", model.addAlias(alias, senderName))
 	} catch (error) {
-		if (error instanceof InvalidDataError) {
+		if (error instanceof restError.TooManyRequestsError) {
 			Dialog.message("mailAddressNA_msg")
-		} else if (error instanceof PreconditionFailedError) {
+		} else if (error instanceof restError.PreconditionFailedError) {
 			let errorMsg = error.toString()
 
 			if (error.data === FAILURE_USER_DISABLED) {
@@ -114,7 +124,10 @@ async function addAlias(model: MailAddressTableModel, alias: string, senderName:
 
 			return Dialog.message(lang.makeTranslation("confirm_msg", errorMsg))
 		} else if (error instanceof UpgradeRequiredError) {
-			showPlanUpgradeRequiredDialog(error.plans, error.message)
+			const upgraded = await showPlanUpgradeRequiredDialog(UpgradePromptType.MORE_ALIASES_NEEDED, error.plans, error.message)
+			if (upgraded) {
+				await model.loadAliasCount()
+			}
 		} else {
 			throw error
 		}

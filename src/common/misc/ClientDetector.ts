@@ -1,6 +1,7 @@
-import { assertMainOrNodeBoot, isAndroidApp, isApp, isDesktop, isIOSApp, Mode } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import { AppType, BrowserData, BrowserType, DeviceType } from "./ClientConstants"
 import { BotKind, load } from "@fingerprintjs/botd"
+import { isAndroidApp, isApp, isDesktop, isIOSApp, Mode } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 
@@ -115,7 +116,8 @@ export class ClientDetector {
 			typeof Reflect !== "undefined" &&
 			typeof Promise.prototype.finally !== "undefined" &&
 			typeof String.prototype.replaceAll === "function" &&
-			typeof BigInt !== "undefined"
+			typeof BigInt !== "undefined" &&
+			typeof structuredClone === "function"
 		)
 	}
 

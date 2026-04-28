@@ -1,7 +1,6 @@
 import m, { Children, Component, Vnode } from "mithril"
 import { styles } from "../../gui/styles"
 import { px, size } from "../../gui/size"
-import { PlanType } from "../../api/common/TutanotaConstants"
 import { ReplacementKey } from "../FeatureListProvider"
 import { getPriceStr } from "../utils/SubscriptionUtils"
 import { AvailablePlans } from "../PlanSelector"
@@ -10,6 +9,7 @@ import { Icons } from "../../gui/base/icons/Icons"
 import { TranslationKey } from "../../misc/LanguageViewModel"
 import { filterPlanConfigsAndGetSelectedPlan, getHasCampaign, PlanBoxContainerAttrs } from "../utils/PlanSelectorUtils"
 import { PaymentInterval } from "../utils/PriceUtils"
+import { PlanType } from "@tutao/app-env"
 
 export type PlanFeature = {
 	label: TranslationKey
@@ -30,94 +30,94 @@ export class BusinessPlanContainer implements Component<PlanBoxContainerAttrs> {
 		{
 			type: PlanType.Essential,
 			tagLine: "pricing.taglineForFreelancers",
-			icon: Icons.BusinessEssential,
+			icon: Icons.HouseOutline,
 			features: [
 				{
 					label: "pricing.comparisonStorage_msg",
-					icon: Icons.PricingStorage,
+					icon: Icons.CloudOutline,
 					replacementKey: "storage",
 				},
 				{
 					label: "pricing.mailAddressAliasesShort_label",
-					icon: Icons.PricingMail,
+					icon: Icons.MailOutline,
 					replacementKey: "mailAddressAliases",
 				},
 				{
 					label: "pricing.comparisonCustomDomains_msg",
-					icon: Icons.PricingCustomDomain,
+					icon: Icons.GlobeOutline,
 					replacementKey: "customDomains",
 				},
 				{
 					label: "pricing.calendarsPremium_label",
-					icon: Icons.PricingCalendar,
+					icon: Icons.CalendarNumberOutline,
 				},
 				{
 					label: "pricing.comparisonSupportPremium_msg",
-					icon: Icons.PricingSupport,
+					icon: Icons.SmileyfaceOutline,
 				},
 			],
 		},
 		{
 			type: PlanType.Advanced,
 			tagLine: "pricing.taglineForTeams",
-			icon: Icons.BusinessAdvanced,
+			icon: Icons.StoreOutline,
 			features: [
 				{
 					label: "pricing.comparisonStorage_msg",
-					icon: Icons.PricingStorage,
+					icon: Icons.CloudOutline,
 					replacementKey: "storage",
 				},
 				{
 					label: "pricing.mailAddressAliasesShort_label",
-					icon: Icons.PricingMail,
+					icon: Icons.MailOutline,
 					replacementKey: "mailAddressAliases",
 				},
 				{
 					label: "pricing.comparisonCustomDomains_msg",
-					icon: Icons.PricingCustomDomain,
+					icon: Icons.GlobeOutline,
 					replacementKey: "customDomains",
 				},
 				{
 					label: "pricing.calendarsPremium_label",
-					icon: Icons.PricingCalendar,
+					icon: Icons.CalendarNumberOutline,
 				},
 				{
 					label: "pricing.comparisonSupportPro_msg",
-					icon: Icons.PricingSupport,
+					icon: Icons.SmileyfaceOutline,
 				},
 			],
 		},
 		{
 			type: PlanType.Unlimited,
 			tagLine: "pricing.taglineForBusinesses",
-			icon: Icons.BusinessUnlimited,
+			icon: Icons.CityOutline,
 			features: [
 				{
 					label: "pricing.comparisonStorage_msg",
-					icon: Icons.PricingStorage,
+					icon: Icons.CloudOutline,
 					replacementKey: "storage",
 				},
 				{
 					label: "pricing.mailAddressAliasesShort_label",
-					icon: Icons.PricingMail,
+					icon: Icons.MailOutline,
 					replacementKey: "mailAddressAliases",
 				},
 				{
 					label: "pricing.comparisonCustomDomains_msg",
-					icon: Icons.PricingCustomDomain,
+					icon: Icons.GlobeOutline,
 					replacementKey: "customDomains",
 				},
 				{
 					label: "pricing.calendarsPremium_label",
-					icon: Icons.PricingCalendar,
+					icon: Icons.CalendarNumberOutline,
 				},
 				{
 					label: "pricing.comparisonSupportPro_msg",
-					icon: Icons.PricingSupport,
+					icon: Icons.SmileyfaceOutline,
 				},
 				{
 					label: "pricing.custom_title",
-					icon: Icons.Wand,
+					icon: Icons.ColorwandFilled,
 				},
 			],
 		},

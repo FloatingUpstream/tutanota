@@ -86,11 +86,20 @@ class FileFacadeReceiveDispatcher(
 				val targetUrl: String = json.decodeFromString(arg[1])
 				val method: String = json.decodeFromString(arg[2])
 				val headers: Map<String, String> = json.decodeFromString(arg[3])
+				val fileId: String = json.decodeFromString(arg[4])
 				val result: UploadTaskResponse = this.facade.upload(
 					fileUrl,
 					targetUrl,
 					method,
 					headers,
+					fileId,
+				)
+				return json.encodeToString(result)
+			}
+			"abortUpload" -> {
+				val fileId: String = json.decodeFromString(arg[0])
+				val result: Unit = this.facade.abortUpload(
+					fileId,
 				)
 				return json.encodeToString(result)
 			}
@@ -103,6 +112,13 @@ class FileFacadeReceiveDispatcher(
 					sourceUrl,
 					filename,
 					headers,
+					fileId,
+				)
+				return json.encodeToString(result)
+			}
+			"abortDownload" -> {
+				val fileId: String = json.decodeFromString(arg[0])
+				val result: Unit = this.facade.abortDownload(
 					fileId,
 				)
 				return json.encodeToString(result)
@@ -156,6 +172,13 @@ class FileFacadeReceiveDispatcher(
 			"readFromAppDir" -> {
 				val path: String = json.decodeFromString(arg[0])
 				val result: DataWrapper = this.facade.readFromAppDir(
+					path,
+				)
+				return json.encodeToString(result)
+			}
+			"deleteFromAppDir" -> {
+				val path: String = json.decodeFromString(arg[0])
+				val result: Unit = this.facade.deleteFromAppDir(
 					path,
 				)
 				return json.encodeToString(result)

@@ -15,7 +15,7 @@ import { DesktopUpdateHelpLabel } from "./DesktopUpdateHelpLabel"
 import { DesktopConfigKey } from "../../common/desktop/config/ConfigKeys"
 import { getCurrentSpellcheckLanguageLabel, showSpellcheckLanguageDialog } from "../../common/gui/dialogs/SpellcheckLanguageDialog"
 import { ifAllowedTutaLinks } from "../../common/gui/base/GuiUtils"
-import { assertMainOrNode } from "../../common/api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { locator } from "../../common/api/main/CommonLocator"
 import { IconButton, IconButtonAttrs } from "../../common/gui/base/IconButton.js"
 import { ButtonSize } from "../../common/gui/base/ButtonSize.js"
@@ -134,7 +134,7 @@ export class DesktopSettingsViewer implements UpdatableSettingsViewer {
 		const editSpellcheckLanguageButtonAttrs: IconButtonAttrs = {
 			title: "checkSpelling_action",
 			click: () => showSpellcheckLanguageDialog().then((newLabel) => this.spellCheckLang(newLabel)),
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		}
 		const spellcheckLanguageAttrs: TextFieldAttrs = {
@@ -215,7 +215,7 @@ export class DesktopSettingsViewer implements UpdatableSettingsViewer {
 		const changeDefaultDownloadPathAttrs: IconButtonAttrs = attachDropdown({
 			mainButtonAttrs: {
 				title: "edit_action",
-				icon: Icons.Edit,
+				icon: Icons.PenFilled,
 				size: ButtonSize.Compact,
 			},
 			childAttrs: () => [

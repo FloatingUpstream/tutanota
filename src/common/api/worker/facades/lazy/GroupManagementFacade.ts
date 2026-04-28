@@ -1,35 +1,14 @@
-import { CounterType, GroupType } from "../../../common/TutanotaConstants.js"
-import type { ContactListGroupRoot, InternalGroupData, UserAreaGroupData } from "../../../entities/tutanota/TypeRefs.js"
-import {
-	createCreateMailGroupData,
-	createDeleteGroupData,
-	createInternalGroupData,
-	createUserAreaGroupData,
-	createUserAreaGroupDeleteData,
-	createUserAreaGroupPostData,
-} from "../../../entities/tutanota/TypeRefs.js"
-import { freshVersioned, getFirstOrThrow, neverNull } from "@tutao/tutanota-utils"
-import {
-	createMembershipAddData,
-	createMembershipRemoveData,
-	CustomerTypeRef,
-	Group,
-	GroupInfoTypeRef,
-	GroupTypeRef,
-	User,
-} from "../../../entities/sys/TypeRefs.js"
+import { assertWorkerOrNode, CounterType, GroupType } from "@tutao/app-env"
+import { sysServices, sysTypeRefs, tutanotaServices, tutanotaTypeRefs } from "@tutao/typerefs"
+import { freshVersioned, getFirstOrThrow, neverNull } from "@tutao/utils"
 import { CounterFacade } from "./CounterFacade.js"
 import { EntityClient } from "../../../common/EntityClient.js"
-import { assertWorkerOrNode } from "../../../common/Env.js"
 import { IServiceExecutor } from "../../../common/ServiceRequest.js"
-import { CalendarService, ContactListGroupService, MailGroupService, TemplateGroupService } from "../../../entities/tutanota/Services.js"
-import { MembershipService } from "../../../entities/sys/Services.js"
 import { UserFacade } from "../UserFacade.js"
 import { PQFacade } from "../PQFacade.js"
 import { KeyLoaderFacade } from "../KeyLoaderFacade.js"
 import { CacheManagementFacade } from "./CacheManagementFacade.js"
-import { _encryptKeyWithVersionedKey, _encryptString, CryptoWrapper, VersionedKey } from "../../crypto/CryptoWrapper.js"
-import { AesKey, PQKeyPairs } from "@tutao/tutanota-crypto"
+import { _encryptKeyWithVersionedKey, _encryptString, AesKey, CryptoWrapper, PQKeyPairs, VersionedKey } from "@tutao/crypto"
 import { IdentityKeyCreator } from "./IdentityKeyCreator"
 import { AdminKeyLoaderFacade } from "../AdminKeyLoaderFacade"
 
@@ -49,7 +28,7 @@ export class GroupManagementFacade {
 		private readonly identityKeyCreator: IdentityKeyCreator,
 	) {}
 
-	async readUsedSharedMailGroupStorage(group: Group): Promise<number> {
+	async readUsedSharedMailGroupStorage(group: sysTypeRefs.Group): Promise<number> {
 		return this.counters.readCounterValue(CounterType.UserStorageLegacy, neverNull(group.customer), group._id)
 	}
 
@@ -75,13 +54,13 @@ export class GroupManagementFacade {
 
 		const mailEncMailboxSessionKey = this.cryptoWrapper.encryptKeyWithVersionedKey(mailGroupKey, mailboxSessionKey)
 
-		const data = createCreateMailGroupData({
+		const data = tutanotaTypeRefs.createCreateMailGroupData({
 			mailAddress,
 			encryptedName: this.cryptoWrapper.encryptString(mailGroupInfoSessionKey, name),
 			mailEncMailboxSessionKey: mailEncMailboxSessionKey.key,
 			groupData: mailGroupData,
 		})
-		const mailGroupPostOut = await this.serviceExecutor.post(MailGroupService, data)
+		const mailGroupPostOut = await this.serviceExecutor.post(tutanotaServices.MailGroupService, data)
 
 		await this.identityKeyCreator.createIdentityKeyPair(
 			mailGroupPostOut.mailGroup,
@@ -99,10 +78,10 @@ export class GroupManagementFacade {
 	 *
 	 * @param name Name of the group
 	 */
-	async generateUserAreaGroupData(name: string): Promise<UserAreaGroupData> {
+	async generateUserAreaGroupData(name: string): Promise<tutanotaTypeRefs.UserAreaGroupData> {
 		// adminGroup Is not set when generating new customer, then the admin group will be the admin of the customer
 		// adminGroupKey Is not set when generating calendar as normal user
-		const userGroup = await this.entityClient.load(GroupTypeRef, this.userFacade.getUserGroupId())
+		const userGroup = await this.entityClient.load(sysTypeRefs.GroupTypeRef, this.userFacade.getUserGroupId())
 		const adminGroupId = neverNull(userGroup.admin) // user group has always admin group
 
 		let adminGroupKey: VersionedKey | null = null
@@ -125,7 +104,7 @@ export class GroupManagementFacade {
 		const customerEncGroupInfoSessionKey = _encryptKeyWithVersionedKey(customerGroupKey, groupInfoSessionKey)
 		const groupEncGroupRootSessionKey = _encryptKeyWithVersionedKey(groupKey, groupRootSessionKey)
 
-		return createUserAreaGroupData({
+		return tutanotaTypeRefs.createUserAreaGroupData({
 			groupEncGroupRootSessionKey: groupEncGroupRootSessionKey.key,
 			customerEncGroupInfoSessionKey: customerEncGroupInfoSessionKey.key,
 			userEncGroupKey: userEncGroupKey.key,
@@ -138,13 +117,13 @@ export class GroupManagementFacade {
 		})
 	}
 
-	async createCalendar(name: string): Promise<{ user: User; group: Group }> {
+	async createCalendar(name: string): Promise<{ user: sysTypeRefs.User; group: sysTypeRefs.Group }> {
 		const groupData = await this.generateUserAreaGroupData(name)
-		const postData = createUserAreaGroupPostData({
+		const postData = tutanotaTypeRefs.createUserAreaGroupPostData({
 			groupData,
 		})
-		const postGroupData = await this.serviceExecutor.post(CalendarService, postData, { sessionKey: this.cryptoWrapper.aes256RandomKey() }) // we expect a session key to be defined as the entity is marked encrypted
-		const group = await this.entityClient.load(GroupTypeRef, postGroupData.group)
+		const postGroupData = await this.serviceExecutor.post(tutanotaServices.CalendarService, postData, { sessionKey: this.cryptoWrapper.aes256RandomKey() }) // we expect a session key to be defined as the entity is marked encrypted
+		const group = await this.entityClient.load(sysTypeRefs.GroupTypeRef, postGroupData.group)
 		const user = await this.cacheManagementFacade.reloadUser()
 
 		return { user, group }
@@ -152,34 +131,38 @@ export class GroupManagementFacade {
 
 	async createTemplateGroup(name: string): Promise<Id> {
 		const groupData = await this.generateUserAreaGroupData(name)
-		const serviceData = createUserAreaGroupPostData({
+		const serviceData = tutanotaTypeRefs.createUserAreaGroupPostData({
 			groupData,
 		})
 
-		const postGroupData = await this.serviceExecutor.post(TemplateGroupService, serviceData, { sessionKey: this.cryptoWrapper.aes256RandomKey() }) // we expect a session key to be defined as the entity is marked encrypted
+		const postGroupData = await this.serviceExecutor.post(tutanotaServices.TemplateGroupService, serviceData, {
+			sessionKey: this.cryptoWrapper.aes256RandomKey(),
+		}) // we expect a session key to be defined as the entity is marked encrypted
 
 		await this.cacheManagementFacade.reloadUser()
 
 		return postGroupData.group
 	}
 
-	async createContactListGroup(name: string): Promise<Group> {
+	async createContactListGroup(name: string): Promise<sysTypeRefs.Group> {
 		const groupData = await this.generateUserAreaGroupData(name)
-		const serviceData = createUserAreaGroupPostData({
+		const serviceData = tutanotaTypeRefs.createUserAreaGroupPostData({
 			groupData,
 		})
-		const postGroupData = await this.serviceExecutor.post(ContactListGroupService, serviceData, { sessionKey: this.cryptoWrapper.aes256RandomKey() }) // we expect a session key to be defined as the entity is marked encrypted
-		const group = await this.entityClient.load(GroupTypeRef, postGroupData.group)
+		const postGroupData = await this.serviceExecutor.post(tutanotaServices.ContactListGroupService, serviceData, {
+			sessionKey: this.cryptoWrapper.aes256RandomKey(),
+		}) // we expect a session key to be defined as the entity is marked encrypted
+		const group = await this.entityClient.load(sysTypeRefs.GroupTypeRef, postGroupData.group)
 		await this.cacheManagementFacade.reloadUser()
 
 		return group
 	}
 
-	async deleteContactListGroup(groupRoot: ContactListGroupRoot) {
-		const serviceData = createUserAreaGroupDeleteData({
+	async deleteContactListGroup(groupRoot: tutanotaTypeRefs.ContactListGroupRoot) {
+		const serviceData = tutanotaTypeRefs.createUserAreaGroupDeleteData({
 			group: groupRoot._id,
 		})
-		await this.serviceExecutor.delete(ContactListGroupService, serviceData)
+		await this.serviceExecutor.delete(tutanotaServices.ContactListGroupService, serviceData)
 	}
 
 	/**
@@ -193,11 +176,11 @@ export class GroupManagementFacade {
 		adminGroupId: Id | null,
 		adminGroupKey: VersionedKey,
 		ownerGroupKey: VersionedKey,
-	): InternalGroupData {
+	): tutanotaTypeRefs.InternalGroupData {
 		const adminEncGroupKey = this.cryptoWrapper.encryptKeyWithVersionedKey(adminGroupKey, groupKey)
 		const ownerEncGroupInfoSessionKey = this.cryptoWrapper.encryptKeyWithVersionedKey(ownerGroupKey, groupInfoSessionKey)
 
-		return createInternalGroupData({
+		return tutanotaTypeRefs.createInternalGroupData({
 			pubRsaKey: null,
 			groupEncPrivRsaKey: null,
 			pubEccKey: keyPair.x25519KeyPair.publicKey,
@@ -219,41 +202,41 @@ export class GroupManagementFacade {
 		const customerId = this.userFacade.getUser()?.customer
 		if (!customerId) return [] // external users have no team groups
 
-		const customer = await this.entityClient.load(CustomerTypeRef, customerId)
-		const teamGroupInfos = await this.entityClient.loadAll(GroupInfoTypeRef, customer.teamGroups)
+		const customer = await this.entityClient.load(sysTypeRefs.CustomerTypeRef, customerId)
+		const teamGroupInfos = await this.entityClient.loadAll(sysTypeRefs.GroupInfoTypeRef, customer.teamGroups)
 		return teamGroupInfos.map((groupInfo) => groupInfo.group)
 	}
 
-	async addUserToGroup(user: User, groupId: Id): Promise<void> {
+	async addUserToGroup(user: sysTypeRefs.User, groupId: Id): Promise<void> {
 		const userGroupKey = await this.adminKeyLoaderFacade.getCurrentGroupKeyViaAdminEncGKey(user.userGroup.group)
 		const groupKey = await this.adminKeyLoaderFacade.getCurrentGroupKeyViaAdminEncGKey(groupId)
 		const symEncGKey = _encryptKeyWithVersionedKey(userGroupKey, groupKey.object)
-		const data = createMembershipAddData({
+		const data = sysTypeRefs.createMembershipAddData({
 			user: user._id,
 			group: groupId,
 			symEncGKey: symEncGKey.key,
 			groupKeyVersion: String(groupKey.version),
 			symKeyVersion: symEncGKey.encryptingKeyVersion.toString(),
 		})
-		await this.serviceExecutor.post(MembershipService, data)
+		await this.serviceExecutor.post(sysServices.MembershipService, data)
 	}
 
 	async removeUserFromGroup(userId: Id, groupId: Id): Promise<void> {
-		const data = createMembershipRemoveData({
+		const data = sysTypeRefs.createMembershipRemoveData({
 			user: userId,
 			group: groupId,
 		})
-		await this.serviceExecutor.delete(MembershipService, data)
+		await this.serviceExecutor.delete(sysServices.MembershipService, data)
 	}
 
-	async deactivateGroup(group: Group, restore: boolean): Promise<void> {
-		const data = createDeleteGroupData({
+	async deactivateGroup(group: sysTypeRefs.Group, restore: boolean): Promise<void> {
+		const data = tutanotaTypeRefs.createDeleteGroupData({
 			group: group._id,
 			restore,
 		})
 
 		if (group.type === GroupType.Mail) {
-			await this.serviceExecutor.delete(MailGroupService, data)
+			await this.serviceExecutor.delete(tutanotaServices.MailGroupService, data)
 		} else {
 			throw new Error("invalid group type for deactivation")
 		}

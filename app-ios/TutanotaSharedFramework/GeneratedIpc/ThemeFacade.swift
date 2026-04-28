@@ -3,17 +3,17 @@
 
 import Foundation
 
-public protocol ThemeFacade {
+public protocol ThemeFacade : Sendable {
 	func getThemes(
 	) async throws -> [[String : String]]
 	func setThemes(
 		_ themes: [[String : String]]
-	) async throws
+	) async throws -> Void
 	func getThemePreference(
 	) async throws -> String?
 	func setThemePreference(
 		_ themePreference: String
-	) async throws
+	) async throws -> Void
 	func prefersDark(
 	) async throws -> Bool
 }

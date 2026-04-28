@@ -4,27 +4,33 @@ import { DefaultAnimationTime } from "../animation/Animations"
 import { displayOverlay, PositionRect } from "./Overlay"
 import type { ButtonAttrs } from "./Button.js"
 import { Button, ButtonType } from "./Button.js"
-import { lang, MaybeTranslation } from "../../misc/LanguageViewModel"
+import { lang, MaybeTranslation, TranslationKey } from "../../misc/LanguageViewModel"
 import { styles } from "../styles"
 import { LayerType } from "../../../RootView"
 import type { ClickHandler } from "./GuiUtils"
-import { assertMainOrNode } from "../../api/common/Env"
-import { isNotEmpty, remove } from "@tutao/tutanota-utils"
+import { assertMainOrNode, secondsToMillis } from "@tutao/app-env"
+import { isNotEmpty, remove } from "@tutao/utils"
 import { IconButton, IconButtonAttrs } from "./IconButton"
 import { AllIcons, Icon, IconSize } from "./Icon"
 import { theme } from "../theme"
+import { Icons } from "./icons/Icons"
+import { fabBottomSpacing } from "./FloatingActionButton"
 
 assertMainOrNode()
-const SNACKBAR_SHOW_TIME = 6000 // ms
-const SNACKBAR_HIDE_DELAY_TIME = 1500 // ms
+
+const SNACKBAR_SHOW_TIME = secondsToMillis(6)
+const SNACKBAR_HIDE_DELAY_TIME = secondsToMillis(1.5)
+const INFO_SNACKBAR_SHOW_TIME = secondsToMillis(10)
 const MAX_SNACKBAR_WIDTH = 400
 export type SnackBarButtonAttrs = {
 	label: MaybeTranslation
 	click: ClickHandler
+	isVisible?: () => boolean
 }
 type SnackBarAttrs = {
 	message: MaybeTranslation
 	button: ButtonAttrs | null
+	isSnackbarButtonVisible: () => boolean
 	dismissButton?: IconButtonAttrs
 	onHoverChange: (hovered: boolean) => void
 	leadingIcon?: AllIcons
@@ -43,16 +49,27 @@ let cancelCurrentSnackbar: (() => unknown) | null = null
 class SnackBar implements Component<SnackBarAttrs> {
 	view(vnode: Vnode<SnackBarAttrs>) {
 		const a = vnode.attrs
+		const actionButton = a.button
+			? m(
+					".flex-end.center-vertically",
+					{
+						class: a.isSnackbarButtonVisible() ? "" : "hidden",
+					},
+					m(Button, a.button),
+				)
+			: null
+		const dismissButton = a.dismissButton ? m(".flex.items-center.justify-right", [m(IconButton, a.dismissButton)]) : null
+
 		// use same padding as MinimizedEditor
 		return m(
 			".snackbar",
 			{
-				class: vnode.attrs.dismissButton ? "pl-16" : "plr-16",
+				class: a.dismissButton ? "pl-16" : "plr-16",
 				onmouseenter: () => {
-					vnode.attrs.onHoverChange(true)
+					a.onHoverChange(true)
 				},
 				onmouseleave: () => {
-					vnode.attrs.onHoverChange(false)
+					a.onHoverChange(false)
 				},
 			},
 			[
@@ -65,12 +82,9 @@ class SnackBar implements Component<SnackBarAttrs> {
 								fill: theme.on_surface_variant,
 							},
 						}),
-					m(".flex.center-vertically.smaller", lang.getTranslationText(vnode.attrs.message)),
+					m(".flex.center-vertically.smaller", lang.getTranslationText(a.message)),
 				]),
-				m(".flex.gap-8.items-center", [
-					vnode.attrs.button ? m(".flex-end.center-vertically.pl-12", m(Button, vnode.attrs.button)) : null,
-					vnode.attrs.dismissButton ? m(".flex.items-center.justify-right", [m(IconButton, vnode.attrs.dismissButton)]) : null,
-				]),
+				actionButton || dismissButton ? m(".flex.gap-8.items-center.pl-12", [actionButton, dismissButton]) : null,
 			],
 		)
 	}
@@ -82,6 +96,22 @@ function makeButtonAttrsForSnackBar(button: SnackBarButtonAttrs): ButtonAttrs {
 		click: button.click,
 		type: ButtonType.Secondary,
 	}
+}
+
+// A snackbar with only a message and dismiss button, shows for 10 seconds
+export function showInfoSnackbar(message: TranslationKey) {
+	let cancelSnackbar: () => void
+
+	cancelSnackbar = showSnackBar({
+		message,
+		dismissButton: {
+			title: "close_alt",
+			click: () => cancelSnackbar(),
+			icon: Icons.X,
+		},
+		showingTime: INFO_SNACKBAR_SHOW_TIME,
+		replace: true,
+	})
 }
 
 /**
@@ -124,6 +154,7 @@ export function showSnackBar(args: {
 		dismissButton: dismissButton,
 		onClose: onClose ?? null,
 		onShow: onShow ?? null,
+		isSnackbarButtonVisible: button?.isVisible ?? (() => true),
 		doCancel,
 		showingTime,
 		leadingIcon,
@@ -174,7 +205,7 @@ function getSnackBarPosition() {
 	const leftOffset = styles.isDesktopLayout() ? layout_size.drawer_menu_width : 0
 	const snackBarWidth = Math.min(window.innerWidth - leftOffset - 2 * snackBarMargin, MAX_SNACKBAR_WIDTH)
 	let result: PositionRect = {
-		bottom: px(snackBarMargin),
+		bottom: px(snackBarMargin + fabBottomSpacing()),
 		"max-width": px(snackBarWidth),
 		zIndex: LayerType.Modal,
 	}
@@ -189,7 +220,7 @@ function getSnackBarPosition() {
 }
 
 function showNextNotification() {
-	const { message, button, dismissButton, onClose, onShow, doCancel, showingTime, leadingIcon } = notificationQueue[0] //we shift later because it is still shown
+	const { message, button, dismissButton, onClose, onShow, doCancel, showingTime, leadingIcon, isSnackbarButtonVisible } = notificationQueue[0] //we shift later because it is still shown
 	clearTimeout(currentAnimationTimeout)
 	currentAnimationTimeout = null
 
@@ -202,12 +233,13 @@ function showNextNotification() {
 			view: () =>
 				m(SnackBar, {
 					message,
-					button,
 					dismissButton: dismissButton,
 					onHoverChange: (isHovered) => {
 						hovered = isHovered
 					},
 					leadingIcon,
+					button,
+					isSnackbarButtonVisible,
 				}),
 		},
 		"slide-bottom",

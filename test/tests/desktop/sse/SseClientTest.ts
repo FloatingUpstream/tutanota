@@ -1,15 +1,17 @@
-import o from "@tutao/otest"
+import o, { verify } from "@tutao/otest"
 import { SseClient, SseConnectOptions, SseDelay, SseEventHandler } from "../../../../src/common/desktop/sse/SseClient.js"
 import { ClientRequestOptions, DesktopNetworkClient } from "../../../../src/common/desktop/net/DesktopNetworkClient.js"
 import { matchers, object, when } from "testdouble"
 import http from "node:http"
-import { verify } from "@tutao/tutanota-test-utils"
-import { assertNotNull, defer, getFirstOrThrow } from "@tutao/tutanota-utils"
+import { assertNotNull, defer, getFirstOrThrow } from "@tutao/utils"
 import { SchedulerMock } from "../../TestUtils.js"
-import { NotAuthenticatedError, NotAuthorizedError } from "../../../../src/common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 
 o.spec("SseClient", function () {
-	const defaultOptions: SseConnectOptions = Object.freeze({ url: new URL("http://example.com"), headers: { header: "headerValue" } })
+	const defaultOptions: SseConnectOptions = Object.freeze({
+		url: new URL("http://example.com"),
+		headers: { header: "headerValue" },
+	})
 
 	let sseClient: SseClient
 	let net: NetStub
@@ -85,7 +87,7 @@ o.spec("SseClient", function () {
 
 		o.test("on notAuthenticated it notifies listener", async () => {
 			const response = new ResponseStub()
-			response.statusCode = NotAuthenticatedError.CODE
+			response.statusCode = restError.NotAuthenticatedError.CODE
 			await sseClient.connect(defaultOptions)
 
 			const request = await net.waitForRequest()
@@ -95,7 +97,7 @@ o.spec("SseClient", function () {
 
 		o.test("on notAuthorized it notifies listener", async () => {
 			const response = new ResponseStub()
-			response.statusCode = NotAuthorizedError.CODE
+			response.statusCode = restError.NotAuthorizedError.CODE
 			await sseClient.connect(defaultOptions)
 
 			const request = await net.waitForRequest()
@@ -240,7 +242,10 @@ o.spec("SseClient", function () {
 
 			net.prepareForAnotherRequest()
 
-			const newOptions = Object.freeze({ url: new URL("https://another.com"), headers: { anotherHeader: "anotherValue" } })
+			const newOptions = Object.freeze({
+				url: new URL("https://another.com"),
+				headers: { anotherHeader: "anotherValue" },
+			})
 			await sseClient.connect(newOptions)
 			o(request.state).equals("destroyed")
 			const newRequest = await net.waitForRequest()

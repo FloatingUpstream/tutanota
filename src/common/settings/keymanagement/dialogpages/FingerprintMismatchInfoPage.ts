@@ -6,10 +6,10 @@ import { theme } from "../../../gui/theme"
 import { Card } from "../../../gui/base/Card"
 import { ExternalLink } from "../../../gui/base/ExternalLink"
 import { LoginButton } from "../../../gui/base/buttons/LoginButton"
-import { IdentityKeySourceOfTrust } from "../../../api/common/TutanotaConstants"
 import { KeyVerificationModel } from "../KeyVerificationModel"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { Icon, IconSize } from "../../../gui/base/Icon"
+import { IdentityKeySourceOfTrust } from "@tutao/app-env"
 
 type VerificationErrorInfoPageAttrs = {
 	model: KeyVerificationModel
@@ -39,7 +39,7 @@ export class FingerprintMismatchInfoPage implements Component<VerificationErrorI
 			m(TitleSection, {
 				title,
 				subTitle: m.trust(subTitle),
-				icon: Icons.CloseCircleOutline,
+				icon: Icons.FailureOutline,
 				iconOptions: { color: theme.error },
 			}),
 			m(
@@ -63,7 +63,7 @@ export class FingerprintMismatchInfoPage implements Component<VerificationErrorI
 				},
 				class: "flex-center row center-vertically",
 				icon: m(Icon, {
-					icon: Icons.Trash,
+					icon: Icons.TrashFilled,
 					size: IconSize.PX24,
 					class: "mr-8 flex-center",
 					style: {

@@ -1,21 +1,10 @@
 import o from "@tutao/otest"
-import {
-	ContactAddressTypeRef,
-	ContactMailAddressTypeRef,
-	ContactPhoneNumberTypeRef,
-	ContactTypeRef,
-	createContact,
-	createContactAddress,
-	createContactMailAddress,
-	createContactPhoneNumber,
-	createMailAddress,
-} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { neverNull } from "@tutao/tutanota-utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { neverNull } from "@tutao/utils"
 import { vCardFileToVCards, vCardListToContacts } from "../../../src/mail-app/contacts/VCardImporter.js"
 // @ts-ignore[untyped-import]
 import en from "../../../src/mail-app/translations/en.js"
 import { lang } from "../../../src/common/misc/LanguageViewModel.js"
-import { createTestEntity } from "../TestUtils.js"
 
 o.spec("VCardImporterTest", function () {
 	o.before(async function () {
@@ -164,7 +153,8 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 	o("testToContactNames", function () {
 		const vcardData = ["N:Public\\\\;John\\;Quinlan;Lange;Mr.;Esq.\nBDAY:2016-09-09\nADR:Die Heide 81\\nBasche\nNOTE:Hello World\\nHier ist ein Umbruch"]
 		const parsedContacts = vCardListToContacts(vcardData, "")
-		const expectedContact = createContact({
+		const expectedContact = tutanotaTypeRefs.createContact({
+			_id: ["dummyContactListId", "dummyContactElementId0"],
 			_ownerGroup: "",
 			firstName: "John;Quinlan",
 			lastName: "Public\\",
@@ -185,7 +175,7 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 			mailAddresses: [],
 			phoneNumbers: [],
 			addresses: [
-				createContactAddress({
+				tutanotaTypeRefs.createContactAddress({
 					address: "Die Heide 81\nBasche",
 					customTypeName: "",
 					type: "2",
@@ -205,7 +195,8 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 	o("testEmptyAddressElements", function () {
 		const vcardData = ["N:Public\\\\;John\\;Quinlan;;Mr.;Esq.\nBDAY:2016-09-09\nADR:Die Heide 81;; ;;Basche"]
 		const parsedContacts = vCardListToContacts(vcardData, "")
-		const expectedContact = createContact({
+		const expectedContact = tutanotaTypeRefs.createContact({
+			_id: ["dummyContactListId", "dummyContactElementId0"],
 			_ownerGroup: "",
 			firstName: "John;Quinlan",
 			lastName: "Public\\",
@@ -226,7 +217,7 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 			mailAddresses: [],
 			phoneNumbers: [],
 			addresses: [
-				createContactAddress({
+				tutanotaTypeRefs.createContactAddress({
 					address: "Die Heide 81\nBasche",
 					customTypeName: "",
 					type: "2",
@@ -247,7 +238,8 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 	o("testTooManySpaceElements", function () {
 		const vcardData = ["N:Public\\\\; John\\; Quinlan;;Mr.    ;Esq.\nBDAY: 2016-09-09\nADR: Die Heide 81;;;; Basche"]
 		const parsedContacts = vCardListToContacts(vcardData, "")
-		const expectedContact = createContact({
+		const expectedContact = tutanotaTypeRefs.createContact({
+			_id: ["dummyContactListId", "dummyContactElementId0"],
 			_ownerGroup: "",
 			firstName: "John; Quinlan",
 			lastName: "Public\\",
@@ -268,7 +260,7 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 			mailAddresses: [],
 			phoneNumbers: [],
 			addresses: [
-				createContactAddress({
+				tutanotaTypeRefs.createContactAddress({
 					address: "Die Heide 81\nBasche",
 					customTypeName: "",
 					type: "2",
@@ -297,7 +289,8 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 	o("testTypeInUserText", function () {
 		const vcardContent = ["EMAIL;TYPE=WORK:HOME@mvrht.net\nADR;TYPE=WORK:Street;HOME;;\nTEL;TYPE=WORK:HOME01923825434"]
 		const parsedContacts = vCardListToContacts(vcardContent, "")
-		const expectedContact = createContact({
+		const expectedContact = tutanotaTypeRefs.createContact({
+			_id: ["dummyContactListId", "dummyContactElementId0"],
 			_ownerGroup: "",
 			firstName: "",
 			lastName: "",
@@ -316,21 +309,21 @@ ADR;TYPE=HOME,PREF:;;Humboldstrasse 5;\\nBerlin;;12345;Deutschland`,
 			phoneticLast: null,
 			department: "",
 			mailAddresses: [
-				createContactMailAddress({
+				tutanotaTypeRefs.createContactMailAddress({
 					address: "HOME@mvrht.net",
 					customTypeName: "",
 					type: "1",
 				}),
 			],
 			phoneNumbers: [
-				createContactPhoneNumber({
+				tutanotaTypeRefs.createContactPhoneNumber({
 					customTypeName: "",
 					number: "HOME01923825434",
 					type: "1",
 				}),
 			],
 			addresses: [
-				createContactAddress({
+				tutanotaTypeRefs.createContactAddress({
 					address: "Street\nHOME",
 					customTypeName: "",
 					type: "1",

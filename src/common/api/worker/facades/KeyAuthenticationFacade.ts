@@ -1,8 +1,7 @@
-import { CryptoWrapper } from "../crypto/CryptoWrapper.js"
-import { concat, KeyVersion } from "@tutao/tutanota-utils"
-import { Aes256Key, AesKey, bitArrayToUint8Array, Ed25519PublicKey, ed25519PublicKeyToBytes, MacTag, PQPublicKeys } from "@tutao/tutanota-crypto"
-import { assertWorkerOrNode } from "../../common/Env.js"
-import { KeyMac } from "../../entities/sys/TypeRefs.js"
+import { concat, KeyVersion } from "@tutao/utils"
+import { Aes256Key, AesKey, CryptoWrapper, Ed25519PublicKey, ed25519PublicKeyToBytes, keyToUint8Array, MacTag, PQPublicKeys } from "@tutao/crypto"
+import { assertWorkerOrNode } from "@tutao/app-env"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertWorkerOrNode()
 
@@ -64,7 +63,7 @@ const userGroupKeyAuthenticationSystem: KeyAuthenticationSystem<UserGroupKeyAuth
 		})
 	},
 	generateAuthenticationData({ untrustedKey: { newUserGroupKey } }) {
-		return bitArrayToUint8Array(newUserGroupKey)
+		return keyToUint8Array(newUserGroupKey)
 	},
 }
 
@@ -156,7 +155,7 @@ const adminSymKeyAuthenticationSystem: KeyAuthenticationSystem<AdminSymKeyAuthen
 		})
 	},
 	generateAuthenticationData({ untrustedKey: { newAdminGroupKey } }) {
-		return bitArrayToUint8Array(newAdminGroupKey)
+		return keyToUint8Array(newAdminGroupKey)
 	},
 }
 
@@ -229,11 +228,11 @@ export class KeyAuthenticationFacade {
 	}
 }
 
-type BrandedKeyMac = Omit<KeyMac, "mac"> & { tag: MacTag }
+type BrandedKeyMac = Omit<sysTypeRefs.KeyMac, "mac"> & { tag: MacTag }
 
 /**
  * Brands a KeyMac so that it has a branded MacTag, which can be used in authentication methods.
  */
-export function brandKeyMac(keyMac: KeyMac): BrandedKeyMac {
+export function brandKeyMac(keyMac: sysTypeRefs.KeyMac): BrandedKeyMac {
 	return keyMac as BrandedKeyMac
 }

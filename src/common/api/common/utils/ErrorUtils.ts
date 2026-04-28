@@ -1,38 +1,11 @@
 // @bundleInto:common
 
-import { downcast } from "@tutao/tutanota-utils"
-import { Entity, ParsedInstance } from "../EntityTypes"
-import {
-	AccessBlockedError,
-	AccessDeactivatedError,
-	AccessExpiredError,
-	BadGatewayError,
-	BadRequestError,
-	ConnectionError,
-	InsufficientStorageError,
-	InternalServerError,
-	InvalidDataError,
-	InvalidSoftwareVersionError,
-	LimitReachedError,
-	LockedError,
-	MethodNotAllowedError,
-	NotAuthenticatedError,
-	NotAuthorizedError,
-	NotFoundError,
-	PayloadTooLargeError,
-	PreconditionFailedError,
-	RequestTimeoutError,
-	ResourceError,
-	ServiceUnavailableError,
-	SessionExpiredError,
-	TooManyRequestsError,
-} from "../error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { SuspensionError } from "../error/SuspensionError.js"
 import { LoginIncompleteError } from "../error/LoginIncompleteError.js"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
-import { SessionKeyNotFoundError } from "../error/SessionKeyNotFoundError.js"
+import { CryptoError, SessionKeyNotFoundError } from "@tutao/crypto/error"
 import { SseError } from "../error/SseError.js"
-import { ProgrammingError } from "../error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { RecipientsNotFoundError } from "../error/RecipientsNotFoundError.js"
 import { RecipientNotResolvedError } from "../error/RecipientNotResolvedError.js"
 import { OfflineDbClosedError } from "../error/OfflineDbClosedError.js"
@@ -58,37 +31,17 @@ import { ExportError } from "../error/ExportError"
 import { KeyVerificationMismatchError } from "../error/KeyVerificationMismatchError"
 import { ServerModelsUnavailableError } from "../error/ServerModelsUnavailableError"
 import { AppLockAuthenticationError } from "../error/AppLockAuthenticationError"
-import { InvalidModelError } from "../error/InvalidModelError"
+import { InvalidModelError } from "@tutao/app-env"
 import { MoveCycleError } from "../error/MoveCycleError"
-
-function isErrorObjectEmpty(obj: Record<string, unknown>): boolean {
-	return Object.keys(obj).length === 0
-}
-
-/**
- * Checks if the given instance (Entity or ParsedInstance) has an error in the _errors property which is usually written
- * if decryption fails for some reason in InstanceMapper.
- * @param instance the instance to check for errors.
- * @param key only returns true if there is an error for this key. Other errors will be ignored if the key is defined.
- * @returns {boolean} true if error was found (for the given key).
- */
-export function hasError<K>(instance: Entity | ParsedInstance, key?: K): boolean {
-	const downCastedInstance = downcast(instance)
-	if (!instance) {
-		return true
-	} else {
-		const hasNonEmptyErrorObject = !!downCastedInstance._errors && !isErrorObjectEmpty(downCastedInstance._errors)
-
-		return hasNonEmptyErrorObject && (!key || !!downCastedInstance._errors.key)
-	}
-}
+import { MoveToTrashError } from "../error/MoveToTrashError"
+import { MoveDestinationIsSourceError } from "../error/MoveDestinationIsSourceError"
 
 //If importing fails it is a good idea to bundle the error into common-min which can be achieved by annotating the module with "<at>bundleInto:common-min"
 /**
  * Checks whether {@param e} is an error that can error before we are fully logged in and connected.
  */
 export function isOfflineError(e: Error): boolean {
-	return e instanceof ConnectionError || e instanceof LoginIncompleteError
+	return e instanceof restError.ConnectionError || e instanceof LoginIncompleteError
 }
 
 // If importing fails it is a good idea to adjust the chunking to bundle the error into common
@@ -101,27 +54,27 @@ export function isOfflineError(e: Error): boolean {
  * All errors that cross IPC boundaries should be added here.
  */
 const ErrorNameToType = {
-	ConnectionError,
-	BadRequestError,
-	NotAuthenticatedError,
-	SessionExpiredError,
-	NotAuthorizedError,
-	NotFoundError,
-	MethodNotAllowedError,
-	PreconditionFailedError,
-	LockedError,
-	TooManyRequestsError,
-	AccessDeactivatedError,
-	AccessExpiredError,
-	AccessBlockedError,
-	InvalidDataError,
-	InvalidSoftwareVersionError,
-	LimitReachedError,
-	InternalServerError,
-	BadGatewayError,
-	ResourceError,
-	RequestTimeoutError,
-	InsufficientStorageError,
+	ConnectionError: restError.ConnectionError,
+	BadRequestError: restError.BadRequestError,
+	NotAuthenticatedError: restError.NotAuthenticatedError,
+	SessionExpiredError: restError.SessionExpiredError,
+	NotAuthorizedError: restError.NotAuthorizedError,
+	NotFoundError: restError.NotFoundError,
+	MethodNotAllowedError: restError.MethodNotAllowedError,
+	PreconditionFailedError: restError.PreconditionFailedError,
+	LockedError: restError.LockedError,
+	TooManyRequestsError: restError.TooManyRequestsError,
+	AccessDeactivatedError: restError.AccessDeactivatedError,
+	AccessExpiredError: restError.AccessExpiredError,
+	AccessBlockedError: restError.TooManyRequestsError,
+	InvalidDataError: restError.TooManyRequestsError,
+	InvalidSoftwareVersionError: restError.TooManyRequestsError,
+	LimitReachedError: restError.TooManyRequestsError,
+	InternalServerError: restError.TooManyRequestsError,
+	BadGatewayError: restError.TooManyRequestsError,
+	ResourceError: restError.TooManyRequestsError,
+	RequestTimeoutError: restError.RequestTimeoutError,
+	InsufficientStorageError: restError.TooManyRequestsError,
 	CryptoError,
 	SessionKeyNotFoundError,
 	SseError,
@@ -132,13 +85,13 @@ const ErrorNameToType = {
 	ServerModelsUnavailableError,
 	InvalidModelError,
 	OutOfSyncError,
-	ServiceUnavailableError,
+	ServiceUnavailableError: restError.TooManyRequestsError,
 	DbError,
 	IndexingNotSupportedError,
 	QuotaExceededError,
 	CancelledError,
 	FileOpenError,
-	PayloadTooLargeError,
+	PayloadTooLargeError: restError.TooManyRequestsError,
 	DeviceStorageUnavailableError,
 	MailBodyTooLargeError,
 	ImportError,
@@ -151,14 +104,16 @@ const ErrorNameToType = {
 	MailImportError,
 	KeyVerificationMismatchError,
 	MoveCycleError,
+	MoveToTrashError,
+	MoveDestinationIsSourceError,
 	Error,
-	"java.net.SocketTimeoutException": ConnectionError,
-	"java.net.SocketException": ConnectionError,
-	"java.net.ConnectException": ConnectionError,
-	"javax.net.ssl.SSLException": ConnectionError,
-	"javax.net.ssl.SSLHandshakeException": ConnectionError,
-	"java.io.EOFException": ConnectionError,
-	"java.net.UnknownHostException": ConnectionError,
+	"java.net.SocketTimeoutException": restError.ConnectionError,
+	"java.net.SocketException": restError.ConnectionError,
+	"java.net.ConnectException": restError.ConnectionError,
+	"javax.net.ssl.SSLException": restError.ConnectionError,
+	"javax.net.ssl.SSLHandshakeException": restError.ConnectionError,
+	"java.io.EOFException": restError.ConnectionError,
+	"java.net.UnknownHostException": restError.ConnectionError,
 	"java.lang.SecurityException": PermissionError,
 	"java.io.FileNotFoundException": FileNotFoundError,
 	"de.tutao.tutashared.CryptoError": CryptoError,
@@ -167,7 +122,7 @@ const ErrorNameToType = {
 	// iOS app crypto error domain
 	"android.content.ActivityNotFoundException": FileOpenError,
 	"de.tutao.tutashared.TutFileViewer": FileOpenError,
-	NSURLErrorDomain: ConnectionError,
+	NSURLErrorDomain: restError.ConnectionError,
 	NSCocoaErrorDomain: Error,
 	"de.tutao.tutashared.CredentialAuthenticationException": CredentialAuthenticationError,
 	"de.tutao.tutashared.AppLockAuthenticationException": AppLockAuthenticationError,
@@ -206,8 +161,8 @@ export function objToError(o: Record<string, any>): Error {
 
 /**
  * Returns whether the error is expected for the cases where our local state might not be up-to-date with the server yet. E.g. we might be processing an update
- * for the instance that was already deleted. Normally this would be optimized away but it might still happen due to timing.
+ * for the instance that was already deleted. Normally this would be optimized away, but it might still happen due to timing.
  */
 export function isExpectedErrorForSynchronization(e: Error): boolean {
-	return e instanceof NotFoundError || e instanceof NotAuthorizedError
+	return e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError
 }

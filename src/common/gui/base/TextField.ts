@@ -4,9 +4,9 @@ import { DefaultAnimationTime } from "../animation/Animations"
 import { theme } from "../theme"
 import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
-import type { lazy } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
 import { isKeyPressed, keyHandler, useKeyHandler } from "../../misc/KeyManager"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { ClickHandler, getOperatingClasses } from "./GuiUtils"
 import { AriaPopupType } from "../AriaUtils.js"
 
@@ -103,6 +103,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 		const a = vnode.attrs
 		const maxWidth = a.maxWidth
 		const labelBase = !this.active && a.value === "" && !a.isReadOnly && !this._didAutofill && !a.injectionsLeft
+		const labelString = lang.getTranslationText(a.label)
 		const labelTransitionSpeed = DefaultAnimationTime / 2
 		const doShowBorder = a.doShowBorder !== false
 		const borderWidth = this.active ? "2px" : "1px"
@@ -127,7 +128,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 				m(
 					"label.abs.text-ellipsis.noselect.z1.i.pr-4",
 					{
-						"aria-hidden": "true",
+						"aria-label": labelString,
 						class: this.active ? "content-accent-fg" : "" + " " + getOperatingClasses(a.disabled),
 						oncreate: (vnode) => {
 							this._domLabel = vnode.dom as HTMLElement
@@ -138,7 +139,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 							transition: `transform ${labelTransitionSpeed}ms ease-out, font-size ${labelTransitionSpeed}ms  ease-out`,
 						},
 					},
-					lang.getTranslationText(a.label),
+					labelString,
 				),
 				m(".flex.flex-column", [
 					// another wrapper to fix IE 11 min-height bug https://github.com/philipwalton/flexbugs#3-min-height-on-a-flex-container-wont-apply-to-its-flex-items
@@ -217,6 +218,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 				a.autocompleteAs === Autocomplete.off
 					? [
 							m("input.abs", {
+								"aria-hidden": "true",
 								style: {
 									opacity: "0",
 									height: "0",
@@ -225,6 +227,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 								type: TextFieldType.Text,
 							}),
 							m("input.abs", {
+								"aria-hidden": "true",
 								style: {
 									opacity: "0",
 									height: "0",
@@ -233,6 +236,7 @@ export class TextField implements ClassComponent<TextFieldAttrs> {
 								type: TextFieldType.Password,
 							}),
 							m("input.abs", {
+								"aria-hidden": "true",
 								style: {
 									opacity: "0",
 									height: "0",

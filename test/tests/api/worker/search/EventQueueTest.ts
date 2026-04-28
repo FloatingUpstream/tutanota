@@ -1,29 +1,27 @@
-import o from "@tutao/otest"
+import o, { spy } from "@tutao/otest"
 import { EventQueue, QueuedBatch } from "../../../../../src/common/api/worker/EventQueue.js"
-import { OperationType } from "../../../../../src/common/api/common/TutanotaConstants.js"
-import { defer, delay } from "@tutao/tutanota-utils"
-import { ConnectionError } from "../../../../../src/common/api/common/error/RestError.js"
-import { Mail, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { spy } from "@tutao/tutanota-test-utils"
-import { EntityUpdateData } from "../../../../../src/common/api/common/utils/EntityUpdateUtils"
+import { defer, delay } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
+import { entityUpdateUtils, tutanotaTypeRefs } from "@tutao/typerefs"
+import { OperationType } from "../../../../../src/app-env"
 
 o.spec("EventQueueTest", function () {
 	let queue: EventQueue
 	let processElement: any
 	let lastProcess: { resolve: () => void; reject: (Error) => void; promise: Promise<void> }
 
-	const noPatchesAndInstance: Pick<EntityUpdateData, "instance" | "patches"> = {
+	const noPatchesAndInstance: Pick<entityUpdateUtils.EntityUpdateData, "instance" | "patches"> = {
 		instance: null,
 		patches: null,
 	}
-	const newUpdate = (type: OperationType, instanceId: string): EntityUpdateData<Mail> => {
+	const newUpdate = (type: OperationType, instanceId: string): entityUpdateUtils.EntityUpdateData => {
 		return {
 			operation: type,
 			instanceId,
 			instanceListId: "list-id",
-			typeRef: MailTypeRef,
+			typeRef: tutanotaTypeRefs.MailTypeRef,
 			...noPatchesAndInstance,
-		} as Partial<EntityUpdateData> as EntityUpdateData<Mail>
+		} as Partial<entityUpdateUtils.EntityUpdateData> as entityUpdateUtils.EntityUpdateData
 	}
 
 	o.beforeEach(function () {
@@ -94,7 +92,7 @@ o.spec("EventQueueTest", function () {
 		})
 		let queue = new EventQueue("test 2!", (nextElement: QueuedBatch) => {
 			if (nextElement.batchId === "2") {
-				return Promise.reject(new ConnectionError("no connection"))
+				return Promise.reject(new restError.ConnectionError("no connection"))
 			} else {
 				throw new Error("should not be called")
 			}

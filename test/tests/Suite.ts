@@ -1,31 +1,31 @@
 import o from "@tutao/otest"
-
-import "./api/common/error/RestErrorTest.js"
-import "./api/common/error/TutanotaErrorTest.js"
+import "./misc/WebsocketConnectivityModelTest"
+import "./restClient/RestErrorTest.js"
+import "./app-env/TutanotaErrorTest.js"
 import "./api/common/mail/CommonMailUtilsTest.js"
 import "./api/common/utils/BirthdayUtilsTest.js"
 import "./api/common/utils/CommonFormatterTest.js"
-import "./api/common/utils/EntityUtilsTest.js"
-import "./api/common/EntityFunctionsTest.js"
+import "./typerefs/EntityUtilsTest.js"
+import "./typerefs/EntityFunctionsTest.js"
 import "./api/common/utils/FileUtilsTest.js"
 import "./api/common/utils/LoggerTest.js"
 import "./api/common/utils/PlainTextSearchTest.js"
 import "./api/main/EntropyCollectorTest.js"
 import "./api/main/SyncTrackerTest.js"
-import "./api/worker/CompressionTest.js"
+import "./instance-pipeline/CompressionTest.js"
 import "./api/worker/EventBusClientTest.js"
 import "./api/worker/EventBusEventCoordinatorTest.js"
-import "./api/worker/SuspensionHandlerTest.js"
+import "./restClient/SuspensionHandlerTest"
 import "./api/worker/UrlifierTest.js"
 import "./api/worker/crypto/AsymmetricCryptoFacadeTest.js"
 import "./api/worker/crypto/CompatibilityTest.js"
-import "./api/worker/crypto/CryptoMapperTest.js"
+import "./instance-pipeline/CryptoMapperTest.js"
 import "./api/worker/crypto/CryptoFacadeTest.js"
-import "./api/worker/crypto/CryptoWrapperTest.js"
-import "./api/worker/crypto/EntityAdapterTest.js"
-import "./api/worker/crypto/ModelMapperTest.js"
-import "./api/worker/crypto/ModelMapperTransformationsTest.js"
-import "./api/worker/crypto/TypeMapperTest.js"
+import "./instance-pipeline/CryptoWrapperTest.js"
+import "./instance-pipeline/EntityAdapterTest.js"
+import "./instance-pipeline/ModelMapperTest.js"
+import "./instance-pipeline/ModelMapperTransformationsTest.js"
+import "./instance-pipeline/TypeMapperTest.js"
 import "./api/worker/facades/ApplicationTypesFacadeTest.js"
 import "./api/worker/facades/BlobAccessTokenFacadeTest.js"
 import "./api/worker/facades/BlobFacadeTest.js"
@@ -70,7 +70,7 @@ import "./api/worker/rest/CustomCacheHandlerTest.js"
 import "./api/worker/rest/EntityRestCacheTest.js"
 import "./api/worker/rest/EntityRestClientTest.js"
 import "./api/worker/rest/EphemeralCacheStorageTest.js"
-import "./api/worker/rest/PatchGeneratorTest.js"
+import "./typerefs/PatchGeneratorTest.js"
 import "./api/worker/rest/ServiceExecutorTest.js"
 import "./api/worker/search/BulkMailLoaderTest.js"
 import "./api/worker/search/ContactIndexerTest.js"
@@ -95,6 +95,8 @@ import "./calendar/CalendarGuiUtilsTest.js"
 import "./calendar/CalendarImporterTest.js"
 import "./calendar/CalendarInvitesTest.js"
 import "./calendar/CalendarModelTest.js"
+import "./calendar/CalendarEventUpdateCoordinatorTest.js"
+import "./calendar/gui/ImportExportUtilsTest.js"
 import "./calendar/CalendarParserTest.js"
 import "./calendar/CalendarUtilsTest.js"
 import "./calendar/CalendarViewModelTest.js"
@@ -111,6 +113,7 @@ import "./contacts/ContactUtilsTest.js"
 import "./contacts/VCardExporterTest.js"
 import "./contacts/VCardImporterTest.js"
 import "./drive/DriveViewModelTest.js"
+import "./drive/DriveMimeUtilsTest.js"
 import "./file/FileControllerTest.js"
 import "./gui/ColorTest.js"
 import "./gui/GuiUtilsTest.js"
@@ -179,10 +182,9 @@ import "./api/worker/search/OfflineStorageContactIndexerBackendTest.js"
 import "./api/worker/search/OfflineStorageContactSearchFacadeTest.js"
 import "./api/worker/rest/CustomUserCacheHandlerTest.js"
 import "./api/common/utils/QueryTokenUtilsTest.js"
-import "./api/worker/offline/PatchMergerTest.js"
+import "./instance-pipeline/PatchMergerTest.js"
 import "./contacts/ContactModelTest.js"
 import "./api/worker/search/OfflinestorageIndexerTest.js"
-import "./api/worker/EventInstancePrefetcherTest.js"
 import "./misc/parsing/ParserCombinatorTest.js"
 import "./sharing/GroupSettingsModelTest.js"
 import "./mail/editor/OpenLocallySavedDraftActionTest.js"
@@ -190,10 +192,48 @@ import "./mail/SpamClassificationHandlerTest.js"
 import "./misc/quickactions/QuickActionsModelTest.js"
 import "./calendar/CalendarTimeGridTest"
 import "./calendar/AllDaySectionTest"
+import "./mail/view/LabelsPopupViewModelTest.js"
+import "./settings/NotificationSettingsViewerModelTest.js"
+import "./drive/DriveTransferControllerTest.js"
+import "./api/worker/IndexedDbLastProcessedEventBatchStorageFacadeTest.js"
+import "./licc/ParserTest.js"
+import "./crypto/AesTest.js"
+import "./crypto/BcryptTest.js"
+import "./crypto/Argon2idTest.js"
+import "./crypto/SymmetricCipherUtilsTest.js"
+import "./crypto/SymmetricKeyDeriverTest.js"
+import "./crypto/SymmetricCipherFacadeTest.js"
+import "./crypto/AesCbcFacadeTest.js"
+import "./crypto/Ed25519Test.js"
+import "./crypto/KeyEncryptionTest.js"
+import "./crypto/MurmurHashTest.js"
+import "./crypto/RandomizerTest.js"
+import "./crypto/RsaTest.js"
+import "./crypto/Sha1Test.js"
+import "./crypto/Sha256Test.js"
+import "./crypto/HkdfTest.js"
+import "./crypto/TotpVerifierTest.js"
+import "./crypto/X25519Test.js"
+import "./crypto/KyberTest.js"
+import "./crypto/HmacTest.js"
+import "./crypto/Blake3Test.js"
+import "./crypto/AeadFacadeTest.js"
+import "./usagetests/UsageTestAll.js"
+import "./utils/UtilsTest.js"
+import "./utils/MapUtilsTest.js"
+import "./utils/ArrayUtilsTest.js"
+import "./utils/CollectionUtilsTest.js"
+import "./utils/EncodingTest.js"
+import "./utils/PromiseUtilTest.js"
+import "./utils/SortedArrayTest.js"
+import "./utils/MathUtilsTest.js"
+import "./utils/LazyLoadedTest.js"
+import "./utils/CsvTest.js"
+import "./utils/TokenizerTest.js"
+import "./app-env/TimeConstants.js"
 
 import * as td from "testdouble"
-import { random } from "@tutao/tutanota-crypto"
-import { Mode } from "../../src/common/api/common/Env.js"
+import { Mode } from "@tutao/app-env"
 
 export async function run({ integration, filter }: { integration?: boolean; filter?: string } = {}) {
 	await setupSuite({ integration })
@@ -205,7 +245,8 @@ export async function run({ integration, filter }: { integration?: boolean; filt
 }
 
 async function setupSuite({ integration }: { integration?: boolean }) {
-	const { WorkerImpl } = await import("../../src/mail-app/workerUtils/worker/WorkerImpl.js")
+	const { random } = await import("@tutao/crypto")
+	const { WorkerImpl } = await import("../../src/mail-app/workerUtils/worker/WorkerImpl")
 	globalThis.testWorker = WorkerImpl
 
 	if (typeof process !== "undefined") {
@@ -220,12 +261,13 @@ async function setupSuite({ integration }: { integration?: boolean }) {
 
 	if (typeof process !== "undefined") {
 		// setup the Entropy for all testcases
+
 		await random.addEntropy([{ data: 36, entropy: 256, source: "key" }])
 		await import("./api/worker/utils/spamClassification/SparseVectorCompressorTest.js")
+		await import("./api/worker/utils/spamClassification/SpamMailProcessorTest.js")
 		await import("./api/worker/utils/spamClassification/SpamClassifierTest.js")
 		await import("./api/worker/offline/OfflineStorageMigratorTest.js")
 		await import("./api/worker/offline/OfflineStorageTest.js")
-		await import("./api/worker/rest/RestClientTest.js")
 		await import("./desktop/ApplicationWindowTest.js")
 		await import("./desktop/DesktopContextMenuTest.js")
 		await import("./desktop/DesktopCryptoFacadeTest.js")
@@ -264,6 +306,7 @@ async function setupSuite({ integration }: { integration?: boolean }) {
 		await import("./api/worker/search/OfflineStorageSearchFacadeTest.js")
 		await import("./api/worker/facades/OfflineStorageAutosaveFacadeTest.js")
 		await import("./api/worker/facades/OfflineStorageSpamClassifierStorageFacadeTest.js")
+		await import("./restClient/RestClientTest.js")
 	}
 
 	// testdouble complains about certain mocking related code smells, and also prints a warning whenever you replace a property on an object.

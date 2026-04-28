@@ -1,10 +1,9 @@
 import m, { Children, ClassComponent, Vnode } from "mithril"
 import { NavBar } from "./base/NavBar.js"
 import { isSelectedPrefix, NavButton, NavButtonColor } from "./base/NavButton.js"
-import { FeatureType } from "../api/common/TutanotaConstants.js"
-import { BootIcons } from "./base/icons/BootIcons.js"
+import { FeatureType } from "@tutao/app-env"
 import { CALENDAR_PREFIX, CONTACTLIST_PREFIX, CONTACTS_PREFIX, DRIVE_PREFIX, MAIL_PREFIX } from "../misc/RouteChange.js"
-import { assertMainOrNode } from "../api/common/Env.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { OfflineIndicator } from "./base/OfflineIndicator.js"
 import { OfflineIndicatorViewModel } from "./base/OfflineIndicatorViewModel.js"
 import { NewsModel } from "../misc/news/NewsModel.js"
@@ -49,7 +48,7 @@ export class Header implements ClassComponent<HeaderAttrs> {
 	private renderNavigation(attrs: HeaderAttrs): Children {
 		return [
 			attrs.searchBar ? m(".ml-4.flex-grow", attrs.searchBar()) : null,
-			m(".flex-grow.flex.justify-end.items-center", [
+			m(".flex-grow.flex.justify-end.items-center.pr-8", [
 				m(OfflineIndicator, attrs.offlineIndicatorModel.getCurrentAttrs()),
 				m(".nav-bar-spacer"),
 				m(NavBar, this.renderButtons()),
@@ -62,7 +61,7 @@ export class Header implements ClassComponent<HeaderAttrs> {
 		return [
 			m(NavButton, {
 				label: "emails_label",
-				icon: () => BootIcons.Mail,
+				icon: () => Icons.MailFilled,
 				href: MAIL_PREFIX,
 				isSelectedPrefix: MAIL_PREFIX,
 				colors: NavButtonColor.Header,
@@ -71,7 +70,7 @@ export class Header implements ClassComponent<HeaderAttrs> {
 			locator.logins.isInternalUserLoggedIn() && !locator.logins.isEnabled(FeatureType.DisableContacts)
 				? m(NavButton, {
 						label: "contacts_label",
-						icon: () => BootIcons.Contacts,
+						icon: () => Icons.PeopleFilled,
 						href: CONTACTS_PREFIX,
 						isSelectedPrefix: isSelectedPrefix(CONTACTS_PREFIX) || isSelectedPrefix(CONTACTLIST_PREFIX),
 						colors: NavButtonColor.Header,
@@ -81,7 +80,7 @@ export class Header implements ClassComponent<HeaderAttrs> {
 			locator.logins.isInternalUserLoggedIn() && !locator.logins.isEnabled(FeatureType.DisableCalendar)
 				? m(NavButton, {
 						label: "calendar_label",
-						icon: () => BootIcons.Calendar,
+						icon: () => Icons.CalendarFilled,
 						href: CALENDAR_PREFIX,
 						colors: NavButtonColor.Header,
 						click: () => m.route.get().startsWith(CALENDAR_PREFIX),
@@ -90,7 +89,7 @@ export class Header implements ClassComponent<HeaderAttrs> {
 			isDriveEnabled(locator.logins)
 				? m(NavButton, {
 						label: "driveView_action",
-						icon: () => Icons.Drive,
+						icon: () => Icons.DriveFilled,
 						href: DRIVE_PREFIX,
 						colors: NavButtonColor.Header,
 						click: () => m.route.get().startsWith(DRIVE_PREFIX),

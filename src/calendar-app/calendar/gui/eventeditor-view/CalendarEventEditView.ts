@@ -2,7 +2,7 @@ import m, { Children, Component, Vnode, VnodeDOM } from "mithril"
 import { AttendeeListEditor } from "./AttendeeListEditor.js"
 import { locator } from "../../../../common/api/main/CommonLocator.js"
 import { EventTimeEditor, EventTimeEditorAttrs } from "./EventTimeEditor.js"
-import { DEFAULT_CALENDAR_COLOR, RepeatPeriod, TabIndex, TimeFormat, Weekday } from "../../../../common/api/common/TutanotaConstants.js"
+import { DEFAULT_CALENDAR_COLOR, RepeatPeriod, TabIndex, TimeFormat, Weekday } from "@tutao/app-env"
 import { lang, TranslationKey } from "../../../../common/misc/LanguageViewModel.js"
 import { RecipientsSearchModel } from "../../../../common/misc/RecipientsSearchModel.js"
 import { CalendarInfo } from "../../model/CalendarModel.js"
@@ -18,11 +18,11 @@ import { Card } from "../../../../common/gui/base/Card.js"
 import { Select, SelectAttributes, SelectOption } from "../../../../common/gui/base/Select.js"
 import { Icon, IconSize } from "../../../../common/gui/base/Icon.js"
 import { theme } from "../../../../common/gui/theme.js"
-import { deepEqual } from "@tutao/tutanota-utils"
+import { deepEqual } from "@tutao/utils"
 import { ButtonColor, getColors } from "../../../../common/gui/base/Button.js"
 import stream from "mithril/stream"
 import { RepeatRuleEditor, RepeatRuleEditorAttrs } from "./RepeatRuleEditor.js"
-import { CalendarRepeatRule } from "../../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { formatRepetitionEnd, formatRepetitionFrequency } from "../eventpopup/EventPreviewView.js"
 import { TextFieldType } from "../../../../common/gui/base/TextField.js"
 import { DefaultAnimationTime } from "../../../../common/gui/animation/Animations.js"
@@ -219,7 +219,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 		const makeMessage = (message: TranslationKey): Children =>
 			m(InfoBanner, {
 				message: () => m(".small.selectable", lang.get(message)),
-				icon: Icons.People,
+				icon: Icons.PeopleFilled,
 				type: BannerType.Info,
 				buttons: [],
 			} satisfies InfoBannerAttrs)
@@ -250,7 +250,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 				startOfTheWeekOffset: this.startOfTheWeekOffset,
 				disabled: !attrs.model.isFullyWritable(),
 				dateSelectionChanged: (date: Date) => {
-					whenModel.startDate = date
+					whenModel.rescheduleEventToDate(date)
 					if (whenModel.repeatPeriod === RepeatPeriod.MONTHLY) whenModel.resetMonthlyByDayRules(date)
 				},
 			} satisfies EventTimeEditorAttrs),
@@ -279,7 +279,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 
 	private renderGuestsNavButton({ navigationCallback, model }: CalendarEventEditViewAttrs): Children {
 		return m(SectionButton, {
-			leftIcon: { icon: Icons.People, title: "calendarRepeating_label" },
+			leftIcon: { icon: Icons.PeopleFilled, title: "calendarRepeating_label" },
 			text: "guests_label",
 			injectionRight: model.editModels.whoModel.guests.length > 0 ? m("span", model.editModels.whoModel.guests.length) : null,
 			onclick: () => {
@@ -376,7 +376,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 					},
 					[
 						m(Icon, {
-							icon: Icons.Clock,
+							icon: Icons.AlarmOutline,
 							style: { fill: getColors(ButtonColor.Content).button },
 							title: lang.get("reminderBeforeEvent_label"),
 							size: IconSize.PX24,
@@ -413,7 +413,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 					placeholder: lang.get("location_label"),
 					disabled: !model.isFullyWritable(),
 					leadingIcon: {
-						icon: Icons.Pin,
+						icon: Icons.PlaceFilled,
 						color: getColors(ButtonColor.Content).button,
 					},
 					type: TextFieldType.Text,
@@ -492,7 +492,7 @@ export class CalendarEventEditView implements Component<CalendarEventEditViewAtt
 		} satisfies RepeatRuleEditorAttrs)
 	}
 
-	private getTranslatedRepeatRule(rule: CalendarRepeatRule | null, isAllDay: boolean): string {
+	private getTranslatedRepeatRule(rule: tutanotaTypeRefs.CalendarRepeatRule | null, isAllDay: boolean): string {
 		if (rule == null) return lang.get("calendarRepeatIntervalNoRepeat_label")
 
 		const frequency = formatRepetitionFrequency(rule)

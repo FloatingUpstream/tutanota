@@ -1,27 +1,23 @@
-import { GroupType } from "../../../common/TutanotaConstants.js"
 import {
 	assertNotNull,
 	Base64,
 	base64ExtToBase64,
 	base64ToBase64Ext,
 	base64ToBase64Url,
+	base64ToUint8Array,
 	base64UrlToBase64,
 	getFirstOrThrow,
 	isEmpty,
 	uint8ArrayToBase64,
-} from "@tutao/tutanota-utils"
-import type { GiftCardRedeemGetReturn } from "../../../entities/sys/TypeRefs.js"
-import { createGiftCardCreateData, createGiftCardRedeemData, GiftCard } from "../../../entities/sys/TypeRefs.js"
-import { aes256RandomKey, base64ToKey, bitArrayToUint8Array, sha256Hash } from "@tutao/tutanota-crypto"
+} from "@tutao/utils"
+import { elementIdPart, GENERATED_MAX_ID, sysServices, sysTypeRefs } from "@tutao/typerefs"
+import { _encryptKeyWithVersionedKey, aes256RandomKey, base64ToKey, keyToUint8Array, sha256Hash } from "@tutao/crypto"
 import { IServiceExecutor } from "../../../common/ServiceRequest.js"
-import { GiftCardRedeemService, GiftCardService } from "../../../entities/sys/Services.js"
-import { elementIdPart, GENERATED_MAX_ID } from "../../../common/utils/EntityUtils.js"
 import { CryptoFacade } from "../../crypto/CryptoFacade.js"
 import { UserFacade } from "../UserFacade.js"
-import { ProgrammingError } from "../../../common/error/ProgrammingError.js"
+import { GroupType, ProgrammingError } from "@tutao/app-env"
 import { CustomerFacade } from "./CustomerFacade.js"
 import { KeyLoaderFacade } from "../KeyLoaderFacade.js"
-import { _encryptKeyWithVersionedKey } from "../../crypto/CryptoWrapper.js"
 
 const ID_LENGTH = GENERATED_MAX_ID.length
 const KEY_LENGTH_128_BIT_B64 = 24
@@ -49,10 +45,10 @@ export class GiftCardFacade {
 		const sessionKey = aes256RandomKey()
 		const ownerEncSessionKey = _encryptKeyWithVersionedKey(ownerKey, sessionKey)
 		const { giftCard } = await this.serviceExecutor.post(
-			GiftCardService,
-			createGiftCardCreateData({
+			sysServices.GiftCardService,
+			sysTypeRefs.createGiftCardCreateData({
 				message: message,
-				keyHash: sha256Hash(bitArrayToUint8Array(sessionKey)),
+				keyHash: sha256Hash(keyToUint8Array(sessionKey)),
 				value,
 				ownerEncSessionKey: ownerEncSessionKey.key,
 				ownerKeyVersion: ownerEncSessionKey.encryptingKeyVersion.toString(),
@@ -63,12 +59,12 @@ export class GiftCardFacade {
 		return giftCard
 	}
 
-	getGiftCardInfo(id: Id, key: string): Promise<GiftCardRedeemGetReturn> {
+	getGiftCardInfo(id: Id, key: string): Promise<sysTypeRefs.GiftCardRedeemGetReturn> {
 		return this.serviceExecutor.get(
-			GiftCardRedeemService,
-			createGiftCardRedeemData({
+			sysServices.GiftCardRedeemService,
+			sysTypeRefs.createGiftCardRedeemData({
 				giftCardInfo: id,
-				keyHash: sha256Hash(bitArrayToUint8Array(base64ToKey(key))),
+				keyHash: sha256Hash(base64ToUint8Array(key)),
 				countryCode: "",
 			}),
 			{
@@ -88,18 +84,18 @@ export class GiftCardFacade {
 		}
 
 		await this.serviceExecutor.post(
-			GiftCardRedeemService,
-			createGiftCardRedeemData({
+			sysServices.GiftCardRedeemService,
+			sysTypeRefs.createGiftCardRedeemData({
 				giftCardInfo: giftCardInfoId,
-				keyHash: sha256Hash(bitArrayToUint8Array(base64ToKey(key))),
+				keyHash: sha256Hash(base64ToUint8Array(key)),
 				countryCode,
 			}),
 		)
 	}
 
-	async encodeGiftCardToken(giftCard: GiftCard): Promise<string> {
+	async encodeGiftCardToken(giftCard: sysTypeRefs.GiftCard): Promise<string> {
 		const key = assertNotNull(await this.cryptoFacade.resolveSessionKey(giftCard))
-		return this.encodeToken(elementIdPart(giftCard._id), bitArrayToUint8Array(key))
+		return this.encodeToken(elementIdPart(giftCard._id), keyToUint8Array(key))
 	}
 
 	async decodeGiftCardToken(token: string): Promise<{ id: Id; key: Base64 }> {

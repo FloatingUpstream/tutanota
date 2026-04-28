@@ -3,9 +3,9 @@
 
 import Foundation
 
-public class MobileSystemFacadeReceiveDispatcher {
-	let facade: MobileSystemFacade
-	init(facade: MobileSystemFacade) {
+public final class MobileSystemFacadeReceiveDispatcher: Sendable {
+	let facade: any MobileSystemFacade
+	init(facade: any MobileSystemFacade) {
 		self.facade = facade
 	}
 	public func dispatch(method: String, arg: [String]) async throws -> String {
@@ -74,6 +74,10 @@ public class MobileSystemFacadeReceiveDispatcher {
 			return "null"
 		case "getInstallationDate":
 			let result = try await self.facade.getInstallationDate(
+			)
+			return toJson(result)
+		case "getAppleAdsAttributionToken":
+			let result = try await self.facade.getAppleAdsAttributionToken(
 			)
 			return toJson(result)
 		case "requestInAppRating":

@@ -1,11 +1,9 @@
-import { isSameTypeRef, TypeRef } from "@tutao/tutanota-utils"
+import { isSameTypeRef, TypeRef } from "@tutao/utils"
 import type { IndexUpdate, SearchIndexMetadataEntry, SearchRestriction } from "../../worker/search/SearchTypes"
-import { FULL_INDEXED_TIMESTAMP, GroupType, NOTHING_INDEXED_TIMESTAMP } from "../TutanotaConstants"
-import { typeModels as tutanotaTypeModels } from "../../entities/tutanota/TypeModels"
-import type { GroupMembership, User } from "../../entities/sys/TypeRefs.js"
-import type { TypeModel } from "../EntityTypes"
-import { isTest } from "../Env"
-import { ContactTypeRef, MailTypeRef } from "../../entities/tutanota/TypeRefs"
+import { FULL_INDEXED_TIMESTAMP, NOTHING_INDEXED_TIMESTAMP } from "@tutao/app-env"
+import type { TypeModel } from "@tutao/typerefs"
+import { sysTypeRefs, tutanotaTypeModels, tutanotaTypeRefs } from "@tutao/typerefs"
+import { GroupType, isTest } from "@tutao/app-env"
 
 export type TypeInfo = {
 	appId: number
@@ -13,14 +11,14 @@ export type TypeInfo = {
 	attributeIds: number[]
 }
 
-const MailTypeId = MailTypeRef.typeId
-const ContactTypeId = ContactTypeRef.typeId
+const MailTypeId = tutanotaTypeRefs.MailTypeRef.typeId
+const ContactTypeId = tutanotaTypeRefs.ContactTypeRef.typeId
 const typeInfos: Map<string, Map<number, any>> = new Map([
 	[
 		"tutanota",
 		new Map([
 			[
-				MailTypeRef.typeId,
+				tutanotaTypeRefs.MailTypeRef.typeId,
 				{
 					appId: 1,
 					typeId: MailTypeId,
@@ -28,7 +26,7 @@ const typeInfos: Map<string, Map<number, any>> = new Map([
 				},
 			],
 			[
-				ContactTypeRef.typeId,
+				tutanotaTypeRefs.ContactTypeRef.typeId,
 				{
 					appId: 1,
 					typeId: ContactTypeId,
@@ -60,15 +58,15 @@ export function typeRefToTypeInfo(typeRef: TypeRef<any>): TypeInfo {
 	return typeInfo
 }
 
-export function userIsGlobalAdmin(user: User): boolean {
+export function userIsGlobalAdmin(user: sysTypeRefs.User): boolean {
 	return user.memberships.some((m) => m.groupType === GroupType.Admin)
 }
 
-export function filterIndexMemberships(user: User): GroupMembership[] {
+export function filterIndexMemberships(user: sysTypeRefs.User): sysTypeRefs.GroupMembership[] {
 	return user.memberships.filter(({ groupType }) => groupType === GroupType.Mail || groupType === GroupType.Contact)
 }
 
-export function filterMailMemberships(user: User): GroupMembership[] {
+export function filterMailMemberships(user: sysTypeRefs.User): sysTypeRefs.GroupMembership[] {
 	return user.memberships.filter((m) => m.groupType === GroupType.Mail)
 }
 
@@ -291,9 +289,13 @@ export function shouldMeasure(): boolean {
 export function getSearchEndTimestamp(currentMailIndexTimestamp: number, restriction: SearchRestriction): number {
 	if (restriction.end) {
 		return restriction.end
-	} else if (isSameTypeRef(MailTypeRef, restriction.type)) {
+	} else if (isSameTypeRef(tutanotaTypeRefs.MailTypeRef, restriction.type)) {
 		return currentMailIndexTimestamp === NOTHING_INDEXED_TIMESTAMP ? Date.now() : currentMailIndexTimestamp
 	} else {
 		return FULL_INDEXED_TIMESTAMP
 	}
+}
+
+export function getMailIndexTimestampForSearch(mailIndexTimestamp: number): number {
+	return mailIndexTimestamp === NOTHING_INDEXED_TIMESTAMP ? Date.now() : mailIndexTimestamp
 }

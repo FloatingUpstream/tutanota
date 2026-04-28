@@ -1,12 +1,12 @@
 import m, { Children } from "mithril"
-import { isApp } from "../api/common/Env.js"
 import { ExternalLink } from "./base/ExternalLink.js"
 import { InfoLink, lang } from "../misc/LanguageViewModel.js"
 import { createDropdown } from "./base/Dropdown.js"
-import { mapNullable } from "@tutao/tutanota-utils"
+import { mapNullable } from "@tutao/utils"
 import { getWhitelabelCustomizations } from "../misc/WhitelabelCustomizations.js"
 import { prepareLogContent, showLogsDialog } from "./LogDialogUtils.js"
 import { LanguageDropdown } from "./LanguageDropdown"
+import { isApp } from "@tutao/app-env"
 
 export function renderInfoLinks(): Children {
 	const privacyPolicyLink = getPrivacyStatementLink()

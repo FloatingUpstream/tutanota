@@ -1,4 +1,4 @@
-import { ContactListGroupRoot } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { locator } from "../../common/api/main/CommonLocator.js"
 import { DialogHeaderBarAttrs } from "../../common/gui/base/DialogHeaderBar.js"
 import { ButtonType } from "../../common/gui/base/Button.js"
@@ -10,17 +10,17 @@ import { IconButton } from "../../common/gui/base/IconButton.js"
 import { Icons } from "../../common/gui/base/icons/Icons.js"
 import { MailRecipientsTextField } from "../../common/gui/MailRecipientsTextField.js"
 import { RecipientsSearchModel } from "../../common/misc/RecipientsSearchModel.js"
-import { clone, lazy, noOp } from "@tutao/tutanota-utils"
+import { clone, lazy, noOp } from "@tutao/utils"
 import { lang, TranslationKey } from "../../common/misc/LanguageViewModel.js"
-import { isSameId } from "../../common/api/common/utils/EntityUtils.js"
-import { Keys } from "../../common/api/common/TutanotaConstants.js"
+import { isSameId } from "@tutao/typerefs"
+import { Keys } from "@tutao/app-env"
 import { isMailAddress } from "../../common/misc/FormatValidator.js"
 import { cleanMailAddress } from "../../common/api/common/utils/CommonCalendarUtils.js"
 import { GroupNameData } from "../../common/sharing/model/GroupSettingsModel"
 import { ContactListEditorModel } from "./ContactListEditorModel"
 
 export async function showContactListEditor(
-	contactListGroupRoot: ContactListGroupRoot | null,
+	contactListGroupRoot: tutanotaTypeRefs.ContactListGroupRoot | null,
 	headerText: TranslationKey,
 	save: (name: string, addresses: Array<string>) => void,
 	addressesOnList?: Array<string>,
@@ -171,7 +171,7 @@ class ContactListEditor implements Component<ContactListEditorAttrs> {
 				m(".flex-grow"),
 				m(IconButton, {
 					title: "remove_action",
-					icon: Icons.Cancel,
+					icon: Icons.X,
 					click: () => this.model.removeRecipient(address),
 				}),
 			],

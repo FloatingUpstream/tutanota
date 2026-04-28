@@ -1,39 +1,29 @@
 import { ListElementListModel } from "../../../common/misc/ListElementListModel.js"
-import {
-	Contact,
-	ContactListEntry,
-	ContactListEntryTypeRef,
-	ContactListGroupRoot,
-	ContactListGroupRootTypeRef,
-	ContactTypeRef,
-	createContactListEntry,
-} from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { getEtId, isSameId } from "../../../common/api/common/utils/EntityUtils.js"
+import { entityUpdateUtils, getEtId, isSameId, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
 import { GroupManagementFacade } from "../../../common/api/worker/facades/lazy/GroupManagementFacade.js"
 import { LoginController } from "../../../common/api/main/LoginController.js"
-import { arrayEquals, debounce, lazy, lazyMemoized, memoized } from "@tutao/tutanota-utils"
-import { EntityEventsListener, EventController } from "../../../common/api/main/EventController.js"
+import { arrayEquals, debounce, lazy, lazyMemoized, memoized } from "@tutao/utils"
+import { EventController } from "../../../common/api/main/EventController.js"
 import Stream from "mithril/stream"
 import stream from "mithril/stream"
 import { Router } from "../../../common/gui/ScopedRouter.js"
 import { ContactListInfo, ContactModel } from "../../../common/contactsFunctionality/ContactModel.js"
-import { GroupInfo, ReceivedGroupInvitation } from "../../../common/api/entities/sys/TypeRefs.js"
 import { ReceivedGroupInvitationsModel } from "../../../common/sharing/model/ReceivedGroupInvitationsModel.js"
-import { GroupType } from "../../../common/api/common/TutanotaConstants.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../../common/api/common/utils/EntityUpdateUtils.js"
+
 import { ListAutoSelectBehavior } from "../../../common/misc/DeviceConfig.js"
-import { GroupSettingsModel, GroupNameData } from "../../../common/sharing/model/GroupSettingsModel"
+import { GroupNameData, GroupSettingsModel } from "../../../common/sharing/model/GroupSettingsModel"
+import { GroupType } from "@tutao/app-env"
 
 export class ContactListViewModel {
 	private selectedContactList: Id | null = null
 
-	contactsForSelectedEntry: Contact[] = []
+	contactsForSelectedEntry: tutanotaTypeRefs.Contact[] = []
 	private listModelStateStream: Stream<unknown> | null = null
 	private sortedContactListInfos: Stream<ReadonlyArray<ContactListInfo>> = stream([])
 	private sortedSharedContactListInfos: Stream<ReadonlyArray<ContactListInfo>> = stream([])
-	readonly receivedGroupInvitations: Stream<ReceivedGroupInvitation[]>
+	readonly receivedGroupInvitations: Stream<sysTypeRefs.ReceivedGroupInvitation[]>
 
 	constructor(
 		private readonly entityClient: EntityClient,
@@ -82,18 +72,18 @@ export class ContactListViewModel {
 		await this.contactModel.getLoadedContactListInfos()
 	})
 
-	get listModel(): ListElementListModel<ContactListEntry> | null {
+	get listModel(): ListElementListModel<tutanotaTypeRefs.ContactListEntry> | null {
 		return this.selectedContactList ? this._listModel(this.selectedContactList) : null
 	}
 
 	private readonly _listModel = memoized((listId: Id) => {
-		const newListModel = new ListElementListModel<ContactListEntry>({
+		const newListModel = new ListElementListModel<tutanotaTypeRefs.ContactListEntry>({
 			fetch: async () => {
 				const items = await this.getRecipientsForList(listId)
 				return { items, complete: true }
 			},
 			loadSingle: async (_listId: Id, elementId: Id) => {
-				return this.entityClient.load(ContactListEntryTypeRef, [listId, elementId])
+				return this.entityClient.load(tutanotaTypeRefs.ContactListEntryTypeRef, [listId, elementId])
 			},
 			sortCompare: (rl1, rl2) => rl1.emailAddress.localeCompare(rl2.emailAddress),
 			autoSelectBehavior: () => ListAutoSelectBehavior.OLDER,
@@ -170,17 +160,17 @@ export class ContactListViewModel {
 
 	async addContactList(name: string, recipients: string[]) {
 		const newGroup = await this.groupManagementFacade.createContactListGroup(name)
-		const newContactList = await this.entityClient.load(ContactListGroupRootTypeRef, newGroup._id)
+		const newContactList = await this.entityClient.load(tutanotaTypeRefs.ContactListGroupRootTypeRef, newGroup._id)
 
 		this.addRecipientstoContactList(recipients, newContactList)
 	}
 
-	async addRecipientstoContactList(addresses: string[], contactListGroupRoot: ContactListGroupRoot) {
+	async addRecipientstoContactList(addresses: string[], contactListGroupRoot: tutanotaTypeRefs.ContactListGroupRoot) {
 		const currentRecipients = await this.getRecipientsForList(contactListGroupRoot.entries)
 		const listAddresses = currentRecipients.map((entry) => entry.emailAddress)
 		for (const address of addresses) {
 			if (!listAddresses.includes(address)) {
-				const recipient = createContactListEntry({
+				const recipient = tutanotaTypeRefs.createContactListEntry({
 					_ownerGroup: contactListGroupRoot._id,
 					emailAddress: address,
 				})
@@ -190,22 +180,28 @@ export class ContactListViewModel {
 		}
 	}
 
-	addEntryOnList(recipientsId: Id, recipient: ContactListEntry) {
+	addEntryOnList(recipientsId: Id, recipient: tutanotaTypeRefs.ContactListEntry) {
 		this.entityClient.setup(recipientsId, recipient)
 	}
 
-	private readonly entityEventsReceived: EntityEventsListener = async (updates: ReadonlyArray<EntityUpdateData>): Promise<void> => {
-		for (const update of updates) {
-			if (this.selectedContactList) {
-				if (isUpdateForTypeRef(ContactListEntryTypeRef, update) && isSameId(this.selectedContactList, update.instanceListId)) {
-					await this.listModel?.entityEventReceived(update.instanceListId, update.instanceId, update.operation)
-				} else if (isUpdateForTypeRef(ContactTypeRef, update)) {
-					this.getContactsForSelectedContactListEntry()
+	private readonly entityEventsReceived: entityUpdateUtils.EntityEventsListener = {
+		onEntityUpdatesReceived: async (updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> => {
+			for (const update of updates) {
+				if (this.selectedContactList) {
+					if (
+						entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactListEntryTypeRef, update) &&
+						isSameId(this.selectedContactList, update.instanceListId)
+					) {
+						await this.listModel?.entityEventReceived(update.instanceListId, update.instanceId, update.operation)
+					} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ContactTypeRef, update)) {
+						this.getContactsForSelectedContactListEntry()
+					}
 				}
-			}
 
-			this.updateUi()
-		}
+				this.updateUi()
+			}
+		},
+		priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
 	}
 
 	updateSelectedContactList(selected: Id): void {
@@ -213,12 +209,12 @@ export class ContactListViewModel {
 		this.listModel?.loadInitial()
 	}
 
-	async getContactListNewNameData(groupInfo: GroupInfo): Promise<GroupNameData> {
+	async getContactListNewNameData(groupInfo: sysTypeRefs.GroupInfo): Promise<GroupNameData> {
 		const groupSettingModel = await this.groupSettingsModel()
 		return groupSettingModel.getGroupNameData(groupInfo)
 	}
 
-	async updateContactList(groupInfo: GroupInfo, newData: GroupNameData): Promise<void> {
+	async updateContactList(groupInfo: sysTypeRefs.GroupInfo, newData: GroupNameData): Promise<void> {
 		const groupSettingModel = await this.groupSettingsModel()
 		await groupSettingModel.updateGroupNameData(groupInfo, newData)
 	}
@@ -227,19 +223,19 @@ export class ContactListViewModel {
 		return this.selectedContactList ? this.getContactListInfoForEntryListId(this.selectedContactList) : null
 	}
 
-	getSelectedContactListEntries(): ContactListEntry[] | undefined {
+	getSelectedContactListEntries(): tutanotaTypeRefs.ContactListEntry[] | undefined {
 		return this.listModel?.getSelectedAsArray()
 	}
 
-	async getRecipientsForList(listId: Id): Promise<ContactListEntry[]> {
-		return await this.entityClient.loadAll(ContactListEntryTypeRef, listId)
+	async getRecipientsForList(listId: Id): Promise<tutanotaTypeRefs.ContactListEntry[]> {
+		return await this.entityClient.loadAll(tutanotaTypeRefs.ContactListEntryTypeRef, listId)
 	}
 
 	deleteContactList(contactList: ContactListInfo) {
 		this.groupManagementFacade.deleteContactListGroup(contactList.groupRoot)
 	}
 
-	async deleteContactListEntries(recipients: ContactListEntry[]) {
+	async deleteContactListEntries(recipients: tutanotaTypeRefs.ContactListEntry[]) {
 		for (const recipient of recipients) {
 			await this.entityClient.erase(recipient)
 		}

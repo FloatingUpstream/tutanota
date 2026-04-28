@@ -4,7 +4,7 @@ import { Icons } from "../../gui/base/icons/Icons.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
 import { Autocomplete, TextFieldType } from "../../gui/base/TextField.js"
 import { Status, StatusField } from "../../gui/base/StatusField.js"
-import type { lazy } from "@tutao/tutanota-utils"
+import type { lazy } from "@tutao/utils"
 import { LoginTextField, LoginTextFieldAttrs } from "../../gui/base/LoginTextField"
 import { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { isMediumInsecurePassword, isSecurePassword, passwordStrengthToColor } from "../../misc/passwords/PasswordUtils"
@@ -28,7 +28,7 @@ export class PasswordFieldNew implements Component<PasswordFieldAttrs> {
 		return m(LoginTextField, {
 			...textFieldAttrs,
 			leadingIcon: {
-				icon: Icons.Lock,
+				icon: Icons.GenericLockFilled,
 				color: theme.on_surface_variant,
 			},
 			label: label === undefined ? "password_label" : label,
@@ -55,7 +55,7 @@ export class PasswordFieldNew implements Component<PasswordFieldAttrs> {
 				onRevealToggled(value)
 				e.stopPropagation()
 			},
-			icon: isPasswordRevealed ? Icons.NoEye : Icons.Eye,
+			icon: isPasswordRevealed ? Icons.EyeCrossedFilled : Icons.EyeFilled,
 			size: ButtonSize.Compact,
 		})
 	}

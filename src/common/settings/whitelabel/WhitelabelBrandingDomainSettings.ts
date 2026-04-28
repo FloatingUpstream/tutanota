@@ -1,26 +1,25 @@
 import { TextField } from "../../gui/base/TextField.js"
 import { Dialog } from "../../gui/base/Dialog"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog"
-import { neverNull } from "@tutao/tutanota-utils"
-import { PreconditionFailedError } from "../../api/common/error/RestError"
+import { neverNull } from "@tutao/utils"
+import * as restError from "@tutao/rest-client/error"
 import { Icons } from "../../gui/base/icons/Icons"
 import { showNotAvailableForFreeDialog, showPlanUpgradeRequiredDialog } from "../../misc/SubscriptionDialogs"
 import * as SetCustomDomainCertificateDialog from "../SetDomainCertificateDialog.js"
 import { lang } from "../../misc/LanguageViewModel"
 import m, { Children, Component, Vnode } from "mithril"
-import type { CertificateInfo, CustomerInfo } from "../../../common/api/entities/sys/TypeRefs.js"
-import { CertificateState, CertificateType, PlanType } from "../../../common/api/common/TutanotaConstants"
+import { CertificateState, CertificateType, PlanType, UpgradePromptType } from "@tutao/app-env"
 import { formatDateTime } from "../../../common/misc/Formatter"
 import { locator } from "../../../common/api/main/CommonLocator"
 import { IconButton } from "../../../common/gui/base/IconButton.js"
 import { ButtonSize } from "../../../common/gui/base/ButtonSize.js"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError.js"
 import { getAvailablePlansWithWhitelabel } from "../../subscription/utils/SubscriptionUtils.js"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export type WhitelabelBrandingDomainSettingsAttrs = {
-	customerInfo: CustomerInfo
+	customerInfo: sysTypeRefs.CustomerInfo
 	isWhitelabelFeatureEnabled: boolean
-	certificateInfo: CertificateInfo | null
+	certificateInfo: sysTypeRefs.CertificateInfo | null
 	whitelabelDomain: string
 }
 
@@ -47,7 +46,7 @@ export class WhitelabelBrandingDomainSettings implements Component<WhitelabelBra
 		return m(IconButton, {
 			title: "deactivate_action",
 			click: () => this.deactivate(whitelabelDomain),
-			icon: Icons.Cancel,
+			icon: Icons.X,
 			size: ButtonSize.Compact,
 		})
 	}
@@ -57,7 +56,7 @@ export class WhitelabelBrandingDomainSettings implements Component<WhitelabelBra
 			try {
 				return await showProgressDialog("pleaseWait_msg", locator.customerFacade.deleteCertificate(whitelabelDomain))
 			} catch (e) {
-				if (e instanceof PreconditionFailedError) {
+				if (e instanceof restError.PreconditionFailedError) {
 					if (e.data === FAILURE_LOCKED) {
 						return await Dialog.message("operationStillActive_msg")
 					} else if (e.data === FAILURE_CONTACT_FORM_ACTIVE) {
@@ -69,22 +68,26 @@ export class WhitelabelBrandingDomainSettings implements Component<WhitelabelBra
 		}
 	}
 
-	_renderEditButton(customerInfo: CustomerInfo, certificateInfo: CertificateInfo | null, isWhitelabelFeatureEnabled: boolean): Children {
+	_renderEditButton(
+		customerInfo: sysTypeRefs.CustomerInfo,
+		certificateInfo: sysTypeRefs.CertificateInfo | null,
+		isWhitelabelFeatureEnabled: boolean,
+	): Children {
 		return m(IconButton, {
 			title: "edit_action",
 			click: () => this.edit(isWhitelabelFeatureEnabled, customerInfo),
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		})
 	}
 
-	private async edit(isWhitelabelFeatureEnabled: boolean, customerInfo: CustomerInfo): Promise<void> {
+	private async edit(isWhitelabelFeatureEnabled: boolean, customerInfo: sysTypeRefs.CustomerInfo): Promise<void> {
 		if (locator.logins.getUserController().isFreeAccount()) {
-			showNotAvailableForFreeDialog([PlanType.Unlimited])
+			showNotAvailableForFreeDialog(UpgradePromptType.WHITELABEL, [PlanType.Unlimited])
 		} else {
 			if (!isWhitelabelFeatureEnabled) {
 				const plansWithWhitelabel = await getAvailablePlansWithWhitelabel()
-				isWhitelabelFeatureEnabled = await showPlanUpgradeRequiredDialog(plansWithWhitelabel)
+				isWhitelabelFeatureEnabled = await showPlanUpgradeRequiredDialog(UpgradePromptType.WHITELABEL, plansWithWhitelabel)
 			}
 			if (isWhitelabelFeatureEnabled) {
 				SetCustomDomainCertificateDialog.show(customerInfo)
@@ -92,7 +95,7 @@ export class WhitelabelBrandingDomainSettings implements Component<WhitelabelBra
 		}
 	}
 
-	private renderWhitelabelInfo(certificateInfo: CertificateInfo | null): () => Children {
+	private renderWhitelabelInfo(certificateInfo: sysTypeRefs.CertificateInfo | null): () => Children {
 		let components: Array<string>
 
 		if (certificateInfo) {
@@ -128,7 +131,7 @@ export class WhitelabelBrandingDomainSettings implements Component<WhitelabelBra
 			)
 	}
 
-	private certificateTypeString(certificateInfo: CertificateInfo): string {
+	private certificateTypeString(certificateInfo: sysTypeRefs.CertificateInfo): string {
 		switch (certificateInfo.type) {
 			case CertificateType.LETS_ENCRYPT:
 				return lang.get("certificateTypeAutomatic_label")

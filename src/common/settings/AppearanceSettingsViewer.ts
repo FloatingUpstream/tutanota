@@ -1,20 +1,18 @@
 import m, { Children } from "mithril"
-import { getLanguage, lang, LanguageCode, languageCodeToTag, languageNative } from "../misc/LanguageViewModel.js"
-import { styles } from "../gui/styles.js"
+import { lang } from "../misc/LanguageViewModel.js"
 import type { DropDownSelectorAttrs } from "../gui/base/DropDownSelector.js"
 import { DropDownSelector, SelectorItemList } from "../gui/base/DropDownSelector.js"
 import { deviceConfig } from "../misc/DeviceConfig.js"
-import { TimeFormat, WeekStart } from "../api/common/TutanotaConstants.js"
-import { downcast, incrementDate, noOp, ofClass, promiseMap } from "@tutao/tutanota-utils"
-import { UserSettingsGroupRootTypeRef } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { TimeFormat, WeekStart } from "@tutao/app-env"
+import { downcast, incrementDate, noOp, ofClass, promiseMap } from "@tutao/utils"
+import { entityUpdateUtils, tutanotaTypeRefs } from "@tutao/typerefs"
 import { getHourCycle } from "../../common/misc/Formatter"
 import { ThemeId, themeOptions, ThemePreference } from "../../common/gui/theme"
 import type { UpdatableSettingsViewer } from "./Interfaces.js"
 import { locator } from "../../common/api/main/CommonLocator"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../common/api/common/utils/EntityUpdateUtils.js"
 import { client } from "../misc/ClientDetector.js"
 import { DateTime } from "../../../libs/luxon.js"
-import { LockedError } from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { LanguageDropdown } from "../gui/LanguageDropdown"
 
 export class AppearanceSettingsViewer implements UpdatableSettingsViewer {
@@ -55,7 +53,7 @@ export class AppearanceSettingsViewer implements UpdatableSettingsViewer {
 			selectedValue: downcast(userSettingsGroupRoot.timeFormat),
 			selectionChangedHandler: (value) => {
 				userSettingsGroupRoot.timeFormat = value
-				locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(LockedError, noOp))
+				locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(restError.LockedError, noOp))
 			},
 		}
 		const weekdayFormat = new Intl.DateTimeFormat(lang.languageTag, {
@@ -87,7 +85,7 @@ export class AppearanceSettingsViewer implements UpdatableSettingsViewer {
 			selectedValue: downcast(userSettingsGroupRoot.startOfTheWeek),
 			selectionChangedHandler: (value) => {
 				userSettingsGroupRoot.startOfTheWeek = value
-				locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(LockedError, noOp))
+				locator.entityClient.update(userSettingsGroupRoot).catch(ofClass(restError.LockedError, noOp))
 			},
 		}
 		return m(".fill-absolute.scroll.plr-24.pb-48", [
@@ -141,10 +139,10 @@ export class AppearanceSettingsViewer implements UpdatableSettingsViewer {
 		return m("#weekscrolltime", m(DropDownSelector, themeDropDownAttrs))
 	}
 
-	entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		return promiseMap(updates, (update) => {
-			if (isUpdateForTypeRef(UserSettingsGroupRootTypeRef, update)) {
-				return locator.entityClient.load(UserSettingsGroupRootTypeRef, update.instanceId).then((settings) => {
+			if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, update)) {
+				return locator.entityClient.load(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, update.instanceId).then((settings) => {
 					lang.updateFormats({
 						hourCycle: getHourCycle(settings),
 					})

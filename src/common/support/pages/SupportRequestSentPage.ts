@@ -6,10 +6,10 @@ import { client } from "../../misc/ClientDetector.js"
 import { SectionButton } from "../../gui/base/buttons/SectionButton.js"
 import { windowFacade } from "../../misc/WindowFacade.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
-import { isIOSApp } from "../../api/common/Env"
-import { TUTA_MAIL_APP_STORE_URL, TUTA_MAIL_GOOGLE_PLAY_URL } from "../../api/common/TutanotaConstants"
+import { TUTA_MAIL_APP_STORE_URL, TUTA_MAIL_GOOGLE_PLAY_URL } from "@tutao/app-env"
 import { SupportDialogState } from "../SupportDialog.js"
 import { getSupportUsageTestStage } from "../SupportUsageTestUtils.js"
+import { isIOSApp } from "@tutao/app-env"
 
 type SupportRequestSentPageAttrs = {
 	data: SupportDialogState
@@ -60,14 +60,14 @@ export class SupportRequestSentPage implements Component<SupportRequestSentPageA
 							onclick: () => {
 								windowFacade.openLink(isIOSApp() ? TUTA_MAIL_APP_STORE_URL : TUTA_MAIL_GOOGLE_PLAY_URL)
 							},
-							rightIcon: { icon: Icons.Download, title: "download_action" },
+							rightIcon: { icon: Icons.DownloadFilled, title: "download_action" },
 						}),
 						m(SectionButton, {
 							text: "viewInWeb_action",
 							onclick: () => {
 								windowFacade.openLink("https://app.tuta.com/")
 							},
-							rightIcon: { icon: Icons.Open, title: "open_action" },
+							rightIcon: { icon: Icons.OpenFilled, title: "open_action" },
 						}),
 					])
 				: null,

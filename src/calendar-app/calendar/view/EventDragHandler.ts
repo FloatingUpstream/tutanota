@@ -1,14 +1,14 @@
-import type { CalendarEvent } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import m from "mithril"
 import { getAllDayDateUTC, isAllDayEvent } from "../../../common/api/common/utils/CommonCalendarUtils"
 import { Time } from "../../../common/calendar/date/Time.js"
 import { showDropdownAtPosition } from "../../../common/gui/base/Dropdown.js"
 import { CalendarOperation } from "../gui/eventeditor-model/CalendarEventModel.js"
-import { newPromise } from "@tutao/tutanota-utils"
+import { newPromise } from "@tutao/utils"
 import { isKeyPressed, isModifierKeyPressed, Key } from "../../../common/misc/KeyManager.js"
-import { Keys } from "../../../common/api/common/TutanotaConstants.js"
-import { isAppleDevice } from "../../../common/api/common/Env.js"
+import { Keys } from "@tutao/app-env"
 import { EventWrapper } from "./CalendarViewModel"
+import { isAppleDevice } from "@tutao/app-env"
 
 const DRAG_THRESHOLD = 10
 export type MousePos = {
@@ -68,7 +68,7 @@ export class EventDragHandler {
 		return this.dragging
 	}
 
-	get originalCalendarEvent(): CalendarEvent | null {
+	get originalCalendarEvent(): tutanotaTypeRefs.CalendarEvent | null {
 		return this.data?.originalEventWrapper.event ?? null
 	}
 

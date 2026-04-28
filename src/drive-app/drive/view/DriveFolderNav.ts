@@ -2,31 +2,41 @@ import m, { Children, Component, Vnode } from "mithril"
 import { DriveBreadcrumbs } from "./DriveBreadcrumbs"
 import { IconButton } from "../../../common/gui/base/IconButton"
 import { Icons } from "../../../common/gui/base/icons/Icons"
-import { lang } from "../../../common/misc/LanguageViewModel"
-import { DriveFolder } from "../../../common/api/entities/drive/TypeRefs"
-import { isNotNull } from "@tutao/tutanota-utils"
+import { driveTypeRefs } from "@tutao/typerefs"
+import { isNotNull } from "@tutao/utils"
 import { theme } from "../../../common/gui/theme"
-import { size } from "../../../common/gui/size"
+import { component_size, px, size } from "../../../common/gui/size"
 
 import { FolderItem } from "./DriveUtils"
 
 export interface DriveFolderNavAttrs {
-	currentFolder: DriveFolder | null
-	parents: readonly DriveFolder[]
-	onUploadClick: (dom: HTMLElement) => void
+	currentFolder: driveTypeRefs.DriveFolder | null
+	parents: readonly driveTypeRefs.DriveFolder[]
+	loadParents: () => Promise<driveTypeRefs.DriveFolder[]>
+	onDropInto: (f: FolderItem, event: DragEvent) => unknown
+	selectedItemsActions: DriveSelectedItemsActions
+}
+
+export interface DriveSelectedItemsActions {
 	onTrash: (() => unknown) | null
 	onDelete: (() => unknown) | null
 	onRestore: (() => unknown) | null
 	onCopy: (() => unknown) | null
 	onCut: (() => unknown) | null
 	onPaste: (() => unknown) | null
-	loadParents: () => Promise<DriveFolder[]>
-	onDropInto: (f: FolderItem, event: DragEvent) => unknown
+	onMove: (() => unknown) | null
+	onDownload: (() => unknown) | null
 }
 
 export class DriveFolderNav implements Component<DriveFolderNavAttrs> {
 	view({
-		attrs: { onTrash, onDelete, onRestore, onCopy, onCut, onPaste, onUploadClick, currentFolder, parents, loadParents, onDropInto },
+		attrs: {
+			currentFolder,
+			parents,
+			loadParents,
+			onDropInto,
+			selectedItemsActions: { onTrash, onDelete, onRestore, onCopy, onCut, onPaste, onMove, onDownload },
+		},
 	}: Vnode<DriveFolderNavAttrs>): Children {
 		return m(
 			".flex.items-center.justify-between.border-radius-12",
@@ -38,55 +48,72 @@ export class DriveFolderNav implements Component<DriveFolderNavAttrs> {
 			},
 			m(DriveBreadcrumbs, { currentFolder, parents, loadParents, onDropInto }),
 			m(".flex.items-center.column-gap-4", [
+				// Ensure that the height of the bar remains the same even when no buttons are shown
+				m("", {
+					style: {
+						width: px(1),
+						height: px(component_size.button_height),
+					},
+				}),
+
+				// Caution: when adding actions, make sure they match the order in the file context menu.
 				onPaste
 					? m(IconButton, {
 							title: "paste_action",
 							click: onPaste,
-							icon: Icons.Clipboard,
+							icon: Icons.ClipboardFilled,
 						})
 					: null,
-				[onPaste].some(isNotNull) ? m(".nav-bar-spacer") : null,
-				onTrash
+				isNotNull(onPaste) && [onRestore, onDelete, onCopy, onCut, onTrash].some(isNotNull) ? m(".nav-bar-spacer") : null,
+				onDownload
 					? m(IconButton, {
-							title: "trash_action",
-							click: onTrash,
-							icon: Icons.Trash,
-						})
-					: null,
-				onDelete
-					? m(IconButton, {
-							title: "delete_action",
-							click: onDelete,
-							icon: Icons.DeleteForever,
+							title: "download_action",
+							click: onDownload,
+							icon: Icons.DownloadFilled,
 						})
 					: null,
 				onRestore
 					? m(IconButton, {
 							title: "restoreFromTrash_action",
 							click: onRestore,
-							icon: Icons.Reply,
+							icon: Icons.ArrowBackFilled,
+						})
+					: null,
+				onDelete
+					? m(IconButton, {
+							title: "delete_action",
+							click: onDelete,
+							icon: Icons.TrashCrossFilled,
 						})
 					: null,
 				onCopy
 					? m(IconButton, {
 							title: "copy_action",
 							click: onCopy,
-							icon: Icons.Copy,
+							icon: Icons.CopyFilled,
 						})
 					: null,
 				onCut
 					? m(IconButton, {
 							title: "cut_action",
 							click: onCut,
-							icon: Icons.Cut,
+							icon: Icons.ScissorsFilled,
 						})
 					: null,
-				[onTrash, onDelete, onRestore, onCopy, onCut].some(isNotNull) ? m(".nav-bar-spacer") : null,
-				m(IconButton, {
-					title: lang.makeTranslation("Upload file", () => "Upload file"),
-					click: (ev, dom) => onUploadClick(dom),
-					icon: Icons.Upload,
-				}),
+				onMove
+					? m(IconButton, {
+							title: "move_action",
+							click: onMove,
+							icon: Icons.Move,
+						})
+					: null,
+				onTrash
+					? m(IconButton, {
+							title: "trash_action",
+							click: onTrash,
+							icon: Icons.TrashFilled,
+						})
+					: null,
 			]),
 		)
 	}

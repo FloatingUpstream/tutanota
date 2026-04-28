@@ -15,32 +15,17 @@ import {
 	getMonthRange,
 	isBirthdayCalendar,
 	isBirthdayEvent,
+	isLongEvent,
 } from "./CalendarUtils.js"
-import {
-	Birthday,
-	CalendarEvent,
-	CalendarEventTypeRef,
-	Contact,
-	ContactTypeRef,
-	createCalendarEvent,
-	UserSettingsGroupRoot,
-	UserSettingsGroupRootTypeRef,
-} from "../../api/entities/tutanota/TypeRefs.js"
-import { elementIdPart, getElementId, getListId, isSameId, listIdPart } from "../../api/common/utils/EntityUtils.js"
+import { elementIdPart, entityUpdateUtils, getElementId, getListId, isSameId, listIdPart, tutanotaTypeRefs } from "@tutao/typerefs"
 import { DateTime } from "luxon"
 import { CalendarFacade } from "../../api/worker/facades/lazy/CalendarFacade.js"
 import { EntityClient } from "../../api/common/EntityClient.js"
-import { deepEqual, findAllAndRemove, isNotEmpty, mapAndFilterNull, stringToBase64 } from "@tutao/tutanota-utils"
-import {
-	BIRTHDAY_CALENDAR_BASE_ID,
-	DEFAULT_BIRTHDAY_CALENDAR_COLOR,
-	DEFAULT_CALENDAR_COLOR,
-	OperationType,
-	RepeatPeriod,
-} from "../../api/common/TutanotaConstants.js"
-import { NotAuthorizedError, NotFoundError } from "../../api/common/error/RestError.js"
+import { deepEqual, findAllAndRemove, isNotEmpty, mapAndFilterNull, stringToBase64 } from "@tutao/utils"
+import { BIRTHDAY_CALENDAR_BASE_ID, DEFAULT_BIRTHDAY_CALENDAR_COLOR, DEFAULT_CALENDAR_COLOR, OperationType, RepeatPeriod } from "@tutao/app-env"
+import * as restError from "@tutao/rest-client/error"
 import { EventController } from "../../api/main/EventController.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils.js"
+
 import { generateLocalEventElementId } from "../../api/common/utils/CommonCalendarUtils.js"
 import { ContactModel } from "../../contactsFunctionality/ContactModel.js"
 import { LoginController } from "../../api/main/LoginController.js"
@@ -57,12 +42,12 @@ export type DaysToEvents = ReadonlyMap<number, ReadonlyArray<EventWrapper>>
 /** Object holding the year of birth if available and the corresponding event */
 export type BirthdayEventRegistry = {
 	baseYear: number | null
-	event: CalendarEvent
+	event: tutanotaTypeRefs.CalendarEvent
 }
 
 interface ContactWrapper {
-	contact: Contact
-	birthday: Birthday
+	contact: tutanotaTypeRefs.Contact
+	birthday: tutanotaTypeRefs.Birthday
 }
 
 /**
@@ -87,7 +72,10 @@ export class CalendarEventsRepository {
 		private readonly contactModel: ContactModel,
 		private readonly logins: LoginController,
 	) {
-		eventController.addEntityListener((updates, eventOwnerGroupId) => this.entityEventsReceived(updates, eventOwnerGroupId))
+		eventController.addEntityListener({
+			onEntityUpdatesReceived: (updates, eventOwnerGroupId) => this.entityEventsReceived(updates, eventOwnerGroupId),
+			priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.NORMAL,
+		})
 		this.calendarMemberships = this.logins
 			.getUserController()
 			.getCalendarMemberships()
@@ -191,19 +179,11 @@ export class CalendarEventsRepository {
 		if (calendarInfo == null) {
 			return
 		}
+
 		const eventListId = getListId(eventWrapper.event)
-		if (isSameId(calendarInfo.groupRoot.shortEvents, eventListId)) {
-			// to prevent unnecessary churn, we only add the event if we have the months it covers loaded.
-			const eventStartMonth = getMonthRange(getEventStart(eventWrapper.event, this.zone), this.zone)
-			const eventEndMonth = getMonthRange(getEventEnd(eventWrapper.event, this.zone), this.zone)
-			if (this.isCalendarLoadedForRange(eventStartMonth.start, eventWrapper.event._ownerGroup)) {
-				await this.addDaysForEvent(eventWrapper, eventStartMonth)
-			}
-			// no short event covers more than two months, so this should cover everything.
-			if (eventEndMonth.start !== eventStartMonth.start && this.isCalendarLoadedForRange(eventEndMonth.start, eventWrapper.event._ownerGroup)) {
-				await this.addDaysForEvent(eventWrapper, eventEndMonth)
-			}
-		} else if (isSameId(calendarInfo.groupRoot.longEvents, eventListId)) {
+		const shouldGoIntoLongEventsList =
+			isSameId(calendarInfo.groupRoot.longEvents, eventListId) || isLongEvent(eventWrapper.event, eventWrapper.event.repeatRule?.timeZone ?? this.zone)
+		if (shouldGoIntoLongEventsList) {
 			this.removeExistingEvent(eventWrapper.event)
 
 			for (const [firstDayTimestamp, _] of this.loadedMonths) {
@@ -215,6 +195,20 @@ export class CalendarEventsRepository {
 					await this.addDaysForEvent(eventWrapper, loadedMonth)
 				}
 			}
+
+			return
+		}
+
+		// to prevent unnecessary churn, we only add the event if we have the months it covers loaded.
+		const eventStartMonth = getMonthRange(getEventStart(eventWrapper.event, this.zone), this.zone)
+		const eventEndMonth = getMonthRange(getEventEnd(eventWrapper.event, this.zone), this.zone)
+
+		if (this.isCalendarLoadedForRange(eventStartMonth.start, eventWrapper.event._ownerGroup)) {
+			await this.addDaysForEvent(eventWrapper, eventStartMonth)
+		}
+		// no short event covers more than two months, so this should cover everything.
+		if (eventEndMonth.start !== eventStartMonth.start && this.isCalendarLoadedForRange(eventEndMonth.start, eventWrapper.event._ownerGroup)) {
+			await this.addDaysForEvent(eventWrapper, eventEndMonth)
 		}
 	}
 
@@ -230,7 +224,7 @@ export class CalendarEventsRepository {
 	}
 
 	private removeEventForCalendar(calendarId: string) {
-		const isValidEvent = (ev: CalendarEvent) => !(ev._ownerGroup === calendarId)
+		const isValidEvent = (ev: tutanotaTypeRefs.CalendarEvent) => !(ev._ownerGroup === calendarId)
 		const mapExistingEvents = ([day, events]: [number, EventWrapper[]]): [number, EventWrapper[]] => [
 			day,
 			events.slice().filter((ev) => isValidEvent(ev.event)),
@@ -242,7 +236,7 @@ export class CalendarEventsRepository {
 
 	private removeBirthdayEventsForContact(contactId: string, month: number | null) {
 		const encodedContactId = stringToBase64(contactId)
-		const isValidEvent = (ev: CalendarEvent) => {
+		const isValidEvent = (ev: tutanotaTypeRefs.CalendarEvent) => {
 			return !(isBirthdayEvent(ev.uid) && elementIdPart(ev._id)?.includes(encodedContactId))
 		}
 		const mapExistingEvents = ([day, events]: [number, EventWrapper[]]): [number, EventWrapper[]] => [
@@ -298,7 +292,7 @@ export class CalendarEventsRepository {
 	/**
 	 * Removes {@param eventToRemove} from {@param events} using isSameEvent()
 	 */
-	private removeExistingEvent(eventToRemove: CalendarEvent) {
+	private removeExistingEvent(eventToRemove: tutanotaTypeRefs.CalendarEvent) {
 		const newMap = this.cloneEvents()
 
 		for (const dayEvents of newMap.values()) {
@@ -315,22 +309,22 @@ export class CalendarEventsRepository {
 		this.replaceEvents(newMap)
 	}
 
-	private async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>, eventOwnerGroupId: string) {
+	private async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>, eventOwnerGroupId: string) {
 		const calendarInfos = await this.calendarModel.getCalendarInfos()
 		for (const update of updates) {
-			if (isUpdateForTypeRef(CalendarEventTypeRef, update)) {
+			if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, update)) {
 				await this.handleCalendarEventUpdate(update, eventOwnerGroupId, calendarInfos)
 			} else if (this.logins.getUserController().isUpdateForLoggedInUserInstance(update, eventOwnerGroupId)) {
 				// Possible accepting/leaving a shared calendar, check if memberships has changed
 				await this.handleMembershipChanges()
-			} else if (isUpdateForTypeRef(UserSettingsGroupRootTypeRef, update)) {
+			} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, update)) {
 				await this.handleCalendarGroupSettingsUpdate(update, calendarInfos)
 			}
 		}
 	}
 
-	private async handleCalendarGroupSettingsUpdate(update: EntityUpdateData<UserSettingsGroupRoot>, calendarInfos: ReadonlyMap<Id, CalendarInfo>) {
-		const userSettingsGroupRoot = await this.entityClient.load(UserSettingsGroupRootTypeRef, update.instanceId)
+	private async handleCalendarGroupSettingsUpdate(update: entityUpdateUtils.EntityUpdateData, calendarInfos: ReadonlyMap<Id, CalendarInfo>) {
+		const userSettingsGroupRoot = await this.entityClient.load(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, update.instanceId)
 		//get all loaded events and update them with new event wrappers that have the new color passed in
 		const newDayToEventsMap = new Map<number, ReadonlyArray<EventWrapper>>()
 		const dayToEventsEntries = Array.from(this.daysToEvents().entries())
@@ -345,7 +339,7 @@ export class CalendarEventsRepository {
 		this.daysToEvents(newDayToEventsMap)
 	}
 
-	private updateEventWrapperColor(eventWrapper: EventWrapper, userSettingsGroupRoot: UserSettingsGroupRoot) {
+	private updateEventWrapperColor(eventWrapper: EventWrapper, userSettingsGroupRoot: tutanotaTypeRefs.UserSettingsGroupRoot) {
 		let updatedCalendarColor = DEFAULT_CALENDAR_COLOR
 		if (eventWrapper.event._ownerGroup) {
 			if (eventWrapper.flags.isBirthdayEvent) {
@@ -365,14 +359,18 @@ export class CalendarEventsRepository {
 		return newEventWrapper
 	}
 
-	private async handleCalendarEventUpdate(update: EntityUpdateData<CalendarEvent>, eventOwnerGroupId: string, calendarInfos: ReadonlyMap<Id, CalendarInfo>) {
+	private async handleCalendarEventUpdate(
+		update: entityUpdateUtils.EntityUpdateData,
+		eventOwnerGroupId: string,
+		calendarInfos: ReadonlyMap<Id, CalendarInfo>,
+	) {
 		if (update.operation === OperationType.CREATE || update.operation === OperationType.UPDATE) {
 			try {
-				const event = await this.entityClient.load(CalendarEventTypeRef, [update.instanceListId, update.instanceId])
+				const event = await this.entityClient.load(tutanotaTypeRefs.CalendarEventTypeRef, [update.instanceListId!, update.instanceId])
 				const wrapper: EventWrapper = {
 					event,
 					flags: {
-						isGhost: false,
+						isGhost: !!event.pendingInvitation,
 						hasAlarms: isNotEmpty(event.alarmInfos),
 						isAlteredInstance: Boolean(event.recurrenceId),
 					},
@@ -380,13 +378,13 @@ export class CalendarEventsRepository {
 				}
 				await this.addOrUpdateEvent(calendarInfos.get(eventOwnerGroupId) ?? null, wrapper)
 			} catch (e) {
-				if (e instanceof NotFoundError || e instanceof NotAuthorizedError) {
+				if (e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError) {
 					console.log(TAG, e.name, "updated event is not accessible anymore")
 				}
 				throw e
 			}
 		} else if (update.operation === OperationType.DELETE) {
-			this.removeDaysForEvent([update.instanceListId, update.instanceId])
+			this.removeDaysForEvent([update.instanceListId!, update.instanceId])
 		}
 	}
 
@@ -406,7 +404,7 @@ export class CalendarEventsRepository {
 		}
 	}
 
-	public pushClientOnlyEvent(month: number, newEvent: CalendarEvent, baseYear: number | null) {
+	public pushClientOnlyEvent(month: number, newEvent: tutanotaTypeRefs.CalendarEvent, baseYear: number | null) {
 		let clientOnlyEventsOfThisMonth = this.monthsToBirthdayEvents.get(month) ?? []
 		const index = clientOnlyEventsOfThisMonth.findIndex((ev) => getElementId(ev.event) === getElementId(newEvent))
 		if (index === -1) {
@@ -417,7 +415,7 @@ export class CalendarEventsRepository {
 		this.monthsToBirthdayEvents.set(month, clientOnlyEventsOfThisMonth)
 	}
 
-	private createClientOnlyBirthdayEvent(contact: Contact, userId: Id) {
+	private createClientOnlyBirthdayEvent(contact: tutanotaTypeRefs.Contact, userId: Id) {
 		if (!contact.birthdayIso) {
 			console.warn("Skipping birthday event creation. Trying to create a birthday event for an invalid contact.")
 			return null
@@ -430,9 +428,10 @@ export class CalendarEventsRepository {
 		const eventTitle = this.calendarModel.getBirthdayEventTitle(contact.firstName)
 		const { startDate, endDate } = getAllDayDatesUTCFromIso(contact.birthdayIso!, this.zone)
 
-		const newEvent = createCalendarEvent({
+		const newEvent = tutanotaTypeRefs.createCalendarEvent({
 			sequence: "0",
 			recurrenceId: null,
+			sender: null,
 			hashedUid: null,
 			summary: eventTitle,
 			startTime: startDate,
@@ -445,6 +444,7 @@ export class CalendarEventsRepository {
 			invitedConfidentially: null,
 			repeatRule: createRepeatRuleWithValues(RepeatPeriod.ANNUALLY, 1),
 			uid,
+			pendingInvitation: null,
 		})
 
 		newEvent._id = [calendarId, `${generateLocalEventElementId(newEvent.startTime.getTime(), contact._id.join("/"))}#${encodedContactId}`]
@@ -452,7 +452,7 @@ export class CalendarEventsRepository {
 		return newEvent
 	}
 
-	async loadContactsBirthdays(): Promise<{ valid: ContactWrapper[]; invalid: Contact[] } | undefined> {
+	async loadContactsBirthdays(): Promise<{ valid: ContactWrapper[]; invalid: tutanotaTypeRefs.Contact[] } | undefined> {
 		if (this.monthsToBirthdayEvents.size) {
 			// After a first load we don't need to load it again because we handle contact entity events in the CalendarViewModel
 			console.info("Birthdays already loaded, skipping new load attempt.")
@@ -465,9 +465,9 @@ export class CalendarEventsRepository {
 			return { valid: [], invalid: [] }
 		}
 
-		const contacts = await this.entityClient.loadAll(ContactTypeRef, listId)
-		const invalidContacts: Contact[] = []
-		const filteredContacts = mapAndFilterNull<Contact, ContactWrapper>(contacts, (contact) => {
+		const contacts = await this.entityClient.loadAll(tutanotaTypeRefs.ContactTypeRef, listId)
+		const invalidContacts: tutanotaTypeRefs.Contact[] = []
+		const filteredContacts = mapAndFilterNull<tutanotaTypeRefs.Contact, ContactWrapper>(contacts, (contact) => {
 			if (contact.birthdayIso == null) {
 				return null
 			}
@@ -526,7 +526,7 @@ export class CalendarEventsRepository {
 		this.addBirthdaysEventsIfNeeded(currentBirthdayDate, monthRange, true)
 	}
 
-	private validateContactBirthday(contact: Contact): ContactWrapper | null {
+	private validateContactBirthday(contact: tutanotaTypeRefs.Contact): ContactWrapper | null {
 		try {
 			const parsedBirthday = isoDateToBirthday(contact.birthdayIso!)
 			return {

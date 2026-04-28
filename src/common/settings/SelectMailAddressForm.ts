@@ -2,19 +2,19 @@ import m, { Children, Component, Vnode } from "mithril"
 import type { TranslationKey } from "../misc/LanguageViewModel.js"
 import { lang } from "../misc/LanguageViewModel.js"
 import { isMailAddress } from "../misc/FormatValidator.js"
-import { AccessDeactivatedError } from "../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { formatMailAddressFromParts } from "../misc/Formatter.js"
 import { Icon } from "../gui/base/Icon.js"
 import { locator } from "../api/main/CommonLocator.js"
-import { assertMainOrNode } from "../api/common/Env.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { font_size, px } from "../gui/size.js"
 import { Autocapitalize, Autocomplete, TextField } from "../gui/base/TextField.js"
 import { attachDropdown, DropdownButtonAttrs } from "../gui/base/Dropdown.js"
 import { IconButton, IconButtonAttrs } from "../gui/base/IconButton.js"
 import { ButtonSize } from "../gui/base/ButtonSize.js"
 import { EmailDomainData } from "./mailaddress/MailAddressesUtils.js"
-import { BootIcons } from "../gui/base/icons/BootIcons.js"
 import { isTutaMailAddress } from "../mailFunctionality/SharedMailUtils.js"
+import { Icons } from "../gui/base/icons/Icons"
 
 assertMainOrNode()
 
@@ -109,7 +109,7 @@ export class SelectMailAddressForm implements Component<SelectMailAddressFormAtt
 							attachDropdown({
 								mainButtonAttrs: {
 									title: "domain_label",
-									icon: BootIcons.Expand,
+									icon: Icons.ArrowDown,
 									size: ButtonSize.Compact,
 								},
 								childAttrs: () => attrs.availableDomains.map((domain) => this.createDropdownItemAttrs(domain, attrs)),
@@ -136,7 +136,7 @@ export class SelectMailAddressForm implements Component<SelectMailAddressFormAtt
 
 	private progressIcon(): Children {
 		return m(Icon, {
-			icon: BootIcons.Progress,
+			icon: Icons.Sync,
 			class: "icon-progress mr-8",
 		})
 	}
@@ -147,7 +147,7 @@ export class SelectMailAddressForm implements Component<SelectMailAddressFormAtt
 			click: () => {
 				attrs.onDomainChanged(domainData)
 			},
-			icon: domainData.isPaid ? BootIcons.Premium : undefined,
+			icon: domainData.isPaid ? Icons.TrophyFilled : undefined,
 		}
 	}
 
@@ -214,7 +214,7 @@ export class SelectMailAddressForm implements Component<SelectMailAddressFormAtt
 							errorId: attrs.mailAddressNAError ?? "mailAddressNA_msg",
 						}
 			} catch (e) {
-				if (e instanceof AccessDeactivatedError) {
+				if (e instanceof restError.AccessDeactivatedError) {
 					result = { isValid: false, errorId: "mailAddressDelay_msg" }
 				} else {
 					throw e

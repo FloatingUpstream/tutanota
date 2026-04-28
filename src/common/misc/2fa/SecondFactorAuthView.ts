@@ -4,7 +4,7 @@ import { lang } from "../LanguageViewModel"
 import { Icon, IconSize, progressIcon } from "../../gui/base/Icon"
 import { Icons, SecondFactorImage } from "../../gui/base/icons/Icons"
 import { theme } from "../../gui/theme"
-import type { Thunk } from "@tutao/tutanota-utils"
+import type { Thunk } from "@tutao/utils"
 import { Autocomplete, TextField } from "../../gui/base/TextField.js"
 import { LoginButton } from "../../gui/base/buttons/LoginButton.js"
 import { ExternalLink } from "../../gui/base/ExternalLink.js"
@@ -104,7 +104,7 @@ export class SecondFactorAuthView implements Component<SecondFactorViewAttrs> {
 							m(
 								".mr-8",
 								m(Icon, {
-									icon: Icons.Cancel,
+									icon: Icons.X,
 									size: IconSize.PX24,
 									style: {
 										fill: theme.primary,

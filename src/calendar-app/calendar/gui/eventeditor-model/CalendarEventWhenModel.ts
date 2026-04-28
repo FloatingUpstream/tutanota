@@ -20,23 +20,23 @@ import {
 	getStartOfNextDayWithZone,
 	incrementByRepeatPeriod,
 } from "../../../../common/calendar/date/CalendarUtils.js"
-import { assertNotNull, clone, filterInt, incrementDate, noOp, TIMESTAMP_ZERO_YEAR } from "@tutao/tutanota-utils"
-import { AdvancedRepeatRule, CalendarEvent, CalendarRepeatRule, createAdvancedRepeatRule } from "../../../../common/api/entities/tutanota/TypeRefs.js"
-import { Stripped } from "../../../../common/api/common/utils/EntityUtils.js"
-import { EndType, RepeatPeriod, Weekday } from "../../../../common/api/common/TutanotaConstants.js"
-import { createDateWrapper, createRepeatRule, RepeatRule } from "../../../../common/api/entities/sys/TypeRefs.js"
+import { assertNotNull, clone, filterInt, incrementDate, noOp, TIMESTAMP_ZERO_YEAR } from "@tutao/utils"
+import { Stripped, tutanotaTypeRefs } from "@tutao/typerefs"
+import { EndType, RepeatPeriod, Weekday } from "@tutao/app-env"
 import { UserError } from "../../../../common/api/main/UserError.js"
 import m from "mithril"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 export type CalendarEventWhenModelResult = CalendarEventTimes & {
-	repeatRule: CalendarRepeatRule | null
+	repeatRule: tutanotaTypeRefs.CalendarRepeatRule | null
 }
 
+type AdvancedRepeatRule = tutanotaTypeRefs.AdvancedRepeatRule
 /*
  * start, end, repeat, exclusions, reschedulings
  */
 export class CalendarEventWhenModel {
-	private repeatRule: CalendarRepeatRule | null = null
+	private repeatRule: tutanotaTypeRefs.CalendarRepeatRule | null = null
 	private _isAllDay: boolean
 
 	/** represents the start of day of the start date in local time. */
@@ -49,7 +49,7 @@ export class CalendarEventWhenModel {
 	private _endTime: Time | null
 
 	constructor(
-		private readonly initialValues: Partial<Stripped<CalendarEvent>>,
+		private readonly initialValues: Partial<Stripped<tutanotaTypeRefs.CalendarEvent>>,
 		readonly zone: string,
 		private readonly uiUpdateCallback: () => void = noOp,
 	) {
@@ -124,10 +124,10 @@ export class CalendarEventWhenModel {
 
 			if (value) {
 				// we want to keep excluded dates if all we do is switching between all-day and normal event
-				this.repeatRule.excludedDates = this.repeatRule.excludedDates.map(({ date }) => createDateWrapper({ date: getAllDayDateUTC(date) }))
+				this.repeatRule.excludedDates = this.repeatRule.excludedDates.map(({ date }) => sysTypeRefs.createDateWrapper({ date: getAllDayDateUTC(date) }))
 			} else {
 				const startTime = this.startTime
-				this.repeatRule.excludedDates = this.repeatRule.excludedDates.map(({ date }) => createDateWrapper({ date: startTime.toDate(date) }))
+				this.repeatRule.excludedDates = this.repeatRule.excludedDates.map(({ date }) => sysTypeRefs.createDateWrapper({ date: startTime.toDate(date) }))
 			}
 		}
 
@@ -155,7 +155,7 @@ export class CalendarEventWhenModel {
 		const startTime = this._startTime!
 		const delta = ((v.hour - startTime.hour) * 60 + (v.minute - startTime.minute)) * 60000
 		if (delta === 0) return
-		this.rescheduleEvent({ millisecond: delta })
+		this.shiftEvent({ millisecond: delta })
 		this.uiUpdateCallback()
 	}
 
@@ -211,30 +211,30 @@ export class CalendarEventWhenModel {
 	}
 
 	/**
-	 * set the date portion of the events start time (value's time component is ignored)
+	 * moves the event to the provided date (time component is ignored)
 	 * will also update the end date and move it the same amount of days as the start date was moved.
 	 *
 	 * setting a date before 1970 will result in the date being set to CURRENT_YEAR
 	 * */
-	set startDate(value: Date) {
-		if (value.getTime() === this._startDate.getTime()) {
+	rescheduleEventToDate(date: Date) {
+		if (date.getTime() === this._startDate.getTime()) {
 			return
 		}
 
 		// The custom ID for events is derived from the unix timestamp, and sorting
 		// the negative ids is a challenge we decided not to
 		// tackle because it is a rare case and only getting rarer.
-		if (value.getTime() < TIMESTAMP_ZERO_YEAR) {
+		if (date.getTime() < TIMESTAMP_ZERO_YEAR) {
 			const thisYear = new Date().getFullYear()
-			value.setFullYear(thisYear)
+			date.setFullYear(thisYear)
 		}
-		const valueDateTime = DateTime.fromJSDate(value, { zone: this.zone })
+		const valueDateTime = DateTime.fromJSDate(date, { zone: this.zone })
 		// asking for the rest in milliseconds causes luxon to give us an integer number of
 		// days in the duration which is what we want.
 		const diff = valueDateTime.diff(DateTime.fromJSDate(this._startDate, this), ["day", "millisecond"])
 		if (diff.as("millisecond") === 0) return
 		// we only want to add days, not milliseconds.
-		this.rescheduleEvent({ days: diff.days })
+		this.shiftEvent({ days: diff.days })
 		this.uiUpdateCallback()
 	}
 
@@ -290,7 +290,7 @@ export class CalendarEventWhenModel {
 			// new repeat rule, populate with default values.
 			this.repeatRule = this.initialValues.repeatRule
 				? clone(this.initialValues.repeatRule)
-				: createRepeatRule({
+				: sysTypeRefs.createRepeatRule({
 						interval: "1",
 						endType: EndType.Never,
 						endValue: "1",
@@ -495,7 +495,7 @@ export class CalendarEventWhenModel {
 	createAdvancedRulesFromWeekdays(weekdays: Weekday[], interval?: number): AdvancedRepeatRule[] {
 		if (weekdays.length === 0 || interval === 0) return []
 		return weekdays.map((wd) => {
-			return createAdvancedRepeatRule({
+			return tutanotaTypeRefs.createAdvancedRepeatRule({
 				interval: interval ? interval.toString() + wd : wd,
 				ruleType: ByRule.BYDAY,
 			})
@@ -529,7 +529,7 @@ export class CalendarEventWhenModel {
 		// but then we run into problems with time zones, since we'd like to delete the n-th occurrence of an event, but detect
 		// if an event is excluded by the start of the utc day it falls on, which may depend on time zone if it's truncated to the local start of day
 		// on which the exclusion is created.
-		const wrapperToInsert = createDateWrapper({ date })
+		const wrapperToInsert = sysTypeRefs.createDateWrapper({ date })
 		if (insertionIndex < 0) {
 			this.repeatRule.excludedDates.push(wrapperToInsert)
 		} else {
@@ -548,13 +548,13 @@ export class CalendarEventWhenModel {
 
 	/**
 	 * change start and end time and dates of the event by a fixed amount.
-	 * @param diff an object containing a duration in luxons year/quarter/... format
+	 * @param duration an object containing a duration in luxons year/quarter/... format
 	 */
-	rescheduleEvent(diff: DurationLikeObject): void {
+	shiftEvent(duration: DurationLikeObject): void {
 		const oldStartTime = this.startTime.toDateTime(this.startDate, this.zone)
 		const oldEndTime = this.endTime.toDateTime(this.endDate, this.zone)
-		const newStartDate = oldStartTime.plus(diff)
-		const newEndDate = oldEndTime.plus(diff)
+		const newStartDate = oldStartTime.plus(duration)
+		const newEndDate = oldEndTime.plus(duration)
 
 		this._startDate = getStartOfDayWithZone(newStartDate.toJSDate(), this.zone)
 		this._endDate = getStartOfDayWithZone(newEndDate.toJSDate(), this.zone)
@@ -566,9 +566,9 @@ export class CalendarEventWhenModel {
 
 	get result(): CalendarEventWhenModelResult {
 		// we got a stripped repeat rule, so we re-create a fresh one with all fields but overwrite it with our values.
-		const repeatRule: RepeatRule | null = this.repeatRule
+		const repeatRule: sysTypeRefs.RepeatRule | null = this.repeatRule
 			? {
-					...createRepeatRule({
+					...sysTypeRefs.createRepeatRule({
 						timeZone: "",
 						excludedDates: [],
 						endType: "0",
@@ -613,7 +613,7 @@ export class CalendarEventWhenModel {
 	 * ideally, we want to delete exclusions after an edit operation only when necessary.
 	 * @private
 	 */
-	private deleteExcludedDatesIfNecessary(newRepeat: RepeatRule | null) {
+	private deleteExcludedDatesIfNecessary(newRepeat: sysTypeRefs.RepeatRule | null) {
 		if (newRepeat == null) return
 		const oldRepeat = this.initialValues.repeatRule ?? null
 		// if excluded dates have changed,
@@ -641,6 +641,10 @@ export class CalendarEventWhenModel {
 		}
 		return repeatRule
 	}
+
+	public removeRepeatRule() {
+		this.repeatRule = null
+	}
 }
 
 /**
@@ -658,7 +662,11 @@ export function getDefaultEndCountValue(): string {
 	return "10"
 }
 
-export function repeatRuleWithExcludedAlteredInstances(progenitor: CalendarEvent, recurrenceIds: ReadonlyArray<Date>, timeZone: string): CalendarRepeatRule {
+export function repeatRuleWithExcludedAlteredInstances(
+	progenitor: tutanotaTypeRefs.CalendarEvent,
+	recurrenceIds: ReadonlyArray<Date>,
+	timeZone: string,
+): tutanotaTypeRefs.CalendarRepeatRule {
 	const whenModel = new CalendarEventWhenModel(progenitor, timeZone)
 	for (const recurrenceId of recurrenceIds) {
 		whenModel.excludeDate(recurrenceId)

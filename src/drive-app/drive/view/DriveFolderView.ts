@@ -1,40 +1,35 @@
 import m, { Children, Component, Vnode } from "mithril"
-import { DriveClipboard, DriveFolderType, SortColumn, SortingPreference } from "./DriveViewModel"
-import { DriveFolderNav } from "./DriveFolderNav"
+import { DriveClipboard, SortColumn, SortingPreference } from "./DriveViewModel"
+import { DriveFolderNav, DriveSelectedItemsActions } from "./DriveFolderNav"
 import { DriveFolderContent, DriveFolderContentAttrs, DriveFolderSelectionEvents, SelectionState } from "./DriveFolderContent"
-import { DriveFolder } from "../../../common/api/entities/drive/TypeRefs"
+import { driveTypeRefs } from "@tutao/typerefs"
 import { lang } from "../../../common/misc/LanguageViewModel"
 import { ListLoadingState, ListState } from "../../../common/gui/base/List"
 import { px, size } from "../../../common/gui/size"
-import { assertNotNull, isEmpty } from "@tutao/tutanota-utils"
+import { assertNotNull, isEmpty } from "@tutao/utils"
 import { Icons } from "../../../common/gui/base/icons/Icons"
 import { theme } from "../../../common/gui/theme"
 import { IconMessageBox } from "../../../common/gui/base/ColumnEmptyMessageBox"
 import { LayerType } from "../../../RootView"
 import { Icon, IconSize } from "../../../common/gui/base/Icon"
 import { DomRectReadOnlyPolyfilled, Dropdown } from "../../../common/gui/base/Dropdown"
-import { newItemActions, parseDragItems } from "./DriveGuiUtils"
+import { isMobileDriveLayout, newItemActions, parseDragItems } from "./DriveGuiUtils"
 import { modal } from "../../../common/gui/base/Modal"
 import { DropType } from "../../../common/gui/base/GuiUtils"
 import { FileActions } from "./DriveFolderContentEntry"
 import { FolderFolderItem, FolderItem, FolderItemId } from "./DriveUtils"
+import { DriveFolderType } from "../../../common/api/worker/facades/lazy/DriveFacade"
 
 export interface DriveFolderViewAttrs {
-	onUploadClick: (dom: HTMLElement) => void
 	selection: SelectionState
-	onTrash: (() => unknown) | null
-	onDelete: (() => unknown) | null
-	onRestore: (() => unknown) | null
-	onCopy: (() => unknown) | null
-	onCut: (() => unknown) | null
-	onPaste: (() => unknown) | null
-	currentFolder: DriveFolder | null
-	parents: readonly DriveFolder[]
+	selectedItemsActions: DriveSelectedItemsActions
+	currentFolder: driveTypeRefs.DriveFolder | null
+	parents: readonly driveTypeRefs.DriveFolder[]
 	listState: ListState<FolderItem>
 	selectionEvents: DriveFolderSelectionEvents
 	onDropFiles: (files: File[]) => unknown
-	loadParents: () => Promise<DriveFolder[]>
-	onNewFile: () => unknown
+	loadParents: () => Promise<driveTypeRefs.DriveFolder[]>
+	onNewFile: (event: MouseEvent, dom: HTMLElement) => unknown
 	onNewFolder: () => unknown
 	fileActions: FileActions
 	onMove: (items: FolderItemId[], into: FolderFolderItem) => unknown
@@ -43,7 +38,7 @@ export interface DriveFolderViewAttrs {
 	clipboard: DriveClipboard | null
 }
 
-function canDropFilesToFolder(currentFolder: DriveFolder | null): boolean {
+function canDropFilesToFolder(currentFolder: driveTypeRefs.DriveFolder | null): boolean {
 	return currentFolder != null && currentFolder.type !== DriveFolderType.Trash
 }
 
@@ -56,13 +51,7 @@ export class DriveFolderView implements Component<DriveFolderViewAttrs> {
 
 	view({
 		attrs: {
-			onTrash,
-			onDelete,
-			onRestore,
-			onCopy,
-			onCut,
-			onPaste,
-			onUploadClick,
+			selectedItemsActions,
 			onDropFiles,
 			currentFolder,
 			parents,
@@ -120,26 +109,29 @@ export class DriveFolderView implements Component<DriveFolderViewAttrs> {
 					this.draggedOver = false
 				},
 				oncontextmenu: (e: MouseEvent) => {
-					e.preventDefault()
-					const dropdown = new Dropdown(() => newItemActions({ onNewFile, onNewFolder }), 300)
-					dropdown.setOrigin(new DomRectReadOnlyPolyfilled(e.clientX, e.clientY, 0, 0))
-					modal.displayUnique(dropdown, false)
+					if (!isMobileDriveLayout()) {
+						e.preventDefault()
+						const dropdown = new Dropdown(() => newItemActions({ onNewFile, onNewFolder }), 300)
+						dropdown.setOrigin(new DomRectReadOnlyPolyfilled(e.clientX, e.clientY, 0, 0))
+						modal.displayUnique(dropdown, false)
+					}
+				},
+				onclick: (e: MouseEvent) => {
+					if (!isMobileDriveLayout()) {
+						selectionEvents.onSelectNone()
+					}
 				},
 			},
 			this.draggedOver ? this.renderDropView() : null,
-			m(DriveFolderNav, {
-				onTrash,
-				onDelete,
-				onRestore,
-				onCopy,
-				onCut,
-				onPaste,
-				onUploadClick,
-				currentFolder,
-				parents,
-				loadParents,
-				onDropInto,
-			}),
+			isMobileDriveLayout()
+				? null
+				: m(DriveFolderNav, {
+						selectedItemsActions,
+						currentFolder,
+						parents,
+						loadParents,
+						onDropInto,
+					}),
 			listState.loadingStatus === ListLoadingState.Done && isEmpty(listState.items)
 				? this.renderEmptyView(currentFolder)
 				: m(DriveFolderContent, {
@@ -154,7 +146,7 @@ export class DriveFolderView implements Component<DriveFolderViewAttrs> {
 					} satisfies DriveFolderContentAttrs),
 		)
 	}
-	private renderEmptyView(folder: DriveFolder | null): Children {
+	private renderEmptyView(folder: driveTypeRefs.DriveFolder | null): Children {
 		return m(
 			"",
 			{
@@ -165,12 +157,12 @@ export class DriveFolderView implements Component<DriveFolderViewAttrs> {
 			folder && folder.type === DriveFolderType.Trash
 				? m(IconMessageBox, {
 						message: lang.getTranslation("trashIsEmpty_msg"),
-						icon: Icons.TrashEmpty,
+						icon: Icons.TrashEmptyFilled,
 						color: theme.on_surface_variant,
 					})
 				: m(IconMessageBox, {
 						message: lang.getTranslation("dropFilesHere_msg"),
-						icon: Icons.Drive,
+						icon: Icons.DriveFilled,
 						color: theme.on_surface_variant,
 						bottomContent: "Or use 'new' button",
 					}),

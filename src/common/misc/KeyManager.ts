@@ -1,8 +1,9 @@
 import type { TranslationKey } from "./LanguageViewModel"
-import { Keys } from "../api/common/TutanotaConstants"
-import { lazy, mod } from "@tutao/tutanota-utils"
-import { assertMainOrNodeBoot, isAppleDevice } from "../api/common/Env"
+import { Keys } from "@tutao/app-env"
+import { lazy, mod } from "@tutao/utils"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import m from "mithril"
+import { isAppleDevice } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 export const TABBABLE = "button, input, textarea, div[contenteditable='true'], [tabindex='0'], a, [role=button], [role=input]"
@@ -36,8 +37,10 @@ export type Key = {
 export function keyboardEventToKeyPress(event: KeyboardEvent): KeyPress {
 	const ctrlOrCmd = isAppleDevice() ? event.metaKey : event.ctrlKey
 
+	let key = fixWaylandKeyIssue(event)
+
 	return {
-		key: event.key,
+		key,
 		ctrlOrCmd,
 		shift: event.shiftKey,
 		alt: event.altKey,
@@ -47,6 +50,17 @@ export function keyboardEventToKeyPress(event: KeyboardEvent): KeyPress {
 		ctrl: !ctrlOrCmd && event.ctrlKey,
 		meta: !ctrlOrCmd && event.metaKey,
 	}
+}
+
+/**
+ * XWayland can sometimes lose the keycode-to-string mapping, resulting in "Unidentified" keys
+ */
+function fixWaylandKeyIssue(event: KeyboardEvent) {
+	let key = event.key
+	if (event.key === "Unidentified" && event.keyCode) {
+		key = String.fromCharCode(event.keyCode)
+	}
+	return key
 }
 
 /**
@@ -210,8 +224,7 @@ class KeyManager {
 			// it should be ignored (since the system should be handling key commands for that).
 			const keysToShortcuts = this.keyToModalShortcut.size > 1 ? this.keyToModalShortcut : this.keyToShortcut
 			const keyPress = keyboardEventToKeyPress(e)
-			const shortcut = keyPress.key ? keysToShortcuts.get(createKeyIdentifier(e.key.toLowerCase(), keyPress)) : null
-
+			const shortcut = keyPress.key ? keysToShortcuts.get(createKeyIdentifier(keyPress.key.toLowerCase(), keyPress)) : null
 			if (shortcut != null && (shortcut.enabled == null || shortcut.enabled())) {
 				if (shortcut.exec(keyPress) !== true) {
 					e.preventDefault()

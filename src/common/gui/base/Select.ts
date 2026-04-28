@@ -1,6 +1,6 @@
 import m, { Children, ClassComponent, Component, Vnode, VnodeDOM } from "mithril"
 import { px, size } from "../size.js"
-import { Keys, TabIndex } from "../../api/common/TutanotaConstants.js"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { focusNext, focusPrevious, isKeyPressed, keyManager, Shortcut, ShortcutType } from "../../misc/KeyManager.js"
 import { DomRectReadOnlyPolyfilled } from "./Dropdown.js"
 import { lang } from "../../misc/LanguageViewModel.js"
@@ -10,11 +10,11 @@ import { AriaRole } from "../AriaUtils.js"
 import Stream from "mithril/stream"
 import { getSafeAreaInsetBottom, getSafeAreaInsetTop } from "../HtmlUtils.js"
 import { theme } from "../theme.js"
-import { BootIcons } from "./icons/BootIcons.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
 import { animations, opacity, transform, TransformEnum } from "../animation/Animations.js"
 import { ease } from "../animation/Easing.js"
 import { BaseButton } from "./buttons/BaseButton.js"
+import { Icons } from "./icons/Icons"
 
 /**
  * **GENERIC** Interface to declare everything that is important to use at the select option
@@ -200,7 +200,7 @@ export class Select<U extends SelectOption<T>, T> implements ClassComponent<Sele
 						selected != null ? renderDisplay(selected) : this.renderPlaceholder(placeholder),
 						noIcon !== true
 							? m(Icon, {
-									icon: BootIcons.Expand,
+									icon: Icons.ArrowDown,
 									container: "div",
 									class: `fit-content`,
 									size: IconSize.PX24,

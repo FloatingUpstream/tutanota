@@ -1,8 +1,8 @@
 import m, { Children, Component, Vnode } from "mithril"
-import type { EmailTemplate, KnowledgeBaseEntry, TemplateGroupRoot } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { ButtonColor, ButtonType } from "../../common/gui/base/Button.js"
 import { KnowledgeBaseEditorModel } from "./KnowledgeBaseEditorModel"
-import { noOp, ofClass } from "@tutao/tutanota-utils"
+import { noOp, ofClass } from "@tutao/utils"
 import { TextField } from "../../common/gui/base/TextField.js"
 import { Dialog } from "../../common/gui/base/Dialog"
 import type { DialogHeaderBarAttrs } from "../../common/gui/base/DialogHeaderBar"
@@ -11,7 +11,7 @@ import { locator } from "../../common/api/main/CommonLocator"
 import type { DropdownChildAttrs } from "../../common/gui/base/Dropdown.js"
 import { createAsyncDropdown } from "../../common/gui/base/Dropdown.js"
 import { showUserError } from "../../common/misc/ErrorHandlerImpl"
-import { elementIdPart, getLetId, listIdPart } from "../../common/api/common/utils/EntityUtils"
+import { elementIdPart, getLetId, listIdPart } from "@tutao/typerefs"
 import { HtmlEditor } from "../../common/gui/editor/HtmlEditor"
 import { UserError } from "../../common/api/main/UserError"
 import { TEMPLATE_SHORTCUT_PREFIX } from "../templates/model/TemplatePopupModel"
@@ -23,7 +23,7 @@ import { ButtonSize } from "../../common/gui/base/ButtonSize.js"
  *  Editor to edit / add a knowledgeBase entry
  *  Returned promise resolves when the dialog closes
  */
-export function showKnowledgeBaseEditor(entry: KnowledgeBaseEntry | null, templateGroupRoot: TemplateGroupRoot): void {
+export function showKnowledgeBaseEditor(entry: tutanotaTypeRefs.KnowledgeBaseEntry | null, templateGroupRoot: tutanotaTypeRefs.TemplateGroupRoot): void {
 	const { entityClient } = locator
 	const editorModel = new KnowledgeBaseEditorModel(entry, templateGroupRoot, entityClient)
 
@@ -64,7 +64,7 @@ class KnowledgeBaseEditor implements Component<KnowledgeBaseEditorModel> {
 		const model = vnode.attrs
 		this.linkedTemplateButtonAttrs = {
 			title: "linkTemplate_label",
-			icon: Icons.Add,
+			icon: Icons.Plus,
 			colors: ButtonColor.Elevated,
 			click: (e, dom) => {
 				e.stopPropagation()
@@ -128,7 +128,7 @@ class KnowledgeBaseEditor implements Component<KnowledgeBaseEditorModel> {
 	}
 }
 
-function createTemplateLink(template: EmailTemplate): string {
+function createTemplateLink(template: tutanotaTypeRefs.EmailTemplate): string {
 	const listId = listIdPart(getLetId(template))
 	const elementId = elementIdPart(getLetId(template))
 	return `<a href="tutatemplate:${listId}/${elementId}">${TEMPLATE_SHORTCUT_PREFIX + template.tag}</a>`

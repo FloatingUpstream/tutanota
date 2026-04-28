@@ -1,17 +1,17 @@
 import { Dialog } from "../../../common/gui/base/Dialog"
 import { TextField, TextFieldAttrs } from "../../../common/gui/base/TextField"
 import m from "mithril"
-import type { MailBox, MailSet } from "../../../common/api/entities/tutanota/TypeRefs"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { isOfflineError } from "../../../common/api/common/utils/ErrorUtils"
-import { LockedError, PreconditionFailedError } from "../../../common/api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { MailViewModel } from "./MailViewModel"
-import { lang } from "../../../common/misc/LanguageViewModel"
 import { ColorPickerView } from "../../../common/gui/base/colorPicker/ColorPickerView"
 import { showNotAvailableForFreeDialog } from "../../../common/misc/SubscriptionDialogs"
+import { UpgradePromptType } from "@tutao/app-env"
 
 const LIMIT_EXCEEDED_ERROR = "limitReached"
 
-export async function showEditLabelDialog(mailbox: MailBox | null, mailViewModel: MailViewModel, label: MailSet | null) {
+export async function showEditLabelDialog(mailbox: tutanotaTypeRefs.MailBox | null, mailViewModel: MailViewModel, label: tutanotaTypeRefs.MailSet | null) {
 	let name = label ? label.name : ""
 	let color = label && label.color ? label.color : ""
 
@@ -26,13 +26,13 @@ export async function showEditLabelDialog(mailbox: MailBox | null, mailViewModel
 				await mailViewModel.createLabel(mailbox, { name, color })
 			}
 		} catch (error) {
-			if (error instanceof PreconditionFailedError) {
+			if (error instanceof restError.PreconditionFailedError) {
 				if (error.data === LIMIT_EXCEEDED_ERROR) {
-					showNotAvailableForFreeDialog()
+					showNotAvailableForFreeDialog(UpgradePromptType.MORE_LABELS_NEEDED)
 				} else {
 					Dialog.message("unknownError_msg")
 				}
-			} else if (isOfflineError(error) || !(error instanceof LockedError)) {
+			} else if (isOfflineError(error) || !(error instanceof restError.LockedError)) {
 				throw error
 			}
 		}

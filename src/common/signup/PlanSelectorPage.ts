@@ -6,13 +6,14 @@ import { anyHasGlobalFirstYearCampaign, getDiscountDetails } from "../subscripti
 import { TranslationKeyType } from "../misc/TranslationKey"
 import { LoginButtonAttrs } from "../gui/base/buttons/LoginButton"
 import { PlanSelector, PlanSelectorAttr, SubscriptionActionButtons } from "../subscription/PlanSelector"
-import { AvailablePlanType, PlanType, PlanTypeToName } from "../api/common/TutanotaConstants"
-import { getAsLazy } from "@tutao/tutanota-utils"
+import { getAsLazy } from "@tutao/utils"
 import { lang } from "../misc/LanguageViewModel"
 import { px } from "../gui/size"
-import { BootIcons } from "../gui/base/icons/BootIcons"
-import { PlanSelectorHeadlineNew } from "../subscription/components/PlanSelectorHeadlineNew"
 import { styles } from "../gui/styles"
+import { MessageBanner } from "../gui/base/MessageBanner"
+import { Icons } from "../gui/base/icons/Icons"
+import { PlanTypeToName } from "@tutao/typerefs"
+import { AvailablePlanType, PlanType } from "@tutao/app-env"
 
 export class PlanSelectorPage implements ClassComponent<WizardStepComponentAttrs<SignupViewModel>> {
 	view(vnode: Vnode<WizardStepComponentAttrs<SignupViewModel>>) {
@@ -41,14 +42,16 @@ export class PlanSelectorPage implements ClassComponent<WizardStepComponentAttrs
 			// Headline for a global campaign
 			!data.options!.businessUse() &&
 				anyHasGlobalFirstYearCampaign(discountDetails) &&
-				m(PlanSelectorHeadlineNew, {
-					translation: lang.getTranslation("pricing.cyber_monday_msg"),
-					icon: BootIcons.Heart,
-				}),
+				m(
+					"",
+					{ style: { "max-width": px(530) } },
+
+					m(MessageBanner, { translation: lang.getTranslation("pricing.cyber_monday_msg"), type: "base", icon: Icons.GiftFilled }),
+				),
 			// Headline for general messages
-			data.msg && m(PlanSelectorHeadlineNew, { translation: data.msg }),
+			data.msg && m(MessageBanner, { translation: data.msg, type: "base" }),
 			// Headline for promotional messages
-			promotionMessage && m(PlanSelectorHeadlineNew, { translation: lang.getTranslation(promotionMessage) }),
+			promotionMessage && m(MessageBanner, { translation: lang.getTranslation(promotionMessage), type: "base" }),
 
 			m(
 				".flex.flex-column.items-start.full-width",

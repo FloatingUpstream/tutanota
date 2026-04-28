@@ -3,21 +3,20 @@ import { Dialog } from "../../gui/base/Dialog.js"
 import type { TableLineAttrs } from "../../gui/base/Table.js"
 import { ColumnWidth, Table } from "../../gui/base/Table.js"
 import { lang, TranslationKey } from "../../misc/LanguageViewModel.js"
-import { LimitReachedError, PreconditionFailedError } from "../../api/common/error/RestError.js"
-import { ofClass } from "@tutao/tutanota-utils"
+import * as restError from "@tutao/rest-client/error"
+import { ofClass } from "@tutao/utils"
 import { Icons } from "../../gui/base/icons/Icons.js"
 import { showProgressDialog } from "../../gui/dialogs/ProgressDialog.js"
 import { ExpanderButton, ExpanderPanel } from "../../gui/base/Expander.js"
 import { attachDropdown, DropdownButtonAttrs } from "../../gui/base/Dropdown.js"
-import { showNotAvailableForFreeDialog, showPlanUpgradeRequiredDialog } from "../../misc/SubscriptionDialogs.js"
-import { assertMainOrNode } from "../../api/common/Env.js"
+import { showPlanUpgradeRequiredDialog } from "../../misc/SubscriptionDialogs.js"
+import { assertMainOrNode, NewPaidPlans, UnsubscribeFailureReason, UpgradePromptType } from "@tutao/app-env"
 import { IconButtonAttrs } from "../../gui/base/IconButton.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
 import { AddressInfo, AddressStatus, MailAddressTableModel } from "./MailAddressTableModel.js"
 import { showAddAliasDialog } from "./AddAliasDialog.js"
 import { locator } from "../../api/main/CommonLocator.js"
 import { UpgradeRequiredError } from "../../api/main/UpgradeRequiredError.js"
-import { UnsubscribeFailureReason } from "../../api/common/TutanotaConstants"
 
 assertMainOrNode()
 
@@ -40,7 +39,7 @@ export class MailAddressTable implements Component<MailAddressTableAttrs> {
 			? {
 					title: "addEmailAlias_label",
 					click: () => this.onAddAlias(attrs),
-					icon: Icons.Add,
+					icon: Icons.Plus,
 					size: ButtonSize.Compact,
 				}
 			: null
@@ -87,7 +86,11 @@ export class MailAddressTable implements Component<MailAddressTableAttrs> {
 	private async onAddAlias(attrs: MailAddressTableAttrs) {
 		const userController = locator.logins.getUserController()
 		if (userController.isFreeAccount()) {
-			showNotAvailableForFreeDialog()
+			await showPlanUpgradeRequiredDialog(UpgradePromptType.ALIASES, NewPaidPlans).then((upgraded) => {
+				if (upgraded) {
+					attrs.model.loadAliasCount()
+				}
+			})
 		} else {
 			const isNewPaidPlan = await userController.isNewPaidPlan()
 			showAddAliasDialog(attrs.model, isNewPaidPlan)
@@ -210,9 +213,9 @@ async function switchAliasStatus(alias: AddressInfo, attrs: MailAddressTableAttr
 
 	const updateModel = attrs.model
 		.setAliasStatus(alias.address, !deactivateOrDeleteAlias)
-		.catch(ofClass(PreconditionFailedError, handleSetAliasStatusPreconditionFailed))
-		.catch(ofClass(LimitReachedError, () => attrs.model.handleTooManyAliases()))
-		.catch(ofClass(UpgradeRequiredError, (e) => showPlanUpgradeRequiredDialog(e.plans, e.message)))
+		.catch(ofClass(restError.PreconditionFailedError, handleSetAliasStatusPreconditionFailed))
+		.catch(ofClass(restError.TooManyRequestsError, () => attrs.model.handleTooManyAliases()))
+		.catch(ofClass(UpgradeRequiredError, (e) => showPlanUpgradeRequiredDialog(UpgradePromptType.ALIASES, e.plans, e.message)))
 	await showProgressDialog("pleaseWait_msg", updateModel)
 }
 
@@ -229,7 +232,7 @@ function showSenderNameChangeDialog(model: MailAddressTableModel, alias: { addre
 	}).then((newName) => showProgressDialog("pleaseWait_msg", model.setAliasName(alias.address, newName)))
 }
 
-function handleSetAliasStatusPreconditionFailed(e: PreconditionFailedError): void {
+function handleSetAliasStatusPreconditionFailed(e: restError.PreconditionFailedError): void {
 	const reason = e.data
 
 	if (reason == null) {

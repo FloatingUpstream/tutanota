@@ -1,22 +1,23 @@
 import { SpamClassificationHandler } from "./SpamClassificationHandler"
-import { InboxRuleHandler } from "./InboxRuleHandler"
-import { Mail, MailSet, ProcessInboxDatum } from "../../../common/api/entities/tutanota/TypeRefs"
-import { FeatureType, MailSetKind } from "../../../common/api/common/TutanotaConstants"
-import { assertNotNull, isEmpty, Nullable, throttle } from "@tutao/tutanota-utils"
+import { InboxRuleHandler, InboxRulesApplicationType } from "./InboxRuleHandler"
+import { isSameId, StrippedEntity, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
+import { assertMainOrNode, FeatureType, MailSetKind } from "@tutao/app-env"
+import { assertNotNull, isEmpty, Nullable, throttle } from "@tutao/utils"
 import { MailFacade } from "../../../common/api/worker/facades/lazy/MailFacade"
 import { MailboxDetail } from "../../../common/mailFunctionality/MailboxModel"
 import { FolderSystem } from "../../../common/api/common/mail/FolderSystem"
-import { assertMainOrNode } from "../../../common/api/common/Env"
-import { isSameId, StrippedEntity } from "../../../common/api/common/utils/EntityUtils"
 import { LoginController } from "../../../common/api/main/LoginController"
 import { CryptoFacade } from "../../../common/api/worker/crypto/CryptoFacade"
-import { LockedError } from "../../../common/api/common/error/RestError"
-import { InstanceSessionKey } from "../../../common/api/entities/sys/TypeRefs"
+import * as restError from "@tutao/rest-client/error"
 
 assertMainOrNode()
 
-export type UnencryptedProcessInboxDatum = Omit<StrippedEntity<ProcessInboxDatum>, "encVector" | "ownerEncVectorSessionKey"> & {
-	vector: Uint8Array
+export type UnencryptedProcessInboxDatum = Omit<
+	StrippedEntity<tutanotaTypeRefs.ProcessInboxDatum>,
+	"encVectorLegacy" | "encVectorWithServerClassifiers" | "ownerEncVectorSessionKey"
+> & {
+	vectorLegacy: Uint8Array
+	vectorWithServerClassifiers: Uint8Array
 }
 
 const DEFAULT_THROTTLE_PROCESS_INBOX_SERVICE_REQUESTS_MS = 500
@@ -43,7 +44,7 @@ export class ProcessInboxHandler {
 						try {
 							await mailFacade.processNewMails(mailGroup, processedMails)
 						} catch (e) {
-							if (e instanceof LockedError) {
+							if (e instanceof restError.LockedError) {
 								// retry in case of LockedError
 								this.processedMailsByMailGroup.set(mailGroup, processedMails)
 								this.sendProcessInboxServiceRequest(mailFacade)
@@ -61,19 +62,18 @@ export class ProcessInboxHandler {
 	sendProcessInboxServiceRequest: (mailFacade: MailFacade) => Promise<void>
 
 	public async handleIncomingMail(
-		mail: Mail,
-		sourceFolder: MailSet,
+		mail: tutanotaTypeRefs.Mail,
+		sourceFolder: tutanotaTypeRefs.MailSet,
 		mailboxDetail: MailboxDetail,
 		folderSystem: FolderSystem,
 		isLeaderClient: boolean,
-	): Promise<MailSet> {
+	): Promise<tutanotaTypeRefs.MailSet> {
 		await this.logins.loadCustomizations()
-		const isSpamClassificationFeatureEnabled = this.logins.isEnabled(FeatureType.SpamClientClassification)
 		if (!mail.processNeeded) {
 			return sourceFolder
 		}
 
-		let instanceSessionKeys: InstanceSessionKey[] = []
+		let instanceSessionKeys: sysTypeRefs.InstanceSessionKey[] = []
 		// resolve sessionKeys for mail and their corresponding files if bucket key exists, and we are the
 		// leader client, i.e. isLeaderClient == true
 		// we resolveWithBucketKey before predicting spam to have an encryptionAuthStatus on the mail instance
@@ -85,7 +85,7 @@ export class ProcessInboxHandler {
 		const mailDetails = await this.mailFacade.loadMailDetailsBlob(mail)
 
 		let finalProcessInboxDatum: Nullable<UnencryptedProcessInboxDatum> = null
-		let moveToFolder: MailSet = sourceFolder
+		let moveToFolder: tutanotaTypeRefs.MailSet = sourceFolder
 
 		// We process rules which are excluded from spam list first and if none apply then we run spam prediction.
 		const result = await this.inboxRuleHandler()?.findAndApplyRulesExcludedFromSpamFilter(mailboxDetail, mail, sourceFolder)
@@ -94,15 +94,13 @@ export class ProcessInboxHandler {
 			finalProcessInboxDatum = processInboxDatum
 			moveToFolder = targetFolder
 		} else {
-			if (isSpamClassificationFeatureEnabled) {
-				const { targetFolder, processInboxDatum } = await this.spamHandler().predictSpamForNewMail(mail, mailDetails, sourceFolder, folderSystem)
-				moveToFolder = targetFolder
-				finalProcessInboxDatum = processInboxDatum
-			}
+			const { targetFolder, processInboxDatum } = await this.spamHandler().predictSpamForNewMail(mail, mailDetails, sourceFolder, folderSystem)
+			moveToFolder = targetFolder
+			finalProcessInboxDatum = processInboxDatum
 
 			// apply regular inbox rules only if the mail is classified as ham by the spam classifier
 			if (moveToFolder.folderType === MailSetKind.INBOX) {
-				const result = await this.inboxRuleHandler()?.findAndApplyRulesNotExcludedFromSpamFilter(mailboxDetail, mail, sourceFolder)
+				const result = await this.inboxRuleHandler()?.findAndApplyRulesNotExcludedFromSpamFilter(mailboxDetail, mail, moveToFolder)
 				if (result) {
 					const { targetFolder, processInboxDatum } = result
 					finalProcessInboxDatum = processInboxDatum
@@ -113,11 +111,13 @@ export class ProcessInboxHandler {
 
 		// set processInboxDatum if the spam classification is disabled and no inbox rule applies to the mail
 		if (finalProcessInboxDatum === null) {
+			const { uploadableVector, uploadableVectorLegacy } = await this.mailFacade.createModelInputAndUploadableVectors(mail, mailDetails, sourceFolder)
 			finalProcessInboxDatum = {
 				mailId: mail._id,
 				targetMoveFolder: moveToFolder._id,
 				classifierType: null,
-				vector: await this.mailFacade.vectorizeAndCompressMails({ mail, mailDetails }),
+				vectorLegacy: uploadableVectorLegacy,
+				vectorWithServerClassifiers: uploadableVector,
 				ownerEncMailSessionKeys: [],
 			}
 		}
@@ -128,7 +128,7 @@ export class ProcessInboxHandler {
 		const mailGroupId = assertNotNull(mail._ownerGroup)
 		if (this.processedMailsByMailGroup.has(mailGroupId)) {
 			const existingData = assertNotNull(this.processedMailsByMailGroup.get(mailGroupId))
-			const datumIsAlreadyAdded = existingData.some((existingDatum) => isSameId(existingDatum.mailId, finalProcessInboxDatum.mailId))
+			const datumIsAlreadyAdded = existingData.some((existingDatum) => isSameId(existingDatum.mailId, finalProcessInboxDatum?.mailId ?? null))
 			if (!datumIsAlreadyAdded) {
 				this.processedMailsByMailGroup.get(mailGroupId)?.push(finalProcessInboxDatum)
 			}
@@ -143,25 +143,22 @@ export class ProcessInboxHandler {
 		return moveToFolder
 	}
 
-	public async processInboxRulesOnly(mail: Mail, sourceFolder: MailSet, mailboxDetail: MailboxDetail): Promise<MailSet> {
+	public async processInboxRulesOnly(
+		mail: tutanotaTypeRefs.Mail,
+		sourceFolder: tutanotaTypeRefs.MailSet,
+		mailboxDetail: MailboxDetail,
+	): Promise<tutanotaTypeRefs.MailSet> {
 		// These should be in process by the regular handler and be eventually processed
 		if (mail.processNeeded) {
 			return sourceFolder
 		}
-		let moveToFolder: MailSet = sourceFolder
+		let moveToFolder: tutanotaTypeRefs.MailSet = sourceFolder
+
 		// process excluded rules first and then regular ones.
-		const result = await this.inboxRuleHandler()?.findAndApplyRulesExcludedFromSpamFilter(mailboxDetail, mail, sourceFolder, true)
+		const result = await this.inboxRuleHandler()?.findAndApplyMatchingRule(mailboxDetail, mail, sourceFolder, InboxRulesApplicationType.All, true)
 		if (result) {
-			const { targetFolder, processInboxDatum } = result
+			const { targetFolder, processInboxDatum: _ } = result
 			moveToFolder = targetFolder
-		} else {
-			if (moveToFolder.folderType === MailSetKind.INBOX) {
-				const result = await this.inboxRuleHandler()?.findAndApplyRulesNotExcludedFromSpamFilter(mailboxDetail, mail, sourceFolder, true)
-				if (result) {
-					const { targetFolder, processInboxDatum } = result
-					moveToFolder = targetFolder
-				}
-			}
 		}
 
 		return moveToFolder

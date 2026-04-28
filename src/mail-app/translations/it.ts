@@ -1,5 +1,5 @@
 // DO NOT EDIT: automatically generated
-// Please edit translations via Phrase: https://tuta.com/blog/tutanota-translation-project
+// Please edit translations via POEditor: https://tuta.com/blog/tutanota-translation-project
 export default {
 	"code": "it",
 	"keys": {
@@ -22,7 +22,7 @@ export default {
 		"accountSwitchSharedCalendar_msg": "Per favore, rimuovi tutti i calendari condivisi con te.",
 		"accountSwitchTooManyActiveUsers_msg": "Per favore disattiva tutti gli utenti aggiuntivi prima di cambiare la sottoscrizione.",
 		"accountWasStillCreated_msg": "Il tuo account è già stato creato come account gratuito. Puoi comunque annullare il pagamento ora, fare il login al tuo account e procedere con l'upgrade in un secondo momento.",
-		"accountWillBeDeactivatedIn6Month_label": "Il tuo account verrà eliminato se non effettui il login per 6 mesi.",
+		"accountWillBeDeactivatedIn6Month_label": "Il tuo account gratuito verrà eliminato se non effettui il login per 6 mesi.",
 		"action_label": "Azione",
 		"activate_action": "Attiva",
 		"activated_label": "Attivato",
@@ -392,6 +392,7 @@ export default {
 		"dark_blue_label": "Blu Scuro",
 		"dark_label": "Scuro",
 		"dark_red_label": "Rosso Scuro",
+		"dataExpired_label": "Dati scaduti",
 		"dataExpired_msg": "I tuoi dati caricati sono scaduti e non sincronizzati con i dati sui server Tuta. Prego, fai il logout e il login nuovamente per aggiornare i dati.",
 		"dataExpiredOfflineDb_msg": "I tuoi dati locali non sono sincronizzati con i dati sui server Tuta. Verrai disconnesso e i tuoi dati memorizzati localmente verranno cancellati e scaricati nuovamente, se necessario.",
 		"dataWillBeStored_msg": "I dati saranno memorizzati sul tuo dispositivo.",
@@ -442,7 +443,6 @@ export default {
 		"deleteSharedCalendarConfirm_msg": "Il calendario \"{calendar}\" è condiviso con altri utenti.",
 		"deleteSingleEventRecurrence_action": "Cancella solo questo evento",
 		"deleteTemplate_msg": "Sei sicuro di voler cancellare questo template?",
-		"deleteTemplateGroups_msg": "Ci sono ancora elenchi di template attivi che dovranno essere cancellati prima che tu possa effettuare il downgrade. Questo può includere elenchi di template condivisi o elenchi di template appartenenti ai tuoi utenti.",
 		"department_placeholder": "Dipartimento",
 		"describeProblem_msg": "Per favore, inserisci la tua domanda",
 		"description_label": "Descrizione",
@@ -1060,7 +1060,6 @@ export default {
 		"outOfOfficeTimeRange_msg": "Invia solo durante questo intervallo di tempo:",
 		"outOfOfficeTimeRangeHelp_msg": "Seleziona per scegliere le date.",
 		"outOfOfficeUnencrypted_msg": "Si prega di notare che le risposte automatiche sono inviate senza crittazione.",
-		"outOfSync_label": "Dati scaduti",
 		"owner_label": "Proprietario",
 		"pageBackward_label": "Pagina indietro",
 		"pageForward_label": "Pagina avanti",
@@ -1581,7 +1580,6 @@ export default {
 		"sortBy_label": "Ordinamento per",
 		"sourceColor_label": "Colore sorgente",
 		"spam_action": "Spam",
-		"spam_move_action": "Sposta nello spam",
 		"spamReports_label": "Segnala spam",
 		"spamRuleEnterValue_msg": "Per favore inserisci un valore.",
 		"spelling_label": "Ortografia",
@@ -1820,7 +1818,7 @@ export default {
 		"updateThisAndFutureEvents_action": "Aggiorna questo evento e quelli futuri",
 		"upgrade_action": "Upgrade",
 		"upgradeConfirm_msg": "Conferma il tuo ordine!",
-		"upgradeNeeded_msg": "Spiacenti, al momento non ti è consentito inviare o ricevere email (ad eccezione del supporto vendite Tuta all'indirizzo sales@tutao.de) perché devi prima completare l'ordine di un abbonamento a pagamento. Puoi completare l'ordine entro 14 giorni dalla registrazione, altrimenti il tuo account verrà disattivato.",
+		"upgradeNeeded_msg": "Spiacenti, al momento non ti è consentito inviare o ricevere email (ad eccezione del supporto vendite Tuta all'indirizzo invoice@tutao.de) perché devi prima completare l'ordine di un abbonamento a pagamento. Puoi completare l'ordine entro 14 giorni dalla registrazione, altrimenti il tuo account verrà disattivato.",
 		"upgradePlan_msg": "Il tuo abbonamento verrà aggiornato a {plan}.",
 		"upgradePremium_label": "Premium",
 		"upgradeReminderCancel_action": "Più tardi",

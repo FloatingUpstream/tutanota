@@ -6,7 +6,7 @@ import Foundation
 /**
  * Operations for handling mobile payments.
  */
-public protocol MobilePaymentsFacade {
+public protocol MobilePaymentsFacade : Sendable {
 	/**
 	 * Display a pop-up for the user to start a subscription
 	 */
@@ -24,7 +24,7 @@ public protocol MobilePaymentsFacade {
 	 * Display a view for the user to configure their subscription.
 	 */
 	func showSubscriptionConfigView(
-	) async throws
+	) async throws -> Void
 	/**
 	 * Check if the latest transaction using the current Store Account belongs to the user
 	 */

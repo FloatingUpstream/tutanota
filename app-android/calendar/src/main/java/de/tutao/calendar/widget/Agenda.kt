@@ -1,6 +1,7 @@
 package de.tutao.calendar.widget
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,6 +13,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.LocalContext
 import androidx.glance.action.Action
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
@@ -29,6 +31,9 @@ import androidx.glance.layout.padding
 import androidx.glance.preview.ExperimentalGlancePreviewApi
 import androidx.glance.preview.Preview
 import androidx.glance.state.GlanceStateDefinition
+import de.tutao.calendar.MainActivity
+import de.tutao.calendar.R
+import de.tutao.calendar.widget.component.EmptyBody
 import de.tutao.calendar.widget.component.ErrorBody
 import de.tutao.calendar.widget.component.LoadingSpinner
 import de.tutao.calendar.widget.component.ScrollableDaysList
@@ -38,6 +43,7 @@ import de.tutao.calendar.widget.data.WidgetUIData
 import de.tutao.calendar.widget.error.WidgetError
 import de.tutao.calendar.widget.error.WidgetErrorHandler
 import de.tutao.calendar.widget.error.WidgetErrorType
+import de.tutao.calendar.widget.model.BirthdayStrings
 import de.tutao.calendar.widget.model.WidgetUIViewModel
 import de.tutao.calendar.widget.model.openCalendarAgenda
 import de.tutao.calendar.widget.style.AppTheme
@@ -49,13 +55,14 @@ import de.tutao.tutashared.SdkFileClient
 import de.tutao.tutashared.SdkRestClient
 import de.tutao.tutashared.credentials.CredentialsEncryptionFactory
 import de.tutao.tutashared.data.AppDatabase
-import de.tutao.tutashared.midnightInDate
+import de.tutao.tutashared.ipc.CalendarOpenAction
 import de.tutao.tutashared.remote.RemoteStorage
-import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Calendar
+
 
 const val TAG = "AgendaWidget"
 
@@ -73,6 +80,7 @@ class Agenda : GlanceAppWidget() {
 	}
 
 	override suspend fun provideGlance(context: Context, id: GlanceId) {
+		Log.d(TAG, "provideGlance called")
 		val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
 
 		val (widgetUIViewModel, userId) = setupWidget(context, appWidgetId)
@@ -81,13 +89,20 @@ class Agenda : GlanceAppWidget() {
 		val lastSyncPreferencesKey = stringPreferencesKey("${WIDGET_LAST_SYNC_PREFIX}_$appWidgetId")
 
 		provideContent {
+
+			Log.d(TAG, "provideContent called")
+
 			val data by widgetUIViewModel.uiState.collectAsState()
 			val error by widgetUIViewModel.error.collectAsState()
 
 			val preferences = currentState<Preferences>()
 
-			LaunchedEffect(preferences[settingsPreferencesKey], preferences[lastSyncPreferencesKey]) {
-				widgetUIViewModel.loadUIState(context, LocalDateTime.now())
+			LaunchedEffect(
+				preferences[settingsPreferencesKey], preferences[lastSyncPreferencesKey]
+			) {
+				widgetUIViewModel.loadUIState(
+					context.widgetDataStore, context.widgetCacheDataStore, LocalDateTime.now()
+				)
 			}
 
 			GlanceTheme(
@@ -104,15 +119,13 @@ class Agenda : GlanceAppWidget() {
 				WidgetBody(
 					data,
 					userId,
-					todayHeaderOnTapAction = openCalendarAgenda(context, userId),
 				)
 			}
 		}
 	}
 
 	private suspend fun setupWidget(
-		context: Context,
-		appWidgetId: Int
+		context: Context, appWidgetId: Int
 	): Pair<WidgetUIViewModel, String?> {
 		val db = AppDatabase.getDatabase(context, true)
 		val remoteStorage = RemoteStorage(db)
@@ -126,31 +139,67 @@ class Agenda : GlanceAppWidget() {
 			null
 		}
 
-		val widgetUIViewModel =
-			WidgetUIViewModel(context.widgetDataRepository, appWidgetId, nativeCredentialsFacade, crypto, sdk, Calendar.getInstance())
+		val birthdayStrings = BirthdayStrings(
+			context.getString(R.string.birthdayEvent_title), context.getString(R.string.birthdayEventAge_title)
+		)
+
+		val widgetUIViewModel = WidgetUIViewModel(
+			context.widgetDataRepository,
+			appWidgetId,
+			nativeCredentialsFacade,
+			crypto,
+			sdk,
+			Calendar.getInstance(),
+			birthdayStrings
+		)
 		val userId = widgetUIViewModel.getLoggedInUser(context)
 
 		return Pair(widgetUIViewModel, userId)
 	}
 
+	private fun openCalendarEditor(context: Context, userId: String? = ""): Action {
+		val openCalendarEventEditor = Intent(context, MainActivity::class.java)
+		openCalendarEventEditor.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+		openCalendarEventEditor.action = MainActivity.OPEN_CALENDAR_ACTION
+		openCalendarEventEditor.putExtra(MainActivity.OPEN_USER_MAILBOX_USERID_KEY, userId)
+		openCalendarEventEditor.putExtra(
+			MainActivity.OPEN_CALENDAR_IN_APP_ACTION_KEY,
+			CalendarOpenAction.EVENT_EDITOR.value
+		)
+		openCalendarEventEditor.putExtra(
+			MainActivity.OPEN_CALENDAR_DATE_KEY,
+			LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME)
+		)
+
+		return actionStartActivity(openCalendarEventEditor)
+	}
+
 	@Composable
-	fun WidgetBody(data: WidgetUIData?, userId: String?, todayHeaderOnTapAction: Action) {
+	fun WidgetBody(data: WidgetUIData?, userId: String?) {
+		val hasAllDayEvents = data?.allDayEvents?.values?.any { it.isNotEmpty() } ?: false
+		val hasNormalEvents = data?.normalEvents?.values?.any { it.isNotEmpty() } ?: false
+
+		val onNewEvent = openCalendarEditor(LocalContext.current, userId)
+
 		Column(
 			modifier = GlanceModifier.padding(
-				top = Dimensions.Spacing.LG.dp,
-				start = Dimensions.Spacing.LG.dp,
-				end = Dimensions.Spacing.LG.dp,
+				top = Dimensions.Spacing.space_16.dp,
+				start = Dimensions.Spacing.space_16.dp,
+				end = Dimensions.Spacing.space_16.dp,
 				bottom = 0.dp
-			)
-				.background(GlanceTheme.colors.background)
-				.fillMaxSize()
-				.appWidgetBackground()
-				.cornerRadius(20.dp),
+			).background(GlanceTheme.colors.background).fillMaxSize().appWidgetBackground().cornerRadius(20.dp),
 		) {
-			if (data == null) { //
-				return@Column LoadingSpinner()
+			if (data == null) {
+				LoadingSpinner()
+			} else if (!hasAllDayEvents && !hasNormalEvents) { // unique rendering case for totally empty widget
+				EmptyBody(onNewEvent, userId)
+			} else { // normal rendering case
+				ScrollableDaysList(
+					data,
+					onNewEvent = onNewEvent,
+					userId
+				)
 			}
-			ScrollableDaysList(data, todayHeaderOnTapAction, userId)
 		}
 	}
 
@@ -160,10 +209,10 @@ class Agenda : GlanceAppWidget() {
 	@Preview(widthDp = 250, heightDp = 600)
 	@Composable
 	fun AgendaPreviewWithOnlyAllDays() {
-		val normalEventData = HashMap<Long, List<UIEvent>>()
-		val allDayEvents = HashMap<Long, List<UIEvent>>()
+		val normalEventData = HashMap<LocalDate, List<UIEvent>>()
+		val allDayEvents = HashMap<LocalDate, List<UIEvent>>()
 
-		val startOfToday = midnightInDate(ZoneId.systemDefault(), LocalDateTime.now())
+		val startOfToday = LocalDate.now()
 		normalEventData[startOfToday] = listOf()
 		allDayEvents[startOfToday] = listOf(
 			UIEvent(
@@ -173,14 +222,11 @@ class Agenda : GlanceAppWidget() {
 				"All day today",
 				"08:00",
 				"17:00",
-				isAllDay = true,
-				startTimestamp = startOfToday
+				isDisplayedAsAllDay = true
 			)
 		)
 
-		val afterTomorrow = Instant.ofEpochMilli(startOfToday).plus(2, ChronoUnit.DAYS)
-		val startOfAfterTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(afterTomorrow, ZoneId.systemDefault()))
+		val startOfAfterTomorrow = startOfToday.plus(2, ChronoUnit.DAYS)
 		normalEventData[startOfAfterTomorrow] = listOf()
 		allDayEvents[startOfAfterTomorrow] = listOf(
 			UIEvent(
@@ -190,8 +236,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello Widget",
 				"08:00",
 				"17:00",
-				isAllDay = true,
-				startTimestamp = startOfAfterTomorrow
+				isDisplayedAsAllDay = true
 			)
 		)
 
@@ -203,7 +248,6 @@ class Agenda : GlanceAppWidget() {
 					normalEvents = normalEventData,
 				),
 				"",
-				todayHeaderOnTapAction = actionRunCallback<ActionCallback>(),
 			)
 		}
 	}
@@ -214,20 +258,19 @@ class Agenda : GlanceAppWidget() {
 	@Preview(widthDp = 250, heightDp = 600)
 	@Composable
 	fun AgendaPreviewWithNormalAndAllDayEvents() {
-		val normalEventData = HashMap<Long, List<UIEvent>>()
-		val allDayEvents = HashMap<Long, List<UIEvent>>()
+		val normalEventData = HashMap<LocalDate, List<UIEvent>>()
+		val allDayEvents = HashMap<LocalDate, List<UIEvent>>()
 
-		val startOfToday = midnightInDate(ZoneId.systemDefault(), LocalDateTime.now())
+		val startOfToday = LocalDate.now()
 		normalEventData[startOfToday] = listOf(
 			UIEvent(
 				"previewCalendar",
 				IdTuple("", ""),
 				"2196f3",
-				"Hello Widget",
+				"Hello Widget wiith very long event title",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = startOfToday
+				isDisplayedAsAllDay = false
 			)
 		)
 		allDayEvents[startOfToday] = listOf(
@@ -235,17 +278,23 @@ class Agenda : GlanceAppWidget() {
 				"previewCalendar",
 				IdTuple("", ""),
 				"2196f3",
-				"My all day",
+				"My all day which has a very very long title",
 				"00:00",
 				"00:00",
-				isAllDay = true,
-				startTimestamp = startOfToday
+				isDisplayedAsAllDay = true
+			),
+			UIEvent(
+				"previewCalendar",
+				IdTuple("", ""),
+				"2196f3",
+				"Second all day event",
+				"00:00",
+				"00:00",
+				isDisplayedAsAllDay = true
 			)
 		)
 
-		val tomorrow = Instant.ofEpochMilli(startOfToday).plus(1, ChronoUnit.DAYS)
-		val startOfTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(tomorrow, ZoneId.systemDefault()))
+		val startOfTomorrow = startOfToday.plus(1, ChronoUnit.DAYS)
 		normalEventData[startOfTomorrow] = listOf()
 		for (i in 1..10) {
 			normalEventData[startOfTomorrow] = normalEventData[startOfTomorrow]!!.plus(
@@ -256,8 +305,7 @@ class Agenda : GlanceAppWidget() {
 					"Event #${i}",
 					"08:00",
 					"17:00",
-					isAllDay = false,
-					startTimestamp = tomorrow.toEpochMilli()
+					isDisplayedAsAllDay = false
 				)
 			)
 		}
@@ -270,8 +318,7 @@ class Agenda : GlanceAppWidget() {
 				"Something else",
 				"00:00",
 				"00:00",
-				isAllDay = true,
-				startTimestamp = startOfTomorrow
+				isDisplayedAsAllDay = true
 			),
 			UIEvent(
 				"previewCalendar",
@@ -280,14 +327,11 @@ class Agenda : GlanceAppWidget() {
 				"Vacations",
 				"00:00",
 				"00:00",
-				isAllDay = true,
-				startTimestamp = startOfTomorrow
+				isDisplayedAsAllDay = true
 			)
 		)
 
-		val afterTomorrow = Instant.ofEpochMilli(startOfToday).plus(2, ChronoUnit.DAYS)
-		val startOfAfterTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(afterTomorrow, ZoneId.systemDefault()))
+		val startOfAfterTomorrow = startOfToday.plus(2, ChronoUnit.DAYS)
 		normalEventData[startOfAfterTomorrow] = listOf(
 			UIEvent(
 				"previewCalendar",
@@ -296,8 +340,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello After Tomorrow Bit title",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			),
 			UIEvent(
 				"previewCalendar",
@@ -306,8 +349,7 @@ class Agenda : GlanceAppWidget() {
 				"Meeting After Tomorrow",
 				"12:00",
 				"13:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			)
 		)
 
@@ -318,7 +360,6 @@ class Agenda : GlanceAppWidget() {
 					normalEvents = normalEventData,
 				),
 				"",
-				todayHeaderOnTapAction = actionRunCallback<ActionCallback>(),
 			)
 		}
 	}
@@ -328,26 +369,23 @@ class Agenda : GlanceAppWidget() {
 	@Preview(widthDp = 250, heightDp = 400)
 	@Composable
 	fun AgendaPreviewWithoutAllDays() {
-		val normalEventData = HashMap<Long, List<UIEvent>>()
-		val allDayEvents = HashMap<Long, List<UIEvent>>()
+		val normalEventData = HashMap<LocalDate, List<UIEvent>>()
+		val allDayEvents = HashMap<LocalDate, List<UIEvent>>()
 
-		val startOfToday = midnightInDate(ZoneId.systemDefault(), LocalDateTime.now())
+		val startOfToday = LocalDate.now()
 		normalEventData[startOfToday] = listOf(
 			UIEvent(
 				"previewCalendar",
 				IdTuple("", ""),
 				"2196f3",
-				"Hello Widget",
+				"Hello Widget with very long name",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = startOfToday
+				isDisplayedAsAllDay = false
 			)
 		)
 
-		val tomorrow = Instant.ofEpochMilli(startOfToday).plus(1, ChronoUnit.DAYS)
-		val startOfTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(tomorrow, ZoneId.systemDefault()))
+		val startOfTomorrow = startOfToday.plus(1, ChronoUnit.DAYS)
 		normalEventData[startOfTomorrow] = listOf(
 			UIEvent(
 				"previewCalendar",
@@ -356,8 +394,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello Tomorrow",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = tomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			),
 			UIEvent(
 				"previewCalendar",
@@ -366,14 +403,11 @@ class Agenda : GlanceAppWidget() {
 				"Meeting Tomorrow",
 				"12:00",
 				"13:00",
-				isAllDay = false,
-				startTimestamp = tomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			)
 		)
 
-		val afterTomorrow = Instant.ofEpochMilli(startOfToday).plus(2, ChronoUnit.DAYS)
-		val startOfAfterTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(afterTomorrow, ZoneId.systemDefault()))
+		val startOfAfterTomorrow = startOfToday.plus(2, ChronoUnit.DAYS)
 		normalEventData[startOfAfterTomorrow] = listOf(
 			UIEvent(
 				"previewCalendar",
@@ -382,8 +416,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello After Tomorrow Big Title",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			),
 			UIEvent(
 				"previewCalendar",
@@ -392,8 +425,7 @@ class Agenda : GlanceAppWidget() {
 				"Meeting After Tomorrow",
 				"12:00",
 				"13:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			)
 		)
 
@@ -404,7 +436,6 @@ class Agenda : GlanceAppWidget() {
 					normalEvents = normalEventData,
 				),
 				"",
-				todayHeaderOnTapAction = actionRunCallback<ActionCallback>(),
 			)
 		}
 	}
@@ -415,15 +446,13 @@ class Agenda : GlanceAppWidget() {
 	@Preview(widthDp = 800, heightDp = 500)
 	@Composable
 	fun AgendaPreviewNoEventsToday() {
-		val normalEventData = HashMap<Long, List<UIEvent>>()
-		val allDayEvents = HashMap<Long, List<UIEvent>>()
+		val normalEventData = HashMap<LocalDate, List<UIEvent>>()
+		val allDayEvents = HashMap<LocalDate, List<UIEvent>>()
 
-		val startOfToday = midnightInDate(ZoneId.systemDefault(), LocalDateTime.now())
+		val startOfToday = LocalDate.now()
 		normalEventData[startOfToday] = listOf()
 
-		val tomorrow = Instant.ofEpochMilli(startOfToday).plus(1, ChronoUnit.DAYS)
-		val startOfTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(tomorrow, ZoneId.systemDefault()))
+		val startOfTomorrow = startOfToday.plus(1, ChronoUnit.DAYS)
 		normalEventData[startOfTomorrow] = listOf(
 			UIEvent(
 				"previewCalendar",
@@ -432,8 +461,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello Tomorrow",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = tomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			),
 			UIEvent(
 				"previewCalendar",
@@ -442,14 +470,11 @@ class Agenda : GlanceAppWidget() {
 				"Meeting Tomorrow",
 				"12:00",
 				"13:00",
-				isAllDay = false,
-				startTimestamp = tomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			)
 		)
 
-		val afterTomorrow = Instant.ofEpochMilli(startOfToday).plus(2, ChronoUnit.DAYS)
-		val startOfAfterTomorrow =
-			midnightInDate(ZoneId.systemDefault(), LocalDateTime.ofInstant(afterTomorrow, ZoneId.systemDefault()))
+		val startOfAfterTomorrow = startOfToday.plus(2, ChronoUnit.DAYS)
 		normalEventData[startOfAfterTomorrow] = listOf(
 			UIEvent(
 				"previewCalendar",
@@ -458,8 +483,7 @@ class Agenda : GlanceAppWidget() {
 				"Hello After Tomorrow Big Title",
 				"08:00",
 				"17:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			),
 			UIEvent(
 				"previewCalendar",
@@ -468,8 +492,7 @@ class Agenda : GlanceAppWidget() {
 				"Meeting After Tomorrow",
 				"12:00",
 				"13:00",
-				isAllDay = false,
-				startTimestamp = afterTomorrow.toEpochMilli()
+				isDisplayedAsAllDay = false
 			)
 		)
 
@@ -480,7 +503,6 @@ class Agenda : GlanceAppWidget() {
 					normalEvents = normalEventData,
 				),
 				"",
-				todayHeaderOnTapAction = actionRunCallback<ActionCallback>(),
 			)
 		}
 	}
@@ -490,10 +512,10 @@ class Agenda : GlanceAppWidget() {
 	@Preview(widthDp = 200, heightDp = 400)
 	@Composable
 	fun AgendaPreviewNoEvents() {
-		val normalEventData = HashMap<Long, List<UIEvent>>()
-		val allDayEvents = HashMap<Long, List<UIEvent>>()
+		val normalEventData = HashMap<LocalDate, List<UIEvent>>()
+		val allDayEvents = HashMap<LocalDate, List<UIEvent>>()
 
-		val startOfToday = midnightInDate(ZoneId.systemDefault(), LocalDateTime.now())
+		val startOfToday = LocalDate.now()
 		normalEventData[startOfToday] = listOf()
 
 		GlanceTheme(colors = AppTheme.colors) {
@@ -503,7 +525,6 @@ class Agenda : GlanceAppWidget() {
 					normalEvents = normalEventData,
 				),
 				"",
-				todayHeaderOnTapAction = actionRunCallback<ActionCallback>(),
 			)
 		}
 	}

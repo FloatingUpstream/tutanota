@@ -15,16 +15,17 @@ import { getTutaLogo, getTutaLogoSignetSvg } from "../gui/base/Logo"
 import { LanguageDropdown } from "../gui/LanguageDropdown"
 import { theme } from "../gui/theme"
 import { getSafeAreaInsetTop } from "../gui/HtmlUtils"
-import { AvailablePlanType, PlanType, PlanTypeToName } from "../api/common/TutanotaConstants"
 import { LoginButton } from "../gui/base/buttons/LoginButton"
-import { BootIcons } from "../gui/base/icons/BootIcons"
 import { shouldFixButtonPosition } from "../subscription/utils/PlanSelectorUtils"
 import { windowFacade } from "../misc/WindowFacade"
+import { SignupFlowStage, SignupFlowUsageTestController } from "../subscription/usagetest/UpgradeSubscriptionWizardUsageTestUtils"
+import { PlanTypeToName } from "@tutao/typerefs"
+import { AvailablePlanType, PlanType } from "@tutao/app-env"
 
 const INFO_BOX_TRANSITION_MS = 500
 const SIGNUP_PROGRESS_LABEL_MAX_LENGTH = 24
 const CHECK_INFO_ICON = { icon: Icons.Checkmark, color: theme.success }
-const CROSS_INFO_ICON = { icon: Icons.XCross, color: theme.error }
+const CROSS_INFO_ICON = { icon: Icons.X, color: theme.error }
 
 class SignupWizardLayout<TViewModel> implements Component<WizardLayoutAttrs<TViewModel>> {
 	private lastSeenTransitionSeq = 0
@@ -32,9 +33,9 @@ class SignupWizardLayout<TViewModel> implements Component<WizardLayoutAttrs<TVie
 
 	private readonly seeOtherPlansLabel = lang.makeTranslation("seeOtherPlans_action", "See other plans")
 	readonly planSelectorInfoItems: InfoBoxItem[] = [
-		{ icon: { icon: Icons.PQLockOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("quantumSafeE2ee_label") },
+		{ icon: { icon: Icons.QuantumLockOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("quantumSafeE2ee_label") },
 		{ icon: { icon: Icons.LeafOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("greenEnergy_label") },
-		{ icon: { icon: Icons.StopHandOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("adFree_label") },
+		{ icon: { icon: Icons.HandOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("adFree_label") },
 		{ icon: { icon: Icons.OpenSourceOutline, color: theme.on_surface_variant }, text: lang.getTranslationText("openSource_label") },
 	]
 	readonly formPageInfoItems: Record<AvailablePlanType, InfoBoxItem[]> = {
@@ -84,10 +85,10 @@ class SignupWizardLayout<TViewModel> implements Component<WizardLayoutAttrs<TVie
 		],
 	}
 	readonly paymentInfoItems: InfoBoxItem[] = [
-		{ icon: { icon: Icons.CreditCard, color: theme.on_surface_variant }, text: lang.getTranslationText("safePayment_label") },
-		{ icon: { icon: Icons.Reply, color: theme.on_surface_variant }, text: lang.getTranslationText("moneyBackGuarantee_msg") },
-		{ icon: { icon: Icons.CloseCircleFilled, color: theme.on_surface_variant }, text: lang.getTranslationText("cancelAnyTime_msg") },
-		{ icon: { icon: BootIcons.User, color: theme.on_surface_variant }, text: lang.getTranslationText("directSupport_msg") },
+		{ icon: { icon: Icons.CreditcardFilled, color: theme.on_surface_variant }, text: lang.getTranslationText("safePayment_label") },
+		{ icon: { icon: Icons.ArrowBackFilled, color: theme.on_surface_variant }, text: lang.getTranslationText("moneyBackGuarantee_msg") },
+		{ icon: { icon: Icons.FailureFilled, color: theme.on_surface_variant }, text: lang.getTranslationText("cancelAnyTime_msg") },
+		{ icon: { icon: Icons.PersonFilled, color: theme.on_surface_variant }, text: lang.getTranslationText("directSupport_msg") },
 	]
 	private infoItems: InfoBoxItem[] = this.planSelectorInfoItems
 	private transitionIllustrationName: string | null = null
@@ -273,16 +274,31 @@ class SignupWizardLayout<TViewModel> implements Component<WizardLayoutAttrs<TVie
 											viewModel.inlinePlanSelectorOpen(false)
 											ctx.controller.setStepLabel(0, PlanTypeToName[viewModel.targetPlanType])
 											this.updateInfoItems(viewModel, controller.currentStep)
+											SignupFlowUsageTestController.completeStage(
+												SignupFlowStage.SELECT_PLAN,
+												viewModel.targetPlanType,
+												viewModel.options.paymentInterval(),
+											)
+
+											if (viewModel.newAccountData) {
+												SignupFlowUsageTestController.completeStage(
+													SignupFlowStage.CREATE_ACCOUNT,
+													viewModel.targetPlanType,
+													viewModel.options.paymentInterval(),
+												)
+											}
 										},
 									}),
 								),
 								m(".rel", { style: { "max-width": px(400), "margin-inline": "auto", ...infoPanelStyle } }, [
-									m(DynamicColorSvg, {
-										path: this.getIllustrationPath(illustrationName),
-									}),
+									m(".z1", { style: { width: "100%" } }, [
+										m(DynamicColorSvg, {
+											path: this.getIllustrationPath(illustrationName),
+										}),
+									]),
 									index <= 2 && // not show info box after the confirmation page
 										m(
-											".abs.border-radius-16.flex.col.gap-16.plr-24.pt-24.pb-24",
+											".abs.z2.border-radius-16.flex.col.gap-16.plr-24.pt-24.pb-24",
 											{
 												style: {
 													width: "100%",
@@ -315,6 +331,21 @@ class SignupWizardLayout<TViewModel> implements Component<WizardLayoutAttrs<TVie
 														},
 													}),
 												),
+										),
+									index <= 2 &&
+										viewModel.planPrices?.getRawPricingData().hasGlobalFirstYearDiscount &&
+										m(
+											".abs.z3",
+											{
+												style: {
+													top: px(260),
+													right: px(14),
+													width: px(250),
+												},
+											},
+											m(DynamicColorSvg, {
+												path: this.getIllustrationPath("signup-cake.svg"),
+											}),
 										),
 								]),
 							]),

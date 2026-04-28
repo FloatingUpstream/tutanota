@@ -1,21 +1,19 @@
-import type { DeferredObject, lazy, lazyAsync } from "@tutao/tutanota-utils"
-import { assertNotNull, defer } from "@tutao/tutanota-utils"
-import { assertMainOrNodeBoot, isAdminClient } from "../common/Env"
+import type { DeferredObject, lazy, lazyAsync } from "@tutao/utils"
+import { assertNotNull, defer } from "@tutao/utils"
+import { assertMainOrNodeBoot, FeatureType, InvalidModelError, KdfType, Mode } from "@tutao/app-env"
 import type { UserController, UserControllerInitData } from "./UserController"
 import { getWhitelabelCustomizations } from "../../misc/WhitelabelCustomizations.js"
-import { NotFoundError } from "../common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { client } from "../../misc/ClientDetector"
 import type { LoginFacade, NewSessionData } from "../worker/facades/LoginFacade"
 import { ResumeSessionErrorReason } from "../worker/facades/LoginFacade"
 import type { Credentials } from "../../misc/credentials/Credentials"
-import { FeatureType, KdfType } from "../common/TutanotaConstants"
 import { SessionType } from "../common/SessionType"
 import { ExternalUserKeyDeriver } from "../../misc/LoginUtils.js"
 import { UnencryptedCredentials } from "../../native/common/generatedipc/UnencryptedCredentials.js"
 import { PageContextLoginListener } from "./PageContextLoginListener.js"
 import { CacheMode } from "../worker/rest/EntityRestClient.js"
 import { CustomerFacade } from "../worker/facades/lazy/CustomerFacade"
-import { InvalidModelError } from "../common/error/InvalidModelError"
 
 assertMainOrNodeBoot()
 
@@ -107,7 +105,7 @@ export class LoginController {
 		const { initUserController } = await import("./UserController")
 		this.userController = await initUserController(initData)
 
-		if (!isAdminClient()) {
+		if (!(env.mode === Mode.Admin)) {
 			await this.loadCustomizations()
 		}
 		await this._determineIfWhitelabel()
@@ -191,15 +189,15 @@ export class LoginController {
 				)
 			} catch (e) {
 				console.log("Error finishing login", e)
-				if (e instanceof InvalidModelError) {
-					// It's possible for the model to be invalid when logging in with a new model and a very old cache
-					await this.loginFacade.checkOutOfSyncCache()
+				// An InvalidModelError can occur when logging in with a new server model if a mapped instance is not yet synced.
+				// In such cases, the cache will be purged by the error handler, which we cannot do if logged out
+				if (!(e instanceof InvalidModelError)) {
+					// Some parts of initialization can fail and we should reset the state, both on this side and the worker
+					// side, otherwise login cannot be attempted again
+					console.log("logging out now!")
+					await this.logout(false)
 				}
 
-				// Some parts of initialization can fail and we should reset the state, both on this side and the worker
-				// side, otherwise login cannot be attempted again
-				console.log("logging out now!")
-				await this.logout(false)
 				throw e
 			}
 
@@ -292,7 +290,7 @@ export class LoginController {
 		try {
 			await this.loginFacade.deleteSession(credentials.accessToken, pushIdentifier)
 		} catch (e) {
-			if (e instanceof NotFoundError) {
+			if (e instanceof restError.NotFoundError) {
 				console.log("session already deleted")
 			} else {
 				throw e

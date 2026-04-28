@@ -1,12 +1,12 @@
 import { NewsListItem } from "../NewsListItem.js"
 import m, { Children } from "mithril"
-import { NewsId } from "../../../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { Button, ButtonAttrs, ButtonType } from "../../../gui/base/Button.js"
 import { NewsModel } from "../NewsModel.js"
 import { getReferralLink, ReferralLinkViewer } from "./ReferralLinkViewer.js"
 import { DateProvider } from "../../../api/common/DateProvider.js"
-import { generatedIdToTimestamp } from "../../../api/common/utils/EntityUtils.js"
-import { getDayShifted, neverNull } from "@tutao/tutanota-utils"
+import { generatedIdToTimestamp } from "@tutao/typerefs"
+import { getDayShifted, neverNull } from "@tutao/utils"
 import { UserController } from "../../../api/main/UserController.js"
 
 const REFERRAL_NEWS_DISPLAY_THRESHOLD_DAYS = 7
@@ -27,7 +27,7 @@ export class ReferralLinkNews implements NewsListItem {
 
 	async isShown(): Promise<boolean> {
 		// Do not show this for business customers yet (not allowed to create referral links)
-		if ((await this.userController.loadCustomer()).businessUse === true) {
+		if ((await this.userController.reloadCustomer()).businessUse === true) {
 			return false
 		}
 
@@ -42,7 +42,7 @@ export class ReferralLinkNews implements NewsListItem {
 		)
 	}
 
-	render(newsId: NewsId): Children {
+	render(newsId: tutanotaTypeRefs.NewsId): Children {
 		const buttonAttrs: Array<ButtonAttrs> = [
 			{
 				label: "close_alt",

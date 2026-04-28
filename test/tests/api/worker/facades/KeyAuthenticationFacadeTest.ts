@@ -1,4 +1,4 @@
-import o from "@tutao/otest"
+import o, { assertThrows } from "@tutao/otest"
 import {
 	AdminSymKeyAuthenticationParams,
 	IdentityPubKeyAuthenticationParams,
@@ -7,12 +7,9 @@ import {
 	PubDistKeyAuthenticationParams,
 	UserGroupKeyAuthenticationParams,
 } from "../../../../../src/common/api/worker/facades/KeyAuthenticationFacade.js"
-import { Aes256Key, aes256RandomKey, Ed25519PublicKey, KeyPairType, KyberPublicKey, X25519PublicKey } from "@tutao/tutanota-crypto"
-import { CryptoWrapper } from "../../../../../src/common/api/worker/crypto/CryptoWrapper.js"
-import { assertThrows } from "@tutao/tutanota-test-utils"
-import { CryptoError } from "@tutao/tutanota-crypto/error.js"
-import { KeyVersion } from "@tutao/tutanota-utils"
-import { checkKeyVersionConstraints } from "../../../../../src/common/api/worker/facades/KeyLoaderFacade.js"
+import { Aes256Key, aes256RandomKey, cryptoUtils, CryptoWrapper, Ed25519PublicKey, KeyPairType, KyberPublicKey, X25519PublicKey } from "@tutao/crypto"
+import { CryptoError } from "@tutao/crypto/error"
+import { KeyVersion } from "@tutao/utils"
 
 const WRONG_BYTES = new Uint8Array([255, 254, 253])
 const WRONG_ID: Id = "I_CLEARLY_MISSED_SOMETHING" // this must be base64 compatible
@@ -22,7 +19,7 @@ function mergeParams(params, propertyName, value) {
 }
 
 function nextKeyVersion(v: KeyVersion): KeyVersion {
-	return checkKeyVersionConstraints(v + 1)
+	return cryptoUtils.checkKeyVersionConstraints(v + 1)
 }
 
 o.spec("KeyAuthenticationFacadeTest", function () {
@@ -308,7 +305,7 @@ o.spec("KeyAuthenticationFacadeTest", function () {
 
 			const wrongIdentityKey: IdentityPubKeyAuthenticationParams = {
 				...params,
-				untrustedKey: { identityPubKey: new Uint8Array([1, 2, 3]) },
+				untrustedKey: { identityPubKey: [1, 2, 3] },
 			}
 			await assertThrows(CryptoError, async () => keyAuthenticationFacade.verifyTag(wrongIdentityKey, tag))
 		})

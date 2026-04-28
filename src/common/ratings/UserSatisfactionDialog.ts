@@ -16,17 +16,17 @@ import { AndroidPlayStorePage } from "./pages/AndroidPlayStorePage.js"
 import { SupportTutaPage } from "./pages/SupportTutaPage.js"
 import { DissatisfactionPage } from "./pages/DissatisfactionPage.js"
 import { SuggestionPage } from "./pages/SuggestionPage.js"
-import { isApp, isIOSApp } from "../api/common/Env.js"
 import { lang } from "../misc/LanguageViewModel.js"
 import Stream from "mithril/stream"
-import { SupportCategory, SupportTopic } from "../api/entities/tutanota/TypeRefs.js"
+import { getCurrentDate, tutanotaTypeRefs } from "@tutao/typerefs"
 import { SupportDialogState } from "../support/SupportDialog.js"
 import { showSnackBar } from "../gui/base/SnackBar.js"
 import { client } from "../misc/ClientDetector.js"
 import { windowFacade } from "../misc/WindowFacade.js"
-import { getCurrentDate, TUTA_MAIL_APP_STORE_URL, TUTA_MAIL_GOOGLE_PLAY_URL } from "../api/common/TutanotaConstants.js"
-import { isEmpty, noOp } from "@tutao/tutanota-utils"
+import { TUTA_MAIL_APP_STORE_URL, TUTA_MAIL_GOOGLE_PLAY_URL } from "@tutao/app-env"
+import { isEmpty, noOp } from "@tutao/utils"
 import { Dialog } from "../gui/base/Dialog.js"
+import { isApp, isIOSApp } from "@tutao/app-env"
 
 export type UserSatisfactionDialogPage = "evaluation" | "dissatisfaction" | "androidPlayStore" | "supportTuta" | "suggestion" | "contactSupport"
 
@@ -38,8 +38,8 @@ export async function showUserSatisfactionDialog(triggerType: TriggerType): Prom
 
 	const data: SupportDialogState = {
 		canHaveEmailSupport: true,
-		selectedCategory: Stream<SupportCategory | null>(null),
-		selectedTopic: Stream<SupportTopic | null>(null),
+		selectedCategory: Stream<tutanotaTypeRefs.SupportCategory | null>(null),
+		selectedTopic: Stream<tutanotaTypeRefs.SupportTopic | null>(null),
 		categories: [],
 		supportRequestHtml: "",
 		isSupportRequestEmpty: true,

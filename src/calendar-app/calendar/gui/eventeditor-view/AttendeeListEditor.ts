@@ -4,7 +4,7 @@ import { ToggleButton } from "../../../../common/gui/base/buttons/ToggleButton.j
 import { Icons } from "../../../../common/gui/base/icons/Icons.js"
 import { ButtonSize } from "../../../../common/gui/base/ButtonSize.js"
 import { lang } from "../../../../common/misc/LanguageViewModel.js"
-import { AccountType, CalendarAttendeeStatus } from "../../../../common/api/common/TutanotaConstants.js"
+import { CalendarAttendeeStatus, UpgradePromptType } from "@tutao/app-env"
 import { RecipientsSearchModel } from "../../../../common/misc/RecipientsSearchModel.js"
 import { Guest } from "../../view/CalendarInvites.js"
 import { theme } from "../../../../common/gui/theme.js"
@@ -27,6 +27,10 @@ import { IconMessageBox } from "../../../../common/gui/base/ColumnEmptyMessageBo
 import { PasswordInput } from "../../../../common/gui/PasswordInput.js"
 import { Switch } from "../../../../common/gui/base/Switch.js"
 import { Divider } from "../../../../common/gui/Divider.js"
+import { getContactDisplayName } from "../../../../common/contactsFunctionality/ContactUtils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { cleanMailAddress } from "../../../../common/api/common/utils/CommonCalendarUtils"
+import { AccountType } from "@tutao/app-env"
 
 export type AttendeeListEditorAttrs = {
 	/** the event that is currently being edited */
@@ -98,7 +102,7 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 					m(".flex.items-center.justify-center.min-h-s", [
 						m(IconMessageBox, {
 							message: "noEntries_msg",
-							icon: Icons.People,
+							icon: Icons.PeopleFilled,
 							color: theme.on_surface_variant,
 						}),
 					]),
@@ -124,14 +128,19 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 									const plansWithEventInvites = await getAvailablePlansWithEventInvites()
 									if (plansWithEventInvites.length === 0) return
 									//entity event updates are too slow to call updateBusinessFeature()
-									this.hasPlanWithInvites = await showPlanUpgradeRequiredDialog(plansWithEventInvites)
+									this.hasPlanWithInvites = await showPlanUpgradeRequiredDialog(
+										UpgradePromptType.CALENDAR_EVENT_INVITATIONS,
+										plansWithEventInvites,
+									)
 									// the user could have, but did not upgrade.
 									if (!this.hasPlanWithInvites) return
 								} else {
 									Dialog.message("contactAdmin_msg")
 								}
 							} else {
-								whoModel.addAttendee(address, contact)
+								const name = contact != null ? getContactDisplayName(contact) : ""
+								const cleanAddress = cleanMailAddress(address)
+								whoModel.addAttendee(tutanotaTypeRefs.createEncryptedMailAddress({ address: cleanAddress, name }))
 							}
 						},
 						search: recipientsSearch,
@@ -148,7 +157,7 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 								whoModel.isConfidential = !whoModel.isConfidential
 								e.stopPropagation()
 							},
-							icon: whoModel.isConfidential ? Icons.Lock : Icons.Unlock,
+							icon: whoModel.isConfidential ? Icons.GenericLockFilled : Icons.LockOpenFilled,
 							toggled: whoModel.isConfidential,
 							size: ButtonSize.Normal,
 						}),
@@ -225,7 +234,7 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 							onchange: (option) => {
 								const organizer = whoModel.possibleOrganizers.find((organizer) => organizer.address === option.address)
 								if (organizer) {
-									whoModel.addAttendee(organizer.address, null)
+									whoModel.addAttendee(organizer)
 								}
 							},
 							selected,
@@ -262,7 +271,7 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 											}),
 										),
 									size: ButtonSize.Compact,
-									icon: Icons.PencilSquare,
+									icon: Icons.Write,
 								})
 							: null,
 					]),
@@ -309,7 +318,7 @@ export class AttendeeListEditor implements Component<AttendeeListEditorAttrs> {
 		} else if (whoModel.canModifyGuests) {
 			rightContent = m(IconButton, {
 				title: "remove_action",
-				icon: Icons.Cancel,
+				icon: Icons.X,
 				click: () => whoModel.removeAttendee(guest.address),
 			})
 		}

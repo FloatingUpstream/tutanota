@@ -1,11 +1,12 @@
 import { NewsListItem } from "../NewsListItem.js"
 import m, { Children } from "mithril"
-import { NewsId } from "../../../api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { InfoLink, lang } from "../../LanguageViewModel.js"
 import { Button, ButtonAttrs, ButtonType } from "../../../gui/base/Button.js"
 import { NewsModel } from "../NewsModel.js"
 import { UserController } from "../../../api/main/UserController.js"
 import { showUpgradeWizardOrSwitchSubscriptionDialog } from "../../SubscriptionDialogs.js"
+import { UpgradePromptType } from "@tutao/app-env"
 
 /**
  * News item that informs admin users that the new pricing offer is ending soon.
@@ -25,7 +26,7 @@ export class NewPlansOfferEndingNews implements NewsListItem {
 		return !(await this.userController.isNewPaidPlan())
 	}
 
-	render(newsId: NewsId): Children {
+	render(newsId: tutanotaTypeRefs.NewsId): Children {
 		const acknowledgeAction = () => {
 			this.newsModel.acknowledgeNews(newsId.newsItemId).then(m.redraw)
 		}
@@ -39,7 +40,7 @@ export class NewPlansOfferEndingNews implements NewsListItem {
 			{
 				label: "showMoreUpgrade_action",
 				click: async () => {
-					await showUpgradeWizardOrSwitchSubscriptionDialog(this.userController)
+					await showUpgradeWizardOrSwitchSubscriptionDialog(UpgradePromptType.NEW_PLANS_NEWS, this.userController)
 					if (await this.userController.isNewPaidPlan()) {
 						acknowledgeAction()
 					}

@@ -1,7 +1,6 @@
 import m, { Component, Vnode } from "mithril"
 import { lang, Translation } from "../../../misc/LanguageViewModel"
 import { RecipientKeyVerificationRecoveryModel } from "../../../misc/RecipientKeyVerificationRecoveryModel"
-import { IdentityKeySourceOfTrust } from "../../../api/common/TutanotaConstants"
 import { RadioSelector, type RadioSelectorAttrs } from "../../../gui/base/RadioSelector"
 import { ResolvableRecipient } from "../../../api/main/RecipientsModel"
 import { LoginButton } from "../../../gui/base/buttons/LoginButton"
@@ -11,6 +10,7 @@ import { TitleSection } from "../../../gui/TitleSection"
 import { Icons } from "../../../gui/base/icons/Icons"
 import { theme } from "../../../gui/theme"
 import { type RadioSelectorOption } from "../../../gui/base/RadioSelectorItem"
+import { IdentityKeySourceOfTrust } from "@tutao/app-env"
 
 type VerificationErrorUserSelectionPageAttrs = {
 	model: RecipientKeyVerificationRecoveryModel
@@ -36,7 +36,7 @@ export class MultiRecipientsKeyVerificationRecoveryUserSelectionPage implements 
 			m(TitleSection, {
 				title,
 				subTitle: "",
-				icon: Icons.BrokenShield,
+				icon: Icons.BrokenShieldFilled,
 				iconOptions: { color: theme.error },
 			}),
 			m(
@@ -78,7 +78,7 @@ export class MultiRecipientsKeyVerificationRecoveryUserSelectionPage implements 
 			m(TitleSection, {
 				title,
 				subTitle: "",
-				icon: Icons.CheckCircleOutline,
+				icon: Icons.SuccessOutline,
 				iconOptions: { color: theme.success },
 			}),
 			m(Card, m(".plr-12.flex.flex-column.gap-16.pt-8.pb-8", [message])),

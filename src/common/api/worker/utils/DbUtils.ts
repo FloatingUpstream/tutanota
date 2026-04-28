@@ -1,4 +1,4 @@
-import { assertWorkerOrNode } from "../../common/Env"
+import { assertWorkerOrNode } from "@tutao/app-env"
 
 assertWorkerOrNode()
 

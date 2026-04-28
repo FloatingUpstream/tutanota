@@ -1,4 +1,4 @@
-import { assertNotNull, groupByAndMap, isEmpty, Nullable, promiseMap } from "@tutao/tutanota-utils"
+import { assertNotNull, groupByAndMap, isEmpty, Nullable, promiseMap } from "@tutao/utils"
 import { SpamClassifierDataDealer, TrainingDataset } from "./SpamClassifierDataDealer"
 import {
 	dense,
@@ -15,10 +15,15 @@ import {
 import type { ModelArtifacts } from "@tensorflow/tfjs-core/dist/io/types"
 import type { ModelFitArgs } from "@tensorflow/tfjs-layers"
 import type { Tensor } from "@tensorflow/tfjs-core"
-import { DEFAULT_PREPROCESS_CONFIGURATION, SpamMailDatum, SpamMailProcessor } from "../../../common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
+import {
+	createSpamMailDatum,
+	DEFAULT_PREPROCESS_CONFIGURATION,
+	SpamMailProcessor,
+} from "../../../common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
 import { SparseVectorCompressor } from "../../../common/api/common/utils/spamClassificationUtils/SparseVectorCompressor"
-import { SpamDecision } from "../../../common/api/common/TutanotaConstants"
+import { SpamDecision } from "@tutao/app-env"
 import { SpamClassifierStorageFacade } from "../../../common/api/worker/facades/lazy/SpamClassifierStorageFacade"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 
 export type SpamClassificationModelMetaData = {
 	hamCount: number
@@ -124,10 +129,34 @@ export class SpamClassifier {
 	// visibleForTesting
 	public async initialTraining(ownerGroup: Id, trainingDataset: TrainingDataset): Promise<void> {
 		const { trainingData: clientSpamTrainingData, hamCount, spamCount } = trainingDataset
+		const metaData: SpamClassificationModelMetaData = {
+			hamCount,
+			spamCount,
+			lastTrainedFromScratchTime: Date.now(),
+			lastTrainingDataIndexId: trainingDataset.lastTrainingDataIndexId,
+		}
+
 		const trainingInput = await promiseMap(
 			clientSpamTrainingData,
-			(d) => {
-				const vector = this.sparseVectorCompressor.binaryToVector(d.vector)
+			async (d) => {
+				/**
+				 * TODO: we should also use confidence in initialTraining
+				 *
+				 * // initialTraining: m1: confidence(4) <- initial training here
+				 * // new email: m2: confidence(1) <- updated model here ( user received a mail but have  not moved yet)
+				 * //
+				 * // another email: m3: <- currently classifying
+				 *
+				 * ====
+				 * in this case, m1 should have more influence while classifying on m3.
+				 * Currently since we dont use confidence, m1 & m2 will have equal influence
+				 */
+				const vector = await this.spamMailProcessor.processClientSpamTrainingDatum(
+					d,
+					await this.spamMailProcessor.getVectorDimension(),
+					this.spamMailProcessor.byteForServerClassificationData,
+				)
+
 				const label = d.spamDecision === SpamDecision.BLACKLIST ? 1 : 0
 				return { vector, label }
 			},
@@ -138,38 +167,35 @@ export class SpamClassifier {
 		const vectors = trainingInput.map((input) => input.vector)
 		const labels = trainingInput.map((input) => input.label)
 
-		const xs = tensor2d(vectors, [trainingInput.length, this.sparseVectorCompressor.dimension], undefined)
+		const xs = tensor2d(vectors, [trainingInput.length, await this.spamMailProcessor.getModelInputSize()], undefined)
 		const ys = tensor1d(labels, undefined)
 
-		const layersModel = this.buildModel(this.sparseVectorCompressor.dimension)
+		const layersModel = this.buildModel(await this.spamMailProcessor.getModelInputSize())
 
 		const trainingStart = performance.now()
-		await layersModel.fit(xs, ys, {
-			epochs: 16,
-			batchSize: 32,
-			shuffle: !this.deterministic,
-			// callbacks: {
-			// 	onEpochEnd: async (epoch, logs) => {
-			// 		if (logs) {
-			// 			console.log(`Epoch ${epoch + 1} - Loss: ${logs.loss.toFixed(4)}`)
-			// 		}
-			// 	},
-			// },
-			yieldEvery: 15,
-		})
+		try {
+			await layersModel.fit(xs, ys, {
+				epochs: 16,
+				batchSize: 32,
+				shuffle: !this.deterministic,
+				// callbacks: {
+				// 	onEpochEnd: async (epoch, logs) => {
+				// 		if (logs) {
+				// 			console.log(`Epoch ${epoch + 1} - Loss: ${logs.loss.toFixed(4)}`)
+				// 		}
+				// 	},
+				// },
+				yieldEvery: 15,
+			})
+		} finally {
+			// when using the webgl backend, we need to manually dispose @tensorflow tensors
+			xs.dispose()
+			ys.dispose()
+		}
 		const trainingTime = performance.now() - trainingStart
 
-		// when using the webgl backend, we need to manually dispose @tensorflow tensors
-		xs.dispose()
-		ys.dispose()
-
 		const threshold = this.calculateThreshold(trainingDataset.hamCount, trainingDataset.spamCount)
-		const metaData: SpamClassificationModelMetaData = {
-			hamCount,
-			spamCount,
-			lastTrainedFromScratchTime: Date.now(),
-			lastTrainingDataIndexId: trainingDataset.lastTrainingDataIndexId,
-		}
+
 		const classifier: Classifier = {
 			layersModel: layersModel,
 			metaData,
@@ -221,11 +247,16 @@ export class SpamClassifier {
 			console.log(`no new spam classification training data for mailbox ${ownerGroup} since last update`)
 			return
 		}
+		const classifierToUpdate = assertNotNull(this.classifierByMailGroup.get(ownerGroup))
 
 		const trainingInput = await promiseMap(
 			trainingDataset.trainingData,
-			(d) => {
-				const vector = this.sparseVectorCompressor.binaryToVector(d.vector)
+			async (d) => {
+				const vector = await this.spamMailProcessor.processClientSpamTrainingDatum(
+					d,
+					await this.spamMailProcessor.getVectorDimension(),
+					this.spamMailProcessor.byteForServerClassificationData,
+				)
 				const label = d.spamDecision === SpamDecision.BLACKLIST ? 1 : 0
 				const isSpamConfidence = Number(d.confidence)
 				return { vector, label, isSpamConfidence }
@@ -243,55 +274,53 @@ export class SpamClassifier {
 			},
 		)
 
-		const classifierToUpdate = assertNotNull(this.classifierByMailGroup.get(ownerGroup))
-
 		// we clone the layersModel to allow predictions while retraining is in progress
 		const layersModelToUpdate = await this.cloneLayersModel(classifierToUpdate)
 
 		const retrainingStart = performance.now()
-		try {
-			for (const [isSpamConfidence, trainingInput] of trainingInputByConfidence) {
-				const vectors = trainingInput.map((input) => input.vector)
-				const labels = trainingInput.map((input) => input.label)
+		for (const [isSpamConfidence, trainingInput] of trainingInputByConfidence) {
+			const vectors = trainingInput.map((input) => input.vector)
+			const labels = trainingInput.map((input) => input.label)
 
-				const xs = tensor2d(vectors, [vectors.length, this.sparseVectorCompressor.dimension], "int32")
-				const ys = tensor1d(labels, "int32")
+			const inputSize = await this.spamMailProcessor.getModelInputSize()
+			const xs = tensor2d(vectors, [vectors.length, inputSize], "int32")
+			const ys = tensor1d(labels, "int32")
 
-				// We need a way to put weight on a specific email, an ideal way would be to pass sampleWeight to modelFitArgs,
-				// but is not yet implemented: https://github.com/tensorflow/tfjs/blob/0fc04d958ea592f3b8db79a8b3b497b5c8904097/tfjs-layers/src/engine/training.ts#L1487
-				//
-				// For now, we use the following workaround:
-				// Re-fit the vector multiple times corresponding to `isSpamConfidence`
-				const modelFitArgs: ModelFitArgs = {
-					epochs: 8,
-					batchSize: 32,
-					shuffle: !this.deterministic,
-					// callbacks: {
-					// 	onEpochEnd: async (epoch, logs) => {
-					// 		console.log(`Epoch ${epoch + 1} - Loss: ${logs!.loss.toFixed(4)}`)
-					// 	},
-					// },
-					yieldEvery: 15,
-				}
+			// We need a way to put weight on a specific email, an ideal way would be to pass sampleWeight to modelFitArgs,
+			// but is not yet implemented: https://github.com/tensorflow/tfjs/blob/0fc04d958ea592f3b8db79a8b3b497b5c8904097/tfjs-layers/src/engine/training.ts#L1487
+			//
+			// For now, we use the following workaround:
+			// Re-fit the vector multiple times corresponding to `isSpamConfidence`
+			const modelFitArgs: ModelFitArgs = {
+				epochs: 8,
+				batchSize: 32,
+				shuffle: !this.deterministic,
+				// callbacks: {
+				// 	onEpochEnd: async (epoch, logs) => {
+				// 		console.log(`Epoch ${epoch + 1} - Loss: ${logs!.loss.toFixed(4)}`)
+				// 	},
+				// },
+				yieldEvery: 15,
+			}
+			try {
 				for (let i = 0; i <= isSpamConfidence; i++) {
 					await layersModelToUpdate.fit(xs, ys, modelFitArgs)
 				}
-
+			} finally {
 				// when using the webgl backend, we need to manually dispose @tensorflow tensors
 				xs.dispose()
 				ys.dispose()
 			}
-		} finally {
-			classifierToUpdate.threshold = this.calculateThreshold(classifierToUpdate.metaData.hamCount, classifierToUpdate.metaData.spamCount)
-			classifierToUpdate.metaData = {
-				hamCount: classifierToUpdate.metaData.hamCount + trainingDataset.hamCount,
-				spamCount: classifierToUpdate.metaData.spamCount + trainingDataset.spamCount,
-				lastTrainingDataIndexId: trainingDataset.lastTrainingDataIndexId,
-				// lastTrainedFromScratchTime update only happens on full training
-				lastTrainedFromScratchTime: classifierToUpdate.metaData.lastTrainedFromScratchTime,
-			}
-			classifierToUpdate.layersModel = layersModelToUpdate
 		}
+		classifierToUpdate.threshold = this.calculateThreshold(classifierToUpdate.metaData.hamCount, classifierToUpdate.metaData.spamCount)
+		classifierToUpdate.metaData = {
+			hamCount: classifierToUpdate.metaData.hamCount + trainingDataset.hamCount,
+			spamCount: classifierToUpdate.metaData.spamCount + trainingDataset.spamCount,
+			// lastTrainedFromScratchTime update only happens on full training
+			lastTrainingDataIndexId: trainingDataset.lastTrainingDataIndexId,
+			lastTrainedFromScratchTime: classifierToUpdate.metaData.lastTrainedFromScratchTime,
+		}
+		classifierToUpdate.layersModel = layersModelToUpdate
 
 		await this.activateAndSaveClassifier(ownerGroup, classifierToUpdate)
 
@@ -309,19 +338,27 @@ export class SpamClassifier {
 		}
 
 		const vectors = [vector]
-		const xs = tensor2d(vectors, [vectors.length, this.sparseVectorCompressor.dimension], "int32")
+		const inputSize = await this.spamMailProcessor.getModelInputSize()
+		const xs = tensor2d(vectors, [vectors.length, inputSize], "int32")
 
-		const predictionTensor = classifier.layersModel.predict(xs) as Tensor
-		const predictionData = await predictionTensor.data()
-		const prediction = predictionData[0]
+		try {
+			const predictionTensor = classifier.layersModel.predict(xs) as Tensor
+			const predictionData = await predictionTensor.data()
+			const prediction = predictionData[0]
 
-		console.log(`predicted new mail to be with probability ${prediction.toFixed(2)} spam for mailbox: ${ownerGroup}`)
+			console.log(`predicted new mail to be with probability ${prediction.toFixed(2)} spam for mailbox: ${ownerGroup}`)
 
-		// when using the webgl backend, we need to manually dispose @tensorflow tensors
-		xs.dispose()
-		predictionTensor.dispose()
+			// when using the webgl backend, we need to manually dispose @tensorflow tensors
+			predictionTensor.dispose()
 
-		return prediction > classifier.threshold
+			return prediction > classifier.threshold
+		} catch (e) {
+			console.log("error during spam prediction", e)
+			throw e
+		} finally {
+			// when using the webgl backend, we need to manually dispose @tensorflow tensors
+			xs.dispose()
+		}
 	}
 
 	// visibleForTesting
@@ -362,12 +399,12 @@ export class SpamClassifier {
 		return model
 	}
 
-	public async compress(vector: number[]) {
-		return await this.spamMailProcessor.compress(vector)
-	}
+	public async createModelInputAndUploadVector(mail: tutanotaTypeRefs.Mail, mailDetails: tutanotaTypeRefs.MailDetails) {
+		const datum = createSpamMailDatum(mail, mailDetails)
+		const modelInput = await this.spamMailProcessor.processSpamMailDatum(datum)
+		const { uploadableVectorLegacy, uploadableVector } = await this.spamMailProcessor.makeUploadableVectors(datum)
 
-	public async vectorize(mailDatum: SpamMailDatum) {
-		return await this.spamMailProcessor.vectorize(mailDatum)
+		return { modelInput, uploadableVectorLegacy, uploadableVector }
 	}
 
 	// visibleForTesting
@@ -376,6 +413,15 @@ export class SpamClassifier {
 		if (spamClassificationModel) {
 			const modelTopology = JSON.parse(spamClassificationModel.modelTopology)
 			const weightSpecs = JSON.parse(spamClassificationModel.weightSpecs)
+			const oldVectorDimensionSize: number = weightSpecs[0].shape[0]
+			const newVectorDimensionSize = await this.spamMailProcessor.getModelInputSize()
+			if (newVectorDimensionSize !== oldVectorDimensionSize) {
+				console.log(
+					`removing spam classification model for mailbox ${ownerGroup} as it is incompatible with the current model input size. Old dimension size: ${oldVectorDimensionSize}, new dimension size: ${newVectorDimensionSize}`,
+				)
+				await this.spamClassifierStorageFacade.deleteSpamClassificationModel(ownerGroup)
+				return null
+			}
 			const weightData = spamClassificationModel.weightData.buffer.slice(
 				spamClassificationModel.weightData.byteOffset,
 				spamClassificationModel.weightData.byteOffset + spamClassificationModel.weightData.byteLength,

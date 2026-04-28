@@ -1,4 +1,4 @@
-import { assertMainOrNodeBoot } from "../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 /**
  * Collections of utility functions to support Accessible Rich Internet Applications (ARIA).
  *
@@ -8,7 +8,7 @@ import { assertMainOrNodeBoot } from "../api/common/Env"
  * https://www.w3.org/TR/wai-aria-1.1/
  *
  */
-import { TabIndex } from "../api/common/TutanotaConstants"
+import { TabIndex } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 
@@ -62,7 +62,7 @@ export const enum AriaPopupType {
 }
 
 export const enum AriaRole {
-	Menu = "Menu",
+	Menu = "menu",
 	MenuItem = "menuitem",
 	Combobox = "combobox",
 	Listbox = "listbox",

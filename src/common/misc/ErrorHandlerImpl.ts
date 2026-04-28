@@ -1,19 +1,8 @@
-import {
-	AccessBlockedError,
-	AccessDeactivatedError,
-	AccessExpiredError,
-	ConnectionError,
-	InsufficientStorageError,
-	InvalidSoftwareVersionError,
-	NotAuthenticatedError,
-	RequestTimeoutError,
-	ServiceUnavailableError,
-	SessionExpiredError,
-} from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { Dialog } from "../gui/base/Dialog"
 import { lang } from "./LanguageViewModel"
-import { assertMainOrNode, isDesktop, isOfflineStorageAvailable } from "../api/common/Env"
-import { assertNotNull, newPromise, noOp } from "@tutao/tutanota-utils"
+import { assertMainOrNode, InvalidModelError, isBrowser, isDesktop, Mode } from "@tutao/app-env"
+import { assertNotNull, newPromise, noOp } from "@tutao/utils"
 import { OutOfSyncError } from "../api/common/error/OutOfSyncError"
 import { showProgressDialog } from "../gui/dialogs/ProgressDialog"
 import { IndexingNotSupportedError } from "../api/common/error/IndexingNotSupportedError"
@@ -29,10 +18,10 @@ import { CancelledError } from "../api/common/error/CancelledError"
 
 import { SessionType } from "../api/common/SessionType.js"
 import { OfflineDbClosedError } from "../api/common/error/OfflineDbClosedError.js"
-import { UserTypeRef } from "../api/entities/sys/TypeRefs.js"
 import { isOfflineError } from "../api/common/utils/ErrorUtils.js"
 import { showRequestPasswordDialog } from "./passwords/PasswordRequestDialog.js"
 import { ServerModelsUnavailableError } from "../api/common/error/ServerModelsUnavailableError"
+import { sysTypeRefs } from "@tutao/typerefs"
 
 assertMainOrNode()
 
@@ -62,7 +51,7 @@ export async function handleUncaughtErrorImpl(e: Error) {
 
 	if (isOfflineError(e)) {
 		showOfflineMessage()
-	} else if (e instanceof InvalidSoftwareVersionError) {
+	} else if (e instanceof restError.TooManyRequestsError) {
 		if (!invalidSoftwareVersionActive) {
 			invalidSoftwareVersionActive = true
 			return Dialog.updateReminder(false, () => {
@@ -71,21 +60,26 @@ export async function handleUncaughtErrorImpl(e: Error) {
 			})
 		}
 	} else if (
-		e instanceof NotAuthenticatedError ||
-		e instanceof AccessBlockedError ||
-		e instanceof AccessDeactivatedError ||
-		e instanceof AccessExpiredError
+		e instanceof restError.NotAuthenticatedError ||
+		e instanceof restError.AccessBlockedError ||
+		e instanceof restError.AccessDeactivatedError ||
+		e instanceof restError.AccessExpiredError
 	) {
 		// If the session is closed (e.g. password is changed) we log user out forcefully so we reload the page
 		if (logins.isUserLoggedIn()) {
 			logoutIfNoPasswordPrompt()
 		}
-	} else if (e instanceof SessionExpiredError) {
+	} else if (e instanceof restError.SessionExpiredError) {
 		reloginForExpiredSession()
-	} else if (e instanceof OutOfSyncError) {
-		const isOffline = isOfflineStorageAvailable() && logins.isUserLoggedIn() && logins.getUserController().sessionType === SessionType.Persistent
+	} else if (e instanceof OutOfSyncError || e instanceof InvalidModelError) {
+		const isOffline =
+			!isBrowser() && !(env.mode === Mode.Admin) && logins.isUserLoggedIn() && logins.getUserController().sessionType === SessionType.Persistent
 
-		await Dialog.message("outOfSync_label", lang.get(isOffline ? "dataExpiredOfflineDb_msg" : "dataExpired_msg"))
+		if (e instanceof InvalidModelError) {
+			await Dialog.message("dataOutOfSync_label", lang.get(isOffline ? "dataOutOfSyncOfflineDb_msg" : "dataOutOfSync_msg"))
+		} else {
+			await Dialog.message("dataExpired_label", lang.get(isOffline ? "dataExpiredOfflineDb_msg" : "dataExpired_msg"))
+		}
 
 		const { userId } = logins.getUserController()
 		if (isDesktop()) {
@@ -94,7 +88,7 @@ export async function handleUncaughtErrorImpl(e: Error) {
 		await worker.getWorkerInterface().cacheStorage.purgeStorage()
 		await logins.logout(false)
 		await windowFacade.reload({ noAutoLogin: true })
-	} else if (e instanceof InsufficientStorageError) {
+	} else if (e instanceof restError.InsufficientStorageError) {
 		if (logins.getUserController().isGlobalAdmin()) {
 			showMoreStorageNeededOrderDialog("insufficientStorageAdmin_msg")
 		} else {
@@ -104,14 +98,14 @@ export async function handleUncaughtErrorImpl(e: Error) {
 			)
 			Dialog.message(errorMessage)
 		}
-	} else if (e instanceof ServiceUnavailableError) {
+	} else if (e instanceof restError.ServiceUnavailableError) {
 		if (!serviceUnavailableDialogActive) {
 			serviceUnavailableDialogActive = true
 			Dialog.message("serviceUnavailable_msg").then(() => {
 				serviceUnavailableDialogActive = false
 			})
 		}
-	} else if (e instanceof RequestTimeoutError) {
+	} else if (e instanceof restError.RequestTimeoutError) {
 		if (!requestTimeoutDialogActive) {
 			requestTimeoutDialogActive = true
 			Dialog.message("requestTimeout_msg").then(() => {
@@ -196,7 +190,7 @@ export async function reloginForExpiredSession() {
 	// Fetch old credentials to preserve database key if it's there
 	const oldCredentials = await credentialsProvider.getDecryptedCredentialsByUserId(userId)
 	// we're deleting the outdated user here because before resetSession() the cache is still open and can be modified.
-	await cacheStorage?.deleteIfExists(UserTypeRef, null, userId)
+	await cacheStorage?.deleteIfExists(sysTypeRefs.UserTypeRef, null, userId)
 	const sessionReset = loginFacade.resetSession()
 	loginDialogActive = true
 
@@ -212,10 +206,10 @@ export async function reloginForExpiredSession() {
 			} catch (e) {
 				if (
 					e instanceof CancelledError ||
-					e instanceof AccessBlockedError ||
-					e instanceof NotAuthenticatedError ||
-					e instanceof AccessDeactivatedError ||
-					e instanceof ConnectionError
+					e instanceof restError.TooManyRequestsError ||
+					e instanceof restError.NotAuthenticatedError ||
+					e instanceof restError.AccessDeactivatedError ||
+					e instanceof restError.ConnectionError
 				) {
 					const { getLoginErrorMessage } = await import("../misc/LoginUtils.js")
 					return lang.getTranslationText(getLoginErrorMessage(e, false))
@@ -287,5 +281,5 @@ if (typeof window !== "undefined") {
 }
 
 export function showUserError(error: UserError): Promise<void> {
-	return Dialog.message(lang.makeTranslation("error_msg", error.message))
+	return Dialog.message(lang.makeTranslation(error.data, error.message))
 }

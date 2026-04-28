@@ -5,9 +5,9 @@ import { Icons } from "../../../gui/base/icons/Icons"
 import { theme } from "../../../gui/theme"
 import { Card } from "../../../gui/base/Card"
 import { ExternalLink } from "../../../gui/base/ExternalLink"
-import { IdentityKeySourceOfTrust } from "../../../api/common/TutanotaConstants"
 import { KeyVerificationModel } from "../KeyVerificationModel"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { assertNotNull } from "@tutao/utils"
+import { IdentityKeySourceOfTrust } from "@tutao/app-env"
 
 type FingerprintMismatchKeepPageAttrs = {
 	model: KeyVerificationModel
@@ -29,7 +29,7 @@ export class FingerprintMismatchKeepPage implements Component<FingerprintMismatc
 			m(TitleSection, {
 				title,
 				subTitle: subtitle,
-				icon: Icons.AlertCircleOutline,
+				icon: Icons.ExclamationOutline,
 				iconOptions: { color: theme.warning },
 			}),
 			m(

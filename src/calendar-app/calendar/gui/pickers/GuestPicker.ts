@@ -1,12 +1,12 @@
 import m, { ClassComponent, Vnode, VnodeDOM } from "mithril"
 import { Select, SelectAttributes, SelectOption, SelectState } from "../../../../common/gui/base/Select.js"
-import { Keys, TabIndex } from "../../../../common/api/common/TutanotaConstants.js"
+import { Keys, TabIndex } from "@tutao/app-env"
 import { SingleLineTextField } from "../../../../common/gui/base/SingleLineTextField.js"
-import { debounceStart, getFirstOrThrow } from "@tutao/tutanota-utils"
+import { debounceStart, getFirstOrThrow } from "@tutao/utils"
 import { Dialog } from "../../../../common/gui/base/Dialog.js"
 import { lang, TranslationKey } from "../../../../common/misc/LanguageViewModel.js"
 import { parseMailAddress, parsePastedInput, parseTypedInput } from "../../../../common/gui/MailRecipientsTextField.js"
-import { Contact } from "../../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { RecipientSearchResultItem, RecipientsSearchModel } from "../../../../common/misc/RecipientsSearchModel.js"
 import stream from "mithril/stream"
 import { theme } from "../../../../common/gui/theme.js"
@@ -19,7 +19,7 @@ import { keyboardEventToKeyPress } from "../../../../common/misc/KeyManager.js"
 
 export interface GuestPickerAttrs {
 	ariaLabel: TranslationKey
-	onRecipientAdded: (address: string, name: string | null, contact: Contact | null) => void
+	onRecipientAdded: (address: string, name: string | null, contact: tutanotaTypeRefs.Contact | null) => void
 	disabled: boolean
 	search: RecipientsSearchModel
 }
@@ -69,7 +69,7 @@ export class GuestPicker implements ClassComponent<GuestPickerAttrs> {
 			option.value.type === "recipient"
 				? option.value.value.name
 				: m(Icon, {
-						icon: Icons.People,
+						icon: Icons.PeopleFilled,
 						style: {
 							fill: theme.on_surface,
 							"aria-describedby": lang.get("contactListName_label"),

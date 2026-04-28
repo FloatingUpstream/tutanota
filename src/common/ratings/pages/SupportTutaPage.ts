@@ -4,17 +4,17 @@ import { ImageWithOptionsDialog } from "../../gui/dialogs/ImageWithOptionsDialog
 import { client } from "../../misc/ClientDetector.js"
 import { TranslationKeyType } from "../../misc/TranslationKey.js"
 import { locator } from "../../api/main/CommonLocator.js"
-import { LegacyPrivatePlans, NewPaidPlans, PlanType } from "../../api/common/TutanotaConstants.js"
+import { NewPaidPlans, UpgradePromptType } from "@tutao/app-env"
 import { showUpgradeDialog } from "../../gui/nav/NavFunctions.js"
 import { windowFacade } from "../../misc/WindowFacade.js"
 import { progressIcon } from "../../gui/base/Icon.js"
 import { lang } from "../../misc/LanguageViewModel.js"
 import { completeSupportTutaStage, SupportTutaButtonType } from "../UserSatisfactionUtils.js"
 import { px } from "../../gui/size.js"
-import { assertNotNull, last, neverNull } from "@tutao/tutanota-utils"
-import { BookingTypeRef } from "../../api/entities/sys/TypeRefs.js"
-import { GENERATED_MAX_ID } from "../../api/common/utils/EntityUtils.js"
+import { assertNotNull, last, neverNull } from "@tutao/utils"
+import { GENERATED_MAX_ID, sysTypeRefs } from "@tutao/typerefs"
 import { getReferralLink, ReferralLinkViewer } from "../../misc/news/items/ReferralLinkViewer"
+import { LegacyPrivatePlans, PlanType } from "@tutao/app-env"
 
 interface SupportTutaPageAttrs {
 	dialog: Dialog
@@ -71,7 +71,7 @@ export class SupportTutaPage implements Component<SupportTutaPageAttrs> {
 					if (LegacyPrivatePlans.includes(neverNull(this.currentPlan))) {
 						void this.showSwitchDialog()
 					} else {
-						void showUpgradeDialog(true)
+						void showUpgradeDialog(UpgradePromptType.SUPPORT_TUTA, true)
 					}
 				},
 			}
@@ -135,9 +135,9 @@ export class SupportTutaPage implements Component<SupportTutaPageAttrs> {
 	private async showSwitchDialog(): Promise<void> {
 		const userController = locator.logins.getUserController()
 		const customerInfo = await userController.loadCustomerInfo()
-		const customer = await userController.loadCustomer()
+		const customer = await userController.reloadCustomer()
 		const accountingInfo = await userController.loadAccountingInfo()
-		const bookings = await locator.entityClient.loadRange(BookingTypeRef, assertNotNull(customerInfo.bookings).items, GENERATED_MAX_ID, 1, true)
+		const bookings = await locator.entityClient.loadRange(sysTypeRefs.BookingTypeRef, assertNotNull(customerInfo.bookings).items, GENERATED_MAX_ID, 1, true)
 		const lastBooking = last(bookings)
 
 		const { showSwitchDialog } = await import("../../subscription/SwitchSubscriptionDialog.js")

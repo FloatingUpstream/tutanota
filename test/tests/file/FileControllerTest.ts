@@ -1,19 +1,17 @@
-import o from "@tutao/otest"
-import { ArchiveDataType } from "../../../src/common/api/common/TutanotaConstants.js"
+import o, { assertThrows } from "@tutao/otest"
+import { ArchiveDataType, Mode } from "../../../src/app-env"
 import { BlobFacade } from "../../../src/common/api/worker/facades/lazy/BlobFacade.js"
 import { NativeFileApp } from "../../../src/common/native/common/FileApp.js"
 import { matchers, object, verify, when } from "testdouble"
 import { FileReference } from "../../../src/common/api/common/utils/FileUtils.js"
-import { neverNull } from "@tutao/tutanota-utils"
+import { neverNull } from "@tutao/utils"
 import { DataFile } from "../../../src/common/api/common/DataFile.js"
-import { BlobTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
-import { FileTypeRef } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { FileControllerNative } from "../../../src/common/file/FileControllerNative.js"
 import { FileControllerBrowser } from "../../../src/common/file/FileControllerBrowser.js"
-import { ConnectionError } from "../../../src/common/api/common/error/RestError.js"
-import { assertThrows } from "@tutao/tutanota-test-utils"
-import { Mode } from "../../../src/common/api/common/Env.js"
+import * as restError from "@tutao/rest-client/error"
 import { createTestEntity, withOverriddenEnv } from "../TestUtils.js"
+import { TransferId } from "../../../src/common/api/common/drive/DriveTypes"
+import { sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 
 const { anything, argThat } = matchers
 
@@ -35,16 +33,17 @@ o.spec("FileControllerTest", function () {
 		})
 
 		o("should download non-legacy file natively using the blob service", async function () {
-			const blobs = [createTestEntity(BlobTypeRef)]
-			const file = createTestEntity(FileTypeRef, {
+			const transferId = "abcd" as TransferId
+			const blobs = [createTestEntity(sysTypeRefs.BlobTypeRef)]
+			const file = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 				blobs: blobs,
 				name: "test.txt",
 				mimeType: "plain/text",
 				_id: ["fileListId", "fileElementId"],
 			})
 			const fileReference = object<FileReference>()
-			when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), anything(), anything())).thenResolve(fileReference)
-			const result = await withOverriddenEnv(androidEnv, () => fileController.downloadAndDecrypt(file, ArchiveDataType.Attachments))
+			when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), anything(), anything(), transferId)).thenResolve(fileReference)
+			const result = await withOverriddenEnv(androidEnv, () => fileController.downloadAndDecrypt(file, transferId, ArchiveDataType.Attachments))
 			verify(
 				blobFacadeMock.downloadAndDecryptNative(
 					ArchiveDataType.Attachments,
@@ -53,6 +52,7 @@ o.spec("FileControllerTest", function () {
 					}),
 					file.name,
 					neverNull(file.mimeType),
+					transferId,
 				),
 			)
 			o(result).equals(fileReference)
@@ -61,27 +61,32 @@ o.spec("FileControllerTest", function () {
 		o.spec("download with connection errors", function () {
 			o("immediately no connection", async function () {
 				const testableFileController = new FileControllerNative(blobFacadeMock, fileAppMock)
-				const blobs = [createTestEntity(BlobTypeRef)]
-				const file = createTestEntity(FileTypeRef, {
+				const blobs = [createTestEntity(sysTypeRefs.BlobTypeRef)]
+				const file = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 					blobs: blobs,
 					name: "test.txt",
 					mimeType: "plain/text",
 					_id: ["fileListId", "fileElementId"],
 				})
-				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), anything(), anything())).thenReject(new ConnectionError("no connection"))
-				await assertThrows(ConnectionError, async () => await withOverriddenEnv(androidEnv, () => testableFileController.download(file)))
+				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), anything(), anything(), anything())).thenReject(
+					new restError.ConnectionError("no connection"),
+				)
+				await assertThrows(
+					restError.ConnectionError,
+					async () => await withOverriddenEnv(androidEnv, async () => await (await testableFileController.download(file)).promise),
+				)
 				verify(fileAppMock.deleteFile(anything()), { times: 0 }) // mock for cleanup
 			})
 			o("connection lost after 1 already downloaded attachment- already downloaded attachments are processed", async function () {
 				const testableFileController = new FileControllerNative(blobFacadeMock, fileAppMock)
-				const blobs = [createTestEntity(BlobTypeRef)]
-				const fileWorks = createTestEntity(FileTypeRef, {
+				const blobs = [createTestEntity(sysTypeRefs.BlobTypeRef)]
+				const fileWorks = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 					blobs: blobs,
 					name: "works.txt",
 					mimeType: "plain/text",
 					_id: ["fileListId", "fileElementId"],
 				})
-				const fileNotWorks = createTestEntity(FileTypeRef, {
+				const fileNotWorks = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 					blobs: blobs,
 					name: "broken.txt",
 					mimeType: "plain/text",
@@ -94,12 +99,17 @@ o.spec("FileControllerTest", function () {
 					size: 512,
 					_type: "FileReference",
 				}
-				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), "works.txt", anything())).thenResolve(fileReferenceWorks)
-				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), "broken.txt", anything())).thenReject(new ConnectionError("no connection"))
+				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), "works.txt", anything(), anything())).thenResolve(fileReferenceWorks)
+				when(blobFacadeMock.downloadAndDecryptNative(anything(), anything(), "broken.txt", anything(), anything())).thenReject(
+					new restError.ConnectionError("no connection"),
+				)
 				await assertThrows(
-					ConnectionError,
+					restError.ConnectionError,
 					async () =>
-						await withOverriddenEnv(androidEnv, () => testableFileController.downloadAll([fileWorks, fileNotWorks], ArchiveDataType.Attachments)),
+						await withOverriddenEnv(
+							androidEnv,
+							async () => await (await testableFileController.downloadAll([fileWorks, fileNotWorks], ArchiveDataType.Attachments)).promise,
+						),
 				)
 				verify(fileAppMock.deleteFile(anything()), { times: 1 }) // mock for cleanup
 			})
@@ -114,20 +124,22 @@ o.spec("FileControllerTest", function () {
 		})
 
 		o("should download non-legacy file non-natively using the blob service", async function () {
-			const blobs = [createTestEntity(BlobTypeRef)]
-			const file = createTestEntity(FileTypeRef, {
+			const blobs = [createTestEntity(sysTypeRefs.BlobTypeRef)]
+			const file = createTestEntity(tutanotaTypeRefs.FileTypeRef, {
 				blobs: blobs,
 				name: "test.txt",
 				mimeType: "plain/text",
 				_id: ["fileListId", "fileElementId"],
 			})
+			const transferId = "abcd" as TransferId
 			const data = new Uint8Array([1, 2, 3])
-			when(blobFacadeMock.downloadAndDecrypt(anything(), anything())).thenResolve(data)
-			const result = await fileController.downloadAndDecrypt(file, ArchiveDataType.Attachments)
+			when(blobFacadeMock.downloadAndDecrypt(anything(), anything(), transferId)).thenResolve(data)
+			const result = await fileController.downloadAndDecrypt(file, transferId, ArchiveDataType.Attachments)
 			verify(
 				blobFacadeMock.downloadAndDecrypt(
 					ArchiveDataType.Attachments,
 					argThat((referencingInstance) => referencingInstance.entity === file),
+					transferId,
 				),
 			)
 			o(result).deepEquals({

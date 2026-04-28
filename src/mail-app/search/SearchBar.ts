@@ -4,36 +4,32 @@ import stream from "mithril/stream"
 import Stream from "mithril/stream"
 import type { PositionRect } from "../../common/gui/base/Overlay"
 import { displayOverlay } from "../../common/gui/base/Overlay"
-import type { CalendarEvent, Contact, Mail } from "../../common/api/entities/tutanota/TypeRefs.js"
-import { CalendarEventTypeRef, ContactTypeRef, MailTypeRef } from "../../common/api/entities/tutanota/TypeRefs.js"
+import { assertIsEntity, getElementId, ListElementEntity, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
 import type { Shortcut } from "../../common/misc/KeyManager"
 import { isKeyPressed, keyManager } from "../../common/misc/KeyManager"
-import { encodeCalendarSearchKey, getRestriction } from "./model/SearchUtils"
+import { encodeCalendarSearchKey, getRestriction, hasMoreResults } from "./model/SearchUtils"
 import { Dialog } from "../../common/gui/base/Dialog"
-import type { WhitelabelChild } from "../../common/api/entities/sys/TypeRefs.js"
-import { FULL_INDEXED_TIMESTAMP, Keys } from "../../common/api/common/TutanotaConstants"
-import { assertMainOrNode, isApp } from "../../common/api/common/Env"
+import { FULL_INDEXED_TIMESTAMP, Keys } from "@tutao/app-env"
+import { assertMainOrNode } from "@tutao/app-env"
 import { styles } from "../../common/gui/styles"
 import { client } from "../../common/misc/ClientDetector"
-import { debounce, downcast, isSameTypeRef, memoized, mod, ofClass, TypeRef } from "@tutao/tutanota-utils"
+import { debounce, downcast, isSameTypeRef, memoized, mod, ofClass, TypeRef } from "@tutao/utils"
 import { BrowserType } from "../../common/misc/ClientConstants"
-import { hasMoreResults } from "./model/SearchModel"
 import { SearchBarOverlay } from "./SearchBarOverlay"
 import { IndexingNotSupportedError } from "../../common/api/common/error/IndexingNotSupportedError"
-import type { SearchIndexStateInfo, SearchRestriction, SearchResult } from "../../common/api/worker/search/SearchTypes"
-import { assertIsEntity, getElementId } from "../../common/api/common/utils/EntityUtils"
+import type { SearchRestriction, SearchResult } from "../../common/api/worker/search/SearchTypes"
 import { compareContacts } from "../contacts/view/ContactGuiUtils"
 import { LayerType } from "../../RootView"
 import { BaseSearchBar, BaseSearchBarAttrs } from "../../common/gui/base/BaseSearchBar.js"
 import { SearchRouter } from "../../common/search/view/SearchRouter.js"
 import { PageSize } from "../../common/gui/base/ListUtils.js"
 import { generateCalendarInstancesInRange, isBirthdayCalendar, retrieveBirthdayEventsForUser } from "../../common/calendar/date/CalendarUtils.js"
-import { ListElementEntity } from "../../common/api/common/EntityTypes.js"
 
 import { loadMultipleFromLists } from "../../common/api/common/EntityClient.js"
 import { mailLocator } from "../mailLocator.js"
 import { compareMails } from "../mail/model/MailUtils"
-import { ProgrammingError } from "../../common/api/common/error/ProgrammingError"
+import { ProgrammingError } from "@tutao/app-env"
+import { isApp } from "@tutao/app-env"
 
 assertMainOrNode()
 export type ShowMoreAction = {
@@ -49,12 +45,11 @@ export type SearchBarAttrs = {
 }
 
 const MAX_SEARCH_PREVIEW_RESULTS = 10
-export type Entry = Mail | Contact | CalendarEvent | WhitelabelChild | ShowMoreAction
+export type Entry = tutanotaTypeRefs.Mail | tutanotaTypeRefs.Contact | tutanotaTypeRefs.CalendarEvent | sysTypeRefs.WhitelabelChild | ShowMoreAction
 type Entries = Array<Entry>
 export type SearchBarState = {
 	query: string
 	searchResult: SearchResult | null
-	indexState: SearchIndexStateInfo
 	entities: Entries
 	selected: Entry | null
 }
@@ -68,13 +63,12 @@ export class SearchBar implements Component<SearchBarAttrs> {
 	focused: boolean = false
 	private readonly state: Stream<SearchBarState>
 	busy: boolean = false
-	private lastSelectedWhitelabelChildrenInfoResult: Stream<WhitelabelChild> = stream()
+	private lastSelectedWhitelabelChildrenInfoResult: Stream<sysTypeRefs.WhitelabelChild> = stream()
 	private closeOverlayFunction: (() => void) | null = null
 	private readonly overlayContentComponent: Component
 	private confirmDialogShown: boolean = false
 	private domWrapper!: HTMLElement
 	private domInput!: HTMLElement
-	private indexStateStream: Stream<unknown> | null = null
 	private stateStream: Stream<unknown> | null = null
 	private lastQueryStream: Stream<unknown> | null = null
 
@@ -82,7 +76,6 @@ export class SearchBar implements Component<SearchBarAttrs> {
 		this.state = stream<SearchBarState>({
 			query: "",
 			searchResult: null,
-			indexState: mailLocator.search?.indexState(),
 			entities: [] as Entries,
 			selected: null,
 		})
@@ -223,25 +216,6 @@ export class SearchBar implements Component<SearchBarAttrs> {
 			this.onFocus()
 		}
 		keyManager.registerShortcuts(this.shortcuts)
-		this.indexStateStream = mailLocator.search.indexState.map((indexState) => {
-			// When we finished indexing, search again forcibly to not confuse anyone with old results
-			const currentResult = this.state().searchResult
-
-			if (
-				!indexState.failedIndexingUpTo &&
-				currentResult &&
-				this.state().indexState.progress !== 0 &&
-				indexState.progress === 0 &&
-				//if period is changed from search view a new search is triggered there,  and we do not want to overwrite its result
-				!this.timePeriodHasChanged(currentResult.restriction.end, indexState.aimedMailIndexTimestamp)
-			) {
-				this.doSearch(this.state().query, currentResult.restriction, m.redraw)
-			}
-
-			this.updateState({
-				indexState,
-			})
-		})
 
 		this.stateStream = this.state.map((state) => m.redraw())
 		this.lastQueryStream = mailLocator.search.lastQueryString.map((value) => {
@@ -263,13 +237,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 
 		this.lastQueryStream?.end(true)
 
-		this.indexStateStream?.end(true)
-
 		this.closeOverlay()
-	}
-
-	private timePeriodHasChanged(oldEnd: number | null, aimedEnd: number): boolean {
-		return oldEnd !== aimedEnd
 	}
 
 	/**
@@ -342,7 +310,9 @@ export class SearchBar implements Component<SearchBarAttrs> {
 		},
 	]
 
-	private selectResult(result: (Mail | null) | Contact | WhitelabelChild | CalendarEvent | ShowMoreAction) {
+	private selectResult(
+		result: (tutanotaTypeRefs.Mail | null) | tutanotaTypeRefs.Contact | sysTypeRefs.WhitelabelChild | tutanotaTypeRefs.CalendarEvent | ShowMoreAction,
+	) {
 		const { query } = this.state()
 
 		if (result != null) {
@@ -353,11 +323,11 @@ export class SearchBar implements Component<SearchBarAttrs> {
 				if ((result as ShowMoreAction).allowShowMore) {
 					this.updateSearchUrl(query)
 				}
-			} else if (isSameTypeRef(MailTypeRef, type)) {
+			} else if (isSameTypeRef(tutanotaTypeRefs.MailTypeRef, type)) {
 				this.updateSearchUrl(query, downcast(result))
-			} else if (isSameTypeRef(ContactTypeRef, type)) {
+			} else if (isSameTypeRef(tutanotaTypeRefs.ContactTypeRef, type)) {
 				this.updateSearchUrl(query, downcast(result))
-			} else if (isSameTypeRef(CalendarEventTypeRef, type)) {
+			} else if (isSameTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, type)) {
 				this.updateSearchUrl(query, downcast(result))
 			}
 		}
@@ -376,7 +346,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 	}
 
 	private updateSearchUrl(query: string, selected?: ListElementEntity) {
-		if (selected && assertIsEntity(selected, CalendarEventTypeRef)) {
+		if (selected && assertIsEntity(selected, tutanotaTypeRefs.CalendarEventTypeRef)) {
 			searchRouter.routeTo(query, this.getRestriction(), selected && encodeCalendarSearchKey(selected))
 		} else {
 			searchRouter.routeTo(query, this.getRestriction(), selected && getElementId(selected))
@@ -396,7 +366,12 @@ export class SearchBar implements Component<SearchBarAttrs> {
 
 		let restriction = this.getRestriction()
 
-		if (!mailLocator.search.indexState().mailIndexEnabled && restriction && isSameTypeRef(restriction.type, MailTypeRef) && !this.confirmDialogShown) {
+		if (
+			!mailLocator.search.indexState().mailIndexEnabled &&
+			restriction &&
+			isSameTypeRef(restriction.type, tutanotaTypeRefs.MailTypeRef) &&
+			!this.confirmDialogShown
+		) {
 			this.focused = false
 			this.confirmDialogShown = true
 			Dialog.confirm("enableSearchMailbox_msg", "search_label")
@@ -418,7 +393,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 				.finally(() => (this.confirmDialogShown = false))
 		} else {
 			// Skip the search if the user is trying to bypass the search dialog
-			if (!mailLocator.search.indexState().mailIndexEnabled && isSameTypeRef(restriction.type, MailTypeRef)) {
+			if (!mailLocator.search.indexState().mailIndexEnabled && isSameTypeRef(restriction.type, tutanotaTypeRefs.MailTypeRef)) {
 				return
 			}
 
@@ -453,7 +428,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 
 		let useSuggestions = m.route.get().startsWith("/settings")
 		// We don't limit contacts because we need to download all of them to sort them. They should be cached anyway.
-		const limit = isSameTypeRef(MailTypeRef, restriction.type) ? (this.isQuickSearch() ? MAX_SEARCH_PREVIEW_RESULTS : PageSize) : null
+		const limit = isSameTypeRef(tutanotaTypeRefs.MailTypeRef, restriction.type) ? (this.isQuickSearch() ? MAX_SEARCH_PREVIEW_RESULTS : PageSize) : null
 
 		mailLocator.search
 			.search(
@@ -518,7 +493,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 
 	private async showResultsInOverlay(result: SearchResult): Promise<void> {
 		let entries: Entry[]
-		if (isSameTypeRef(CalendarEventTypeRef, result.restriction.type)) {
+		if (isSameTypeRef(tutanotaTypeRefs.CalendarEventTypeRef, result.restriction.type)) {
 			const serverEventIds = result.results.filter(([calendarId, eventId]) => !isBirthdayCalendar(calendarId))
 			const eventsRepository = await mailLocator.calendarEventsRepository()
 			entries = [
@@ -564,7 +539,7 @@ export class SearchBar implements Component<SearchBarAttrs> {
 		filteredEntries: Entries
 		couldShowMore: boolean
 	} {
-		if (isSameTypeRef(restriction.type, ContactTypeRef)) {
+		if (isSameTypeRef(restriction.type, tutanotaTypeRefs.ContactTypeRef)) {
 			// Sort contacts by name
 			return {
 				filteredEntries: instances
@@ -573,14 +548,14 @@ export class SearchBar implements Component<SearchBarAttrs> {
 					.slice(0, MAX_SEARCH_PREVIEW_RESULTS),
 				couldShowMore: instances.length > MAX_SEARCH_PREVIEW_RESULTS,
 			}
-		} else if (isSameTypeRef(restriction.type, CalendarEventTypeRef)) {
+		} else if (isSameTypeRef(restriction.type, tutanotaTypeRefs.CalendarEventTypeRef)) {
 			const range = { start: restriction.start ?? 0, end: restriction.end ?? 0 }
 			const generatedInstances = generateCalendarInstancesInRange(downcast(instances), range, MAX_SEARCH_PREVIEW_RESULTS + 1)
 			return {
 				filteredEntries: generatedInstances.slice(0, MAX_SEARCH_PREVIEW_RESULTS),
 				couldShowMore: generatedInstances.length > MAX_SEARCH_PREVIEW_RESULTS,
 			}
-		} else if (isSameTypeRef(restriction.type, MailTypeRef)) {
+		} else if (isSameTypeRef(restriction.type, tutanotaTypeRefs.MailTypeRef)) {
 			return {
 				filteredEntries: instances.slice().sort(compareMails).slice(0, MAX_SEARCH_PREVIEW_RESULTS),
 				couldShowMore: instances.length > MAX_SEARCH_PREVIEW_RESULTS,

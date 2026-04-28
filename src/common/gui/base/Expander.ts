@@ -3,13 +3,12 @@ import type { MaybeTranslation } from "../../misc/LanguageViewModel"
 import { lang } from "../../misc/LanguageViewModel"
 import { Icon, IconSize } from "./Icon"
 import { Icons } from "./icons/Icons"
-import { BootIcons } from "./icons/BootIcons"
 import { theme } from "../theme"
 import { px } from "../size"
 import { DefaultAnimationTime } from "../animation/Animations"
 import { isKeyPressed } from "../../misc/KeyManager.js"
-import { Keys } from "../../api/common/TutanotaConstants.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
+import { Keys } from "@tutao/app-env"
+import { assertNotNull } from "@tutao/utils"
 
 export type ExpanderAttrs = {
 	label: MaybeTranslation
@@ -21,6 +20,7 @@ export type ExpanderAttrs = {
 	showWarning?: boolean
 	color?: string
 	style?: Record<string, any>
+	isPrintable?: boolean
 }
 export type ExpanderPanelAttrs = {
 	expanded: boolean
@@ -33,7 +33,8 @@ export class ExpanderButton implements Component<ExpanderAttrs> {
 		return m(
 			".limit-width",
 			m(
-				"button.expander.bg-transparent.pt-8.hover-ul.limit-width.flex.items-center.b.text-ellipsis.flash",
+				"button.expander.bg-transparent.pt-8.hover-ul.limit-width.flex.items-center.b.text-ellipsis.flash" +
+					`${!a.expanded && a.isPrintable ? ".print" : ""}`,
 				{
 					style: a.style,
 					onclick: (event: MouseEvent) => {
@@ -51,7 +52,7 @@ export class ExpanderButton implements Component<ExpanderAttrs> {
 				[
 					a.showWarning
 						? m(Icon, {
-								icon: Icons.Warning,
+								icon: Icons.ExclamationFilled,
 								style: {
 									fill: a.color ? a.color : theme.on_surface_variant,
 								},
@@ -67,7 +68,7 @@ export class ExpanderButton implements Component<ExpanderAttrs> {
 						a.isUnformattedLabel ? label : label.toUpperCase(),
 					),
 					m(Icon, {
-						icon: BootIcons.Expand,
+						icon: Icons.PaddedArrowDown,
 						class: "flex-center items-center",
 						size: a.isBig ? IconSize.PX24 : undefined,
 						style: {

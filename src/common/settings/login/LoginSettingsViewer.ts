@@ -4,13 +4,13 @@ import type { TextFieldAttrs } from "../../gui/base/TextField.js"
 import { TextField } from "../../gui/base/TextField.js"
 import { InfoLink, lang } from "../../misc/LanguageViewModel.js"
 import { Icons } from "../../gui/base/icons/Icons.js"
-import { CustomerPropertiesTypeRef, GroupInfo, Session, SessionTypeRef } from "../../api/entities/sys/TypeRefs.js"
-import { assertNotNull, LazyLoaded, neverNull, ofClass } from "@tutao/tutanota-utils"
+import { elementIdPart, entityUpdateUtils, getElementId, sysTypeRefs, tutanotaTypeRefs } from "@tutao/typerefs"
+import { assertNotNull, LazyLoaded, neverNull, ofClass } from "@tutao/utils"
 import { formatDateTimeFromYesterdayOn } from "../../misc/Formatter.js"
-import { SessionState } from "../../api/common/TutanotaConstants.js"
+import { assertMainOrNode, isDesktop, SessionState } from "@tutao/app-env"
 import { SecondFactorsEditForm } from "./secondfactor/SecondFactorsEditForm.js"
 
-import { NotFoundError } from "../../api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import * as RecoverCodeDialog from "./RecoverCodeDialog.js"
 import { attachDropdown } from "../../gui/base/Dropdown.js"
 import { ExpanderButton, ExpanderPanel } from "../../gui/base/Expander.js"
@@ -19,16 +19,12 @@ import { ifAllowedTutaLinks } from "../../gui/base/GuiUtils.js"
 import { CredentialEncryptionMode } from "../../misc/credentials/CredentialEncryptionMode.js"
 import { CredentialsProvider } from "../../misc/credentials/CredentialsProvider.js"
 import { showCredentialsEncryptionModeDialog } from "../../gui/dialogs/SelectCredentialsEncryptionModeDialog.js"
-import { assertMainOrNode, isDesktop } from "../../api/common/Env.js"
 import { locator } from "../../api/main/CommonLocator.js"
-import { elementIdPart, getElementId } from "../../api/common/utils/EntityUtils.js"
 import { showChangeOwnPasswordDialog } from "./ChangePasswordDialogs.js"
 import { IconButton, IconButtonAttrs } from "../../gui/base/IconButton.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
 import { DropDownSelector, DropDownSelectorAttrs } from "../../gui/base/DropDownSelector.js"
 import { UsageTestModel } from "../../misc/UsageTestModel.js"
-import { UserSettingsGroupRootTypeRef } from "../../api/entities/tutanota/TypeRefs.js"
-import { EntityUpdateData, isUpdateForTypeRef } from "../../api/common/utils/EntityUpdateUtils.js"
 import { Dialog } from "../../gui/base/Dialog.js"
 import { MoreInfoLink } from "../../misc/news/MoreInfoLink.js"
 import { AppLockMethod } from "../../native/common/generatedipc/AppLockMethod.js"
@@ -42,7 +38,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 	private readonly _mailAddress = stream(neverNull(locator.logins.getUserController().userGroupInfo.mailAddress))
 	private readonly _stars = stream("***")
 	private readonly _closedSessionsExpanded = stream(false)
-	private _sessions: Session[] = []
+	private _sessions: sysTypeRefs.Session[] = []
 	private readonly _secondFactorsForm = new SecondFactorsEditForm(
 		new LazyLoaded(() => Promise.resolve(locator.logins.getUserController().user)),
 		locator.domainConfigProvider(),
@@ -83,7 +79,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 		const changePasswordButtonAttrs: IconButtonAttrs = {
 			title: "changePassword_label",
 			click: () => showChangeOwnPasswordDialog(),
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		}
 		const passwordAttrs: TextFieldAttrs = {
@@ -97,7 +93,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 		const recoveryCodeDropdownButtonAttrs: IconButtonAttrs = attachDropdown({
 			mainButtonAttrs: {
 				title: "edit_action",
-				icon: Icons.Edit,
+				icon: Icons.PenFilled,
 				size: ButtonSize.Compact,
 			},
 			childAttrs: () => [
@@ -217,14 +213,14 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 					? m(IconButton, {
 							title: "edit_action",
 							click: () => this.onChangeName(groupInfo),
-							icon: Icons.Edit,
+							icon: Icons.PenFilled,
 							size: ButtonSize.Compact,
 						})
 					: undefined,
 		})
 	}
 
-	private onChangeName(groupInfo: GroupInfo) {
+	private onChangeName(groupInfo: sysTypeRefs.GroupInfo) {
 		Dialog.showProcessTextInputDialog(
 			{
 				title: "edit_action",
@@ -256,7 +252,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 				injectionsRight: () =>
 					m(IconButton, {
 						title: "edit_action",
-						icon: Icons.Edit,
+						icon: Icons.PenFilled,
 						click: () => onEdit(),
 					}),
 			})
@@ -271,7 +267,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 				injectionsRight: () =>
 					m(IconButton, {
 						title: "edit_action",
-						icon: Icons.Edit,
+						icon: Icons.PenFilled,
 						click: () => showCredentialsEncryptionModeDialog(this.credentialsProvider).then(() => this.updateAppLockData()),
 					}),
 			})
@@ -279,7 +275,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 	}
 
 	async _updateSessions(): Promise<void> {
-		const sessions = await locator.entityClient.loadAll(SessionTypeRef, neverNull(locator.logins.getUserController().user.auth).sessions)
+		const sessions = await locator.entityClient.loadAll(sysTypeRefs.SessionTypeRef, neverNull(locator.logins.getUserController().user.auth).sessions)
 		sessions.sort((s1, s2) => s2.lastAccessTime.getTime() - s1.lastAccessTime.getTime())
 		this._sessions = sessions
 		m.redraw()
@@ -315,7 +311,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 									click: () => {
 										this._closeSession(session)
 									},
-									icon: Icons.Cancel,
+									icon: Icons.X,
 									size: ButtonSize.Compact,
 								} as const),
 					}
@@ -323,7 +319,7 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 		})
 	}
 
-	private showActiveSessionInfoDialog(session: Session, isThisSession: boolean) {
+	private showActiveSessionInfoDialog(session: sysTypeRefs.Session, isThisSession: boolean) {
 		const actionDialogProperties = {
 			title: "details_label",
 			child: {
@@ -355,19 +351,22 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 		Dialog.showActionDialog(actionDialogProperties)
 	}
 
-	private _closeSession(session: Session) {
+	private _closeSession(session: sysTypeRefs.Session) {
 		locator.entityClient.erase(session).catch(
-			ofClass(NotFoundError, () => {
+			ofClass(restError.NotFoundError, () => {
 				console.log(`session ${JSON.stringify(session._id)} already deleted`)
 			}),
 		)
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		for (const update of updates) {
-			if (isUpdateForTypeRef(SessionTypeRef, update)) {
+			if (entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.SessionTypeRef, update)) {
 				await this._updateSessions()
-			} else if (isUpdateForTypeRef(CustomerPropertiesTypeRef, update) || isUpdateForTypeRef(UserSettingsGroupRootTypeRef, update)) {
+			} else if (
+				entityUpdateUtils.isUpdateForTypeRef(sysTypeRefs.CustomerPropertiesTypeRef, update) ||
+				entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, update)
+			) {
 				m.redraw()
 			}
 

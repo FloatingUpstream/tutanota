@@ -1,6 +1,6 @@
 import o from "@tutao/otest"
 import { HashingVectorizer } from "../../../../../../src/mail-app/workerUtils/spamClassification/HashingVectorizer"
-import { arrayEquals } from "@tutao/tutanota-utils"
+import { arrayEquals } from "@tutao/utils"
 import { spamClassifierTokenizer } from "../../../../../../src/common/api/common/utils/spamClassificationUtils/SpamMailProcessor"
 
 o.spec("HashingVectorizer", () => {
@@ -13,6 +13,7 @@ o.spec("HashingVectorizer", () => {
 	]
 
 	const tokenizedDocuments = rawDocuments.map(spamClassifierTokenizer)
+	const vectorizationSpace = 100
 
 	o("vectorize creates same vector for same tokens", async () => {
 		const vectorizer = new HashingVectorizer()

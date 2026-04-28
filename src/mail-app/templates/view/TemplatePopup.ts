@@ -6,7 +6,7 @@ import type { Shortcut } from "../../../common/misc/KeyManager"
 import { isKeyPressed } from "../../../common/misc/KeyManager"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { Keys, ShareCapability } from "../../../common/api/common/TutanotaConstants"
+import { Keys, ShareCapability } from "@tutao/app-env"
 import { TemplatePopupResultRow } from "./TemplatePopupResultRow.js"
 import { Icons } from "../../../common/gui/base/icons/Icons"
 import { TemplateExpander } from "./TemplateExpander.js"
@@ -14,13 +14,12 @@ import type { LanguageCode } from "../../../common/misc/LanguageViewModel"
 import { lang, languageByCode } from "../../../common/misc/LanguageViewModel"
 import type { windowSizeListener } from "../../../common/misc/WindowFacade"
 import { windowFacade } from "../../../common/misc/WindowFacade"
-import type { EmailTemplate, TemplateGroupRoot } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { TemplateGroupRootTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import type { ButtonAttrs } from "../../../common/gui/base/Button.js"
 import { Button, ButtonColor, ButtonType } from "../../../common/gui/base/Button.js"
 import { SELECT_NEXT_TEMPLATE, SELECT_PREV_TEMPLATE, TEMPLATE_SHORTCUT_PREFIX, TemplatePopupModel } from "../model/TemplatePopupModel.js"
 import { attachDropdown, DomRectReadOnlyPolyfilled, PosRect } from "../../../common/gui/base/Dropdown.js"
-import { debounce, downcast, neverNull } from "@tutao/tutanota-utils"
+import { debounce, downcast, neverNull } from "@tutao/utils"
 import { locator } from "../../../common/api/main/CommonLocator"
 import { TemplateSearchBar } from "./TemplateSearchBar.js"
 import { Editor } from "../../../common/gui/editor/Editor"
@@ -30,6 +29,8 @@ import { getConfirmation } from "../../../common/gui/base/GuiUtils"
 import { ScrollSelectList } from "../../../common/gui/ScrollSelectList"
 import { IconButton, IconButtonAttrs } from "../../../common/gui/base/IconButton.js"
 import { TEMPLATE_LIST_ENTRY_WIDTH, TEMPLATE_POPUP_HEIGHT, TEMPLATE_POPUP_TWO_COLUMN_MIN_WIDTH } from "./TemplateConstants.js"
+
+type EmailTemplate = tutanotaTypeRefs.EmailTemplate
 
 /**
  *    Creates a Modal/Popup that allows user to paste templates directly into the MailEditor.
@@ -288,21 +289,21 @@ export class TemplatePopup implements ModalComponent {
 						}
 					})
 				},
-				icon: Icons.Add,
+				icon: Icons.Plus,
 				colors: ButtonColor.DrawerNav,
 			}
 		} else if (writeableGroups.length === 1) {
 			return {
 				title: "createTemplate_action",
 				click: () => this.showTemplateEditor(null, writeableGroups[0].groupRoot),
-				icon: Icons.Add,
+				icon: Icons.Plus,
 				colors: ButtonColor.DrawerNav,
 			}
 		} else if (writeableGroups.length > 1) {
 			return attachDropdown({
 				mainButtonAttrs: {
 					title: "createTemplate_action",
-					icon: Icons.Add,
+					icon: Icons.Plus,
 					colors: ButtonColor.DrawerNav,
 				},
 				childAttrs: () =>
@@ -356,9 +357,9 @@ export class TemplatePopup implements ModalComponent {
 							title: "editTemplate_action",
 							click: () =>
 								locator.entityClient
-									.load(TemplateGroupRootTypeRef, neverNull(selectedTemplate._ownerGroup))
+									.load(tutanotaTypeRefs.TemplateGroupRootTypeRef, neverNull(selectedTemplate._ownerGroup))
 									.then((groupRoot) => this.showTemplateEditor(selectedTemplate, groupRoot)),
-							icon: Icons.Edit,
+							icon: Icons.PenFilled,
 							colors: ButtonColor.DrawerNav,
 						}),
 						m(IconButton, {
@@ -366,7 +367,7 @@ export class TemplatePopup implements ModalComponent {
 							click: () => {
 								getConfirmation("deleteTemplate_msg").confirmed(() => locator.entityClient.erase(selectedTemplate))
 							},
-							icon: Icons.Trash,
+							icon: Icons.TrashFilled,
 							colors: ButtonColor.DrawerNav,
 						}),
 					]
@@ -469,7 +470,7 @@ export class TemplatePopup implements ModalComponent {
 		return this.focusedBeforeShown
 	}
 
-	showTemplateEditor(templateToEdit: EmailTemplate | null, groupRoot: TemplateGroupRoot) {
+	showTemplateEditor(templateToEdit: EmailTemplate | null, groupRoot: tutanotaTypeRefs.TemplateGroupRoot) {
 		import("../../settings/TemplateEditor.js").then((editor) => {
 			editor.showTemplateEditor(templateToEdit, groupRoot)
 		})

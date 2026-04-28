@@ -1,6 +1,5 @@
 import m, { Children } from "mithril"
 import { UpdatableSettingsViewer } from "./Interfaces.js"
-import { EntityUpdateData } from "../api/common/utils/EntityUpdateUtils.js"
 import { IconButton } from "../gui/base/IconButton.js"
 import { Icons } from "../gui/base/icons/Icons.js"
 import { ButtonSize } from "../gui/base/ButtonSize.js"
@@ -12,9 +11,10 @@ import { lang } from "../misc/LanguageViewModel.js"
 import { locator } from "../api/main/CommonLocator"
 import { copyToClipboard } from "../misc/ClipboardUtils.js"
 import { mailLocator } from "../../mail-app/mailLocator.js"
-import { showSnackBar } from "../gui/base/SnackBar.js"
-import { LazyLoaded } from "@tutao/tutanota-utils"
+import { showInfoSnackbar } from "../gui/base/SnackBar.js"
+import { LazyLoaded } from "@tutao/utils"
 import { AffiliateViewModel } from "./AffiliateViewModel.js"
+import { entityUpdateUtils } from "@tutao/typerefs"
 
 /**
  * Section in user settings to display the referral link and let users share it.
@@ -58,7 +58,7 @@ export class AffiliateSettingsViewer implements UpdatableSettingsViewer {
 							m(IconButton, {
 								title: "copy_action",
 								click: () => this.onCopyButtonClick(shareUrl),
-								icon: Icons.Copy,
+								icon: Icons.CopyFilled,
 								size: ButtonSize.Compact,
 							}),
 					}),
@@ -91,17 +91,11 @@ export class AffiliateSettingsViewer implements UpdatableSettingsViewer {
 
 	private onCopyButtonClick(shareUrl: string): void {
 		copyToClipboard(shareUrl).then(() => {
-			showSnackBar({
-				message: "linkCopied_msg",
-				button: {
-					label: "close_alt",
-					click: () => {},
-				},
-			})
+			showInfoSnackbar("linkCopied_msg")
 		})
 	}
 
-	async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>): Promise<void> {
+	async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>): Promise<void> {
 		// can be a noop because the referral code will never change once it was created
 		// we trigger creation in the constructor if there is no code yet
 	}

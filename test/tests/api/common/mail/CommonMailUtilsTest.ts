@@ -1,25 +1,27 @@
 import o from "@tutao/otest"
-import { createMail, createMailAddress, Mail, MailAddressTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
-import { EncryptionAuthStatus, MailState } from "../../../../../src/common/api/common/TutanotaConstants.js"
+import { EncryptionAuthStatus } from "../../../../../src/app-env"
 import { createTestEntity } from "../../../TestUtils.js"
 import { Icons } from "../../../../../src/common/gui/base/icons/Icons.js"
-import { ProgrammingError } from "../../../../../src/common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import { getDisplayedSender } from "../../../../../src/common/api/common/CommonMailUtils.js"
 import { getConfidentialIcon } from "../../../../../src/mail-app/mail/view/MailGuiUtils.js"
 
 import { isSystemNotification } from "../../../../../src/mail-app/mail/view/MailViewerUtils.js"
 import { compareMails } from "../../../../../src/mail-app/mail/model/MailUtils"
 import { isTutanotaTeamAddress, isTutaTeamMail } from "../../../../../src/common/mailFunctionality/SharedMailUtils"
+import { MailState } from "../../../../../src/app-env"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 
-export function createSystemMail(overrides: Partial<Mail> = {}): Mail {
-	return createTestEntity(MailTypeRef, {
+export function createSystemMail(overrides: Partial<tutanotaTypeRefs.Mail> = {}): tutanotaTypeRefs.Mail {
+	return createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 		...{
-			sender: createTestEntity(MailAddressTypeRef, { address: "system@tutanota.de", name: "System" }),
+			sender: createTestEntity(tutanotaTypeRefs.MailAddressTypeRef, { address: "system@tutanota.de", name: "System" }),
 			state: MailState.RECEIVED,
 			authStatus: null,
 			_id: ["", ""],
 			_ownerEncSessionKey: null,
 			_ownerGroup: "",
+			_kdfNonce: null,
 			_permissions: "",
 			attachments: [],
 			bucketKey: null,
@@ -46,20 +48,20 @@ export function createSystemMail(overrides: Partial<Mail> = {}): Mail {
 
 o.spec("CommonMailUtils", () => {
 	const tutanotaSender = () =>
-		createMailAddress({
+		tutanotaTypeRefs.createMailAddress({
 			address: "sender@tutanota.de",
 			name: "Tutanota sender",
 			contact: null,
 		})
-	const tutaoSender = () => createMailAddress({ address: "sender@tutao.de", name: "Tutao sender", contact: null })
+	const tutaoSender = () => tutanotaTypeRefs.createMailAddress({ address: "sender@tutao.de", name: "Tutao sender", contact: null })
 	const tutanotaNoReplySender = () =>
-		createMailAddress({
+		tutanotaTypeRefs.createMailAddress({
 			address: "no-reply@tutanota.de",
 			name: "Tutanota no-reply",
 			contact: null,
 		})
 	const tutaoNoReplySender = () =>
-		createMailAddress({
+		tutanotaTypeRefs.createMailAddress({
 			address: "no-reply@tutao.de",
 			name: "Tutao no-reply",
 			contact: null,
@@ -80,26 +82,26 @@ o.spec("CommonMailUtils", () => {
 	})
 
 	o("getConfidentialIcon", function () {
-		const mail: Mail = createTestEntity(MailTypeRef, {
+		const mail: tutanotaTypeRefs.Mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 			confidential: true,
 			encryptionAuthStatus: EncryptionAuthStatus.TUTACRYPT_AUTHENTICATION_SUCCEEDED,
 		})
-		o(getConfidentialIcon(mail)).equals(Icons.PQLock)
+		o(getConfidentialIcon(mail)).equals(Icons.QuantumLockFilled)
 
 		mail.encryptionAuthStatus = EncryptionAuthStatus.TUTACRYPT_AUTHENTICATION_FAILED
-		o(getConfidentialIcon(mail)).equals(Icons.PQLock)
+		o(getConfidentialIcon(mail)).equals(Icons.QuantumLockFilled)
 
 		mail.encryptionAuthStatus = EncryptionAuthStatus.AES_NO_AUTHENTICATION
-		o(getConfidentialIcon(mail)).equals(Icons.Lock)
+		o(getConfidentialIcon(mail)).equals(Icons.GenericLockFilled)
 
 		mail.encryptionAuthStatus = null
-		o(getConfidentialIcon(mail)).equals(Icons.Lock)
+		o(getConfidentialIcon(mail)).equals(Icons.GenericLockFilled)
 
 		mail.encryptionAuthStatus = EncryptionAuthStatus.RSA_NO_AUTHENTICATION
-		o(getConfidentialIcon(mail)).equals(Icons.Lock)
+		o(getConfidentialIcon(mail)).equals(Icons.GenericLockFilled)
 
 		mail.encryptionAuthStatus = EncryptionAuthStatus.TUTACRYPT_SENDER
-		o(getConfidentialIcon(mail)).equals(Icons.PQLock)
+		o(getConfidentialIcon(mail)).equals(Icons.QuantumLockFilled)
 
 		mail.confidential = false
 		o(() => getConfidentialIcon(mail)).throws(ProgrammingError)
@@ -107,7 +109,7 @@ o.spec("CommonMailUtils", () => {
 
 	o.spec("isTutanotaTeamMail", function () {
 		o("regular non-confidential email is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutanotaSender(),
@@ -116,7 +118,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("regular confidential email is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutanotaSender(),
@@ -145,7 +147,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao without auth is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -155,7 +157,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao with PQ auth is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -165,7 +167,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao with failing PQ auth is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -175,7 +177,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao with RSA (no) auth is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -185,7 +187,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao with AES (no) auth is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -195,7 +197,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from no-reply is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutanotaNoReplySender(),
@@ -204,12 +206,12 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o(`non-confidential "system" email is not`, function () {
-			const mail = createMail({ ...createSystemMail(), confidential: false })
+			const mail = tutanotaTypeRefs.createMail({ ...createSystemMail(), confidential: false })
 			o(isTutaTeamMail(mail)).equals(false)
 		})
 
 		o("non-confidential email from tutao is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -218,7 +220,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("non confidential email from no-reply is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutanotaNoReplySender(),
@@ -229,7 +231,7 @@ o.spec("CommonMailUtils", () => {
 
 	o.spec("isSystemNotification", function () {
 		o("regular non-confidential email is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutanotaSender(),
@@ -238,7 +240,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("regular confidential email is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutanotaSender(),
@@ -272,7 +274,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -282,7 +284,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao with PQ auth is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -292,7 +294,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutanota no-reply is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutanotaNoReplySender(),
@@ -301,7 +303,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("confidential email from tutao no-reply is", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: true,
 				state: MailState.RECEIVED,
 				sender: tutaoNoReplySender(),
@@ -310,12 +312,12 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o(`non-confidential "system" email is not`, function () {
-			const mail = createMail({ ...createSystemMail(), confidential: false })
+			const mail = tutanotaTypeRefs.createMail({ ...createSystemMail(), confidential: false })
 			o(isSystemNotification(mail)).equals(false)
 		})
 
 		o("non-confidential email from tutao is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutaoSender(),
@@ -324,7 +326,7 @@ o.spec("CommonMailUtils", () => {
 		})
 
 		o("non confidential email from no-reply is not", function () {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				confidential: false,
 				state: MailState.RECEIVED,
 				sender: tutanotaNoReplySender(),
@@ -335,18 +337,18 @@ o.spec("CommonMailUtils", () => {
 
 	o.spec("compareMails", () => {
 		o.test("same mail", () => {
-			const mail = createTestEntity(MailTypeRef, {
+			const mail = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				receivedDate: new Date(1000),
 				_id: ["000000000", "000000000"],
 			})
 			o.check(compareMails(mail, mail)).equals(0)
 		})
 		o.test("same date but different IDs", () => {
-			const mail1 = createTestEntity(MailTypeRef, {
+			const mail1 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				receivedDate: new Date(1000),
 				_id: ["000000000", "000000000"],
 			})
-			const mail2 = createTestEntity(MailTypeRef, {
+			const mail2 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				receivedDate: new Date(1000),
 				_id: ["000000000", "000000001"],
 			})
@@ -356,11 +358,11 @@ o.spec("CommonMailUtils", () => {
 			o.check(compareMails(mail2, mail1)).equals(-1)
 		})
 		o.test("different date", () => {
-			const mail1 = createTestEntity(MailTypeRef, {
+			const mail1 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				receivedDate: new Date(1000),
 				_id: ["000000000", "000000000"],
 			})
-			const mail2 = createTestEntity(MailTypeRef, {
+			const mail2 = createTestEntity(tutanotaTypeRefs.MailTypeRef, {
 				receivedDate: new Date(2000),
 				_id: ["000000000", "000000001"],
 			})

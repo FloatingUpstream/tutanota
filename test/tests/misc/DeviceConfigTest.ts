@@ -8,10 +8,10 @@ import {
 	migrateConfigV5to6,
 } from "../../../src/common/misc/DeviceConfig.js"
 import { matchers, object, when } from "testdouble"
-import { verify } from "@tutao/tutanota-test-utils"
+import { verify } from "@tutao/otest"
 import { CredentialEncryptionMode } from "../../../src/common/misc/credentials/CredentialEncryptionMode.js"
 import { CredentialType } from "../../../src/common/misc/credentials/CredentialType.js"
-import { getDayShifted, getStartOfDay } from "@tutao/tutanota-utils"
+import { getDayShifted, getStartOfDay } from "@tutao/utils"
 
 o.spec("DeviceConfig", function () {
 	o.spec("migrateConfig", function () {
@@ -209,6 +209,7 @@ o.spec("DeviceConfig", function () {
 				isCredentialsMigratedToNative: false,
 				offlineTimeRangeDateByUser: { userId1: getStartOfDay(getDayShifted(new Date(), -42)).getTime() },
 				installationDate: getStartOfDay(new Date()).getTime().toString(),
+				isUndoSendEnabled: true,
 			}
 
 			// We can't just call verify on localStorageMock.setItem because the JSON string may not match perfectly

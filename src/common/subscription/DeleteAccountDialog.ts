@@ -1,19 +1,17 @@
 import m from "mithril"
 import { Dialog } from "../gui/base/Dialog"
 import { lang } from "../misc/LanguageViewModel"
-import { InvalidDataError, LockedError, PreconditionFailedError } from "../api/common/error/RestError"
+import * as restError from "@tutao/rest-client/error"
 import { Autocomplete, TextField, TextFieldType } from "../gui/base/TextField.js"
-import { neverNull } from "@tutao/tutanota-utils"
+import { neverNull } from "@tutao/utils"
 import { getCleanedMailAddress } from "../misc/parsing/MailAddressParser"
 import { locator } from "../api/main/CommonLocator"
-import { getEtId } from "../api/common/utils/EntityUtils"
-import { CloseEventBusOption } from "../api/common/TutanotaConstants.js"
-import { SurveyData } from "../api/entities/sys/TypeRefs.js"
+import { getEtId, sysTypeRefs } from "@tutao/typerefs"
+import { CloseEventBusOption, isIOSApp } from "@tutao/app-env"
 import { PasswordField } from "../misc/passwords/PasswordField.js"
-import { isIOSApp } from "../api/common/Env.js"
 import { client } from "../misc/ClientDetector"
 
-export function showDeleteAccountDialog(surveyData: SurveyData | null = null) {
+export function showDeleteAccountDialog(surveyData: sysTypeRefs.SurveyData | null = null) {
 	let takeover = ""
 	let password = ""
 	const userId = getEtId(locator.logins.getUserController().user)
@@ -55,7 +53,7 @@ export function showDeleteAccountDialog(surveyData: SurveyData | null = null) {
 	})
 }
 
-async function deleteAccount(takeover: string, password: string, surveyData: SurveyData | null = null): Promise<boolean> {
+async function deleteAccount(takeover: string, password: string, surveyData: sysTypeRefs.SurveyData | null = null): Promise<boolean> {
 	const cleanedTakeover = takeover === "" ? "" : getCleanedMailAddress(takeover)
 
 	if (cleanedTakeover === null) {
@@ -80,9 +78,9 @@ async function deleteAccount(takeover: string, password: string, surveyData: Sur
 			await locator.loginFacade.deleteAccount(password, neverNull(cleanedTakeover), surveyData)
 			return true
 		} catch (e) {
-			if (e instanceof PreconditionFailedError) await Dialog.message("passwordWrongInvalid_msg")
-			if (e instanceof InvalidDataError) await Dialog.message("takeoverAccountInvalid_msg")
-			if (e instanceof LockedError) await Dialog.message("operationStillActive_msg")
+			if (e instanceof restError.PreconditionFailedError) await Dialog.message("passwordWrongInvalid_msg")
+			if (e instanceof restError.TooManyRequestsError) await Dialog.message("takeoverAccountInvalid_msg")
+			if (e instanceof restError.LockedError) await Dialog.message("operationStillActive_msg")
 			return false
 		}
 	}

@@ -4,11 +4,11 @@ import type { WizardPageAttrs, WizardPageN } from "../gui/base/WizardDialog.js"
 import { emitWizardEvent, WizardEventType } from "../gui/base/WizardDialog.js"
 import { SignupForm } from "./SignupForm"
 import { getDisplayNameOfPlanType } from "./FeatureListProvider"
-import { PlanType } from "../api/common/TutanotaConstants.js"
 import { lang, Translation } from "../misc/LanguageViewModel.js"
 import { SignupFlowStage, SignupFlowUsageTestController } from "./usagetest/UpgradeSubscriptionWizardUsageTestUtils.js"
 import { createAccount } from "./utils/PaymentUtils"
 import { Dialog } from "../gui/base/Dialog"
+import { isIOSApp, PlanType } from "@tutao/app-env"
 
 export class SignupPage implements WizardPageN<UpgradeSubscriptionData> {
 	private dom!: HTMLElement
@@ -74,11 +74,18 @@ export class SignupPageAttrs implements WizardPageAttrs<UpgradeSubscriptionData>
 
 	nextAction(showErrorDialog: boolean): Promise<boolean> {
 		SignupFlowUsageTestController.completeStage(SignupFlowStage.CREATE_ACCOUNT, this.data.targetPlanType, this.data.options.paymentInterval())
+		if (isIOSApp()) {
+			SignupFlowUsageTestController.completeStage(
+				SignupFlowStage.SELECT_PAYMENT_METHOD,
+				this.data.targetPlanType,
+				this.data.options.paymentInterval(),
+				this.data.paymentData.paymentMethod,
+			)
+		}
 		return Promise.resolve(true)
 	}
 
 	prevAction(showErrorDialog: boolean): Promise<boolean> {
-		SignupFlowUsageTestController.deletePing(SignupFlowStage.SELECT_PLAN)
 		return Promise.resolve(true)
 	}
 

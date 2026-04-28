@@ -9,14 +9,10 @@ private typealias TutaToStructuredContacts = [String: StructuredContact]
 private let CONTACT_BOOK_ID = "APPLE_DEFAULT"
 
 /// Handles synchronization between contacts in Tuta and contacts on the device.
-class IosMobileContactsFacade: MobileContactsFacade {
-	private let userDefaults: UserDefaults
+final class IosMobileContactsFacade: MobileContactsFacade {
 	private let contactFacade: TutaContactFacade
 
-	init(userDefault: UserDefaults) {
-		self.userDefaults = userDefault
-		self.contactFacade = TutaContactFacade(userDefault: userDefault)
-	}
+	init(userDefaults: any UserPreferencesProvider) { self.contactFacade = TutaContactFacade(userDefaults: userDefaults) }
 
 	func findSuggestions(_ query: String) async throws -> [ContactSuggestion] {
 		try await acquireContactsPermission()
@@ -34,7 +30,7 @@ class IosMobileContactsFacade: MobileContactsFacade {
 		)
 		try contactList.insert(contacts: queryResult.newServerContacts)
 		try contactList.update(contacts: queryResult.existingServerContacts)
-		try contactList.setContactMapping(
+		contactList.setContactMapping(
 			contacts: queryResult.nativeContactWithoutSourceId.map {
 				let serverId = $0.serverId
 				return $0.contact.toStructuredContact(serverId: serverId)
@@ -64,7 +60,7 @@ class IosMobileContactsFacade: MobileContactsFacade {
 
 		// For sync it normally wouldn't happen that we have a contact without source/server id but for existing contacts without
 		// hashes we want to write the hashes on the first run so we reuse this field.
-		try contactList.setContactMapping(
+		contactList.setContactMapping(
 			contacts: matchResult.nativeContactWithoutSourceId.map {
 				let serverId = $0.serverId
 				return $0.contact.toStructuredContact(serverId: serverId)

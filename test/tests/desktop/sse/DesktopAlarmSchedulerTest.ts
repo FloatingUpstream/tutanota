@@ -1,29 +1,22 @@
-import o from "@tutao/otest"
+import o, { spy } from "@tutao/otest"
 import n from "../../nodemocker.js"
-import { EndType, RepeatPeriod } from "../../../../src/common/api/common/TutanotaConstants.js"
+import { EndType, RepeatPeriod } from "../../../../src/app-env"
 import { DesktopAlarmScheduler } from "../../../../src/common/desktop/sse/DesktopAlarmScheduler.js"
-import { stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
+import { stringToUtf8Uint8Array } from "@tutao/utils"
 import { WindowManager } from "../../../../src/common/desktop/DesktopWindowManager.js"
 import { DesktopNotifier } from "../../../../src/common/desktop/notifications/DesktopNotifier.js"
 import { DesktopAlarmStorage } from "../../../../src/common/desktop/sse/DesktopAlarmStorage.js"
 import { DesktopNativeCryptoFacade } from "../../../../src/common/desktop/DesktopNativeCryptoFacade.js"
-import { spy } from "@tutao/tutanota-test-utils"
 import { makeAlarmScheduler } from "../../calendar/CalendarTestUtils.js"
 import { matchers, object, verify, when } from "testdouble"
-import {
-	AlarmInfoTypeRef,
-	AlarmNotification,
-	AlarmNotificationTypeRef,
-	CalendarEventRefTypeRef,
-	NotificationSessionKeyTypeRef,
-	RepeatRuleTypeRef,
-} from "../../../../src/common/api/entities/sys/TypeRefs.js"
+import { ServerModelUntypedInstance } from "@tutao/typerefs"
 import { AlarmScheduler } from "../../../../src/common/calendar/date/AlarmScheduler.js"
-import { formatNotificationForDisplay } from "../../../../src/calendar-app/calendar/model/CalendarModel.js"
 import { createTestEntity } from "../../TestUtils"
 import { EncryptedAlarmNotification } from "../../../../src/common/native/common/EncryptedAlarmNotification"
-import { ClientModelInfo } from "../../../../src/common/api/common/EntityFunctions.js"
-import { ServerModelUntypedInstance } from "../../../../src/common/api/common/EntityTypes"
+import { ClientModelInfo } from "@tutao/typerefs"
+import { sysTypeRefs } from "@tutao/typerefs"
+
+import { formatNotificationForDisplay } from "../../../../src/common/misc/Formatter"
 
 const oldTimezone = process.env.TZ
 const userId = "userId1"
@@ -151,7 +144,7 @@ o.spec("DesktopAlarmScheduler", function () {
 			const scheduler = new DesktopAlarmScheduler(wmMock, notifierMock, alarmStorageMock, alarmScheduler)
 
 			// Summary 2
-			const an1: AlarmNotification = createAlarmNotification({
+			const an1: sysTypeRefs.AlarmNotification = createAlarmNotification({
 				startTime: new Date(2019, 9, 20, 10),
 				endTime: new Date(2019, 9, 20, 12),
 				trigger: "5M",
@@ -232,7 +225,7 @@ o.spec("DesktopAlarmScheduler", function () {
 			const cb = cbCaptor.value
 			cb(an1.eventStart, "title")
 
-			const { title, body } = formatNotificationForDisplay(an1.eventStart, "title")
+			const { title, body } = formatNotificationForDisplay(an1.eventStart, "title", false)
 			// taking the args apart because we can't match the click handler
 			o.check(notifierMock.showCountedUserNotification.calls.length).equals(1)
 			const firstCall = notifierMock.showCountedUserNotification.calls[0] as Parameters<DesktopNotifier["showCountedUserNotification"]>
@@ -252,27 +245,27 @@ let alarmIdCounter = 0
 
 function createAlarmNotification({ startTime, endTime, trigger, endType, endValue, frequency, interval }: any) {
 	alarmIdCounter++
-	return createTestEntity(AlarmNotificationTypeRef, {
+	return createTestEntity(sysTypeRefs.AlarmNotificationTypeRef, {
 		_id: `scheduledAlarmId${alarmIdCounter}`,
-		_type: AlarmNotificationTypeRef,
+		_type: sysTypeRefs.AlarmNotificationTypeRef,
 		eventStart: startTime,
 		eventEnd: endTime,
 		operation: "0",
 		summary: `summary${alarmIdCounter}`,
 		alarmInfo: {
-			_type: AlarmInfoTypeRef,
+			_type: sysTypeRefs.AlarmInfoTypeRef,
 			_id: `alarmInfoId1${alarmIdCounter}`,
 			alarmIdentifier: `alarmIdentifier${alarmIdCounter}`,
 			trigger,
 			calendarRef: {
-				_type: CalendarEventRefTypeRef,
+				_type: sysTypeRefs.CalendarEventRefTypeRef,
 				_id: `calendarRefId${alarmIdCounter}`,
 				elementId: `calendarRefElementId${alarmIdCounter}`,
 				listId: `calendarRefListId${alarmIdCounter}`,
 			},
 		},
 		notificationSessionKeys: [
-			createTestEntity(NotificationSessionKeyTypeRef, {
+			createTestEntity(sysTypeRefs.NotificationSessionKeyTypeRef, {
 				_id: `notificationSessionKeysId${alarmIdCounter}`,
 				pushIdentifierSessionEncSessionKey: stringToUtf8Uint8Array(`pushIdentifierSessionEncSessionKey${alarmIdCounter}`),
 				pushIdentifier: [`pushIdentifier${alarmIdCounter}Part1`, `pushIdentifier${alarmIdCounter}Part2`],
@@ -281,7 +274,7 @@ function createAlarmNotification({ startTime, endTime, trigger, endType, endValu
 		repeatRule: endType
 			? {
 					_id: `repeatRuleId${alarmIdCounter}`,
-					_type: RepeatRuleTypeRef,
+					_type: sysTypeRefs.RepeatRuleTypeRef,
 					timeZone: "Europe/Berlin",
 					excludedDates: [],
 					endType,

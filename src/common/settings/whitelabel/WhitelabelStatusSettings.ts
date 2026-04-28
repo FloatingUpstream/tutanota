@@ -6,6 +6,7 @@ import { TextField } from "../../gui/base/TextField.js"
 import { IconButton } from "../../gui/base/IconButton.js"
 import { ButtonSize } from "../../gui/base/ButtonSize.js"
 import { getAvailablePlansWithWhitelabel } from "../../subscription/utils/SubscriptionUtils.js"
+import { UpgradePromptType } from "@tutao/app-env"
 
 export type WhitelabelStatusSettingsAttrs = {
 	isWhitelabelActive: boolean
@@ -27,9 +28,9 @@ export class WhitelabelStatusSettings implements Component<WhitelabelStatusSetti
 			title: "whitelabelDomain_label",
 			click: async () => {
 				const plansWithWhitelabel = await getAvailablePlansWithWhitelabel()
-				showPlanUpgradeRequiredDialog(plansWithWhitelabel)
+				showPlanUpgradeRequiredDialog(UpgradePromptType.WHITELABEL, plansWithWhitelabel)
 			},
-			icon: Icons.Edit,
+			icon: Icons.PenFilled,
 			size: ButtonSize.Compact,
 		})
 	}

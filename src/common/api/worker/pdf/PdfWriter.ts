@@ -1,12 +1,12 @@
 import { PdfObject } from "./PdfObject.js"
 import { GENERATION_NUMBER, NEW_LINE, PDF_DEFAULT_OBJECTS, PDF_METADATA, PdfDictValue, PdfObjectRef, PdfStreamEncoding } from "./PdfConstants.js"
 import { PdfStreamObject } from "./PdfStreamObject.js"
-import { concat, hexToUint8Array } from "@tutao/tutanota-utils"
+import { concat, hexToUint8Array } from "@tutao/utils"
 import { Deflater } from "./Deflater.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 
-// Binary header specifying the PDF version (2.0 = "322e30") and the fact that binary data is present in the file
-const PDF_HEADER = hexToUint8Array("255044462d322e300a25e2e3cfd30a")
+// Binary header specifying the PDF version (1.4 = "312e34") and the fact that binary data is present in the file
+const PDF_HEADER = hexToUint8Array("255044462d312e340a25e2e3cfd30a")
 // Special PDF object with number 0. Only appears in xref table
 const ZERO_OBJECT_ENTRY = "0000000000 65535 f"
 
@@ -107,9 +107,9 @@ export class PdfWriter {
 	 */
 	makeTrailer(identifier: string): string {
 		let trailer = `trailer${NEW_LINE}<<${NEW_LINE}`
-		trailer += `/Size ${this.pdfObjectList.length + 1}`
-		trailer += `/Root ${this.pdfReferenceToString({ refId: "CATALOG" })}`
-		trailer += `/ID [(${identifier})(${identifier})]`
+		trailer += `/Size ${this.pdfObjectList.length + 1}${NEW_LINE}`
+		trailer += `/Root ${this.pdfReferenceToString({ refId: "CATALOG" })}${NEW_LINE}`
+		trailer += `/ID [<${identifier}> <${identifier}>]${NEW_LINE}`
 		trailer += `${NEW_LINE}>>${NEW_LINE}startxref${NEW_LINE}${this.byteLengthPosition}${NEW_LINE}%%EOF`
 		return trailer
 	}
@@ -165,11 +165,11 @@ export class PdfWriter {
 	}
 
 	pdfDictionaryToString(objectReferenceDict: Map<string, PdfDictValue>): string {
-		let referenceString = "<<" + " "
+		let referenceString = `<<${NEW_LINE}`
 		for (const [key, value] of objectReferenceDict) {
-			referenceString += `/${key} ${this.resolveDictValue(value)} `
+			referenceString += `/${key} ${this.resolveDictValue(value)}${NEW_LINE}`
 		}
-		referenceString += ">>"
+		referenceString += `>>${NEW_LINE}`
 		return referenceString
 	}
 
@@ -327,7 +327,8 @@ export class PdfWriter {
 			encodedObjects.push(encodedObject)
 		}
 		encodedObjects.push(this.textEncoder.encode(this.makeXRefTable())) // Make xref table which requires all object's calculated byte-positions
-		encodedObjects.push(this.textEncoder.encode(this.makeTrailer(Date.now().toString()))) // Make trailer
+		const identifier = "FACEBEEF" + Date.now().toString() + Date.now().toString()
+		encodedObjects.push(this.textEncoder.encode(this.makeTrailer(identifier))) // Make trailer
 
 		return concat(...encodedObjects)
 	}

@@ -1,13 +1,13 @@
 import { showFileChooser, showNativeFilePicker } from "../../../common/file/FileController.js"
-import { utf8Uint8ArrayToString } from "@tutao/tutanota-utils"
+import { utf8Uint8ArrayToString } from "@tutao/utils"
 import { showProgressDialog } from "../../../common/gui/dialogs/ProgressDialog.js"
 import { locator } from "../../../common/api/main/CommonLocator.js"
 import { Dialog } from "../../../common/gui/base/Dialog.js"
 import { ContactModel } from "../../../common/contactsFunctionality/ContactModel.js"
-import { ContactTypeRef } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { exportContacts } from "../VCardExporter.js"
 import { mailLocator } from "../../mailLocator.js"
-import { isApp } from "../../../common/api/common/Env.js"
+import { isApp } from "@tutao/app-env"
 
 export async function importAsVCard() {
 	const allowedExtensions = ["vcf"]
@@ -35,7 +35,7 @@ export function exportAsVCard(contactModel: ContactModel): Promise<void> {
 		"pleaseWait_msg",
 		contactModel.getContactListId().then((contactListId) => {
 			if (!contactListId) return 0
-			return locator.entityClient.loadAll(ContactTypeRef, contactListId).then((allContacts) => {
+			return locator.entityClient.loadAll(tutanotaTypeRefs.ContactTypeRef, contactListId).then((allContacts) => {
 				if (allContacts.length === 0) {
 					return 0
 				} else {

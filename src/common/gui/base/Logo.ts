@@ -1,13 +1,14 @@
-import { assertMainOrNodeBoot, isApp } from "../../api/common/Env"
+import { assertMainOrNodeBoot } from "@tutao/app-env"
 import { client } from "../../misc/ClientDetector.js"
 import { isColorLight } from "./Color.js"
 import { theme } from "../theme.js"
+import { isApp } from "@tutao/app-env"
 
 assertMainOrNodeBoot()
 
 export function getTutaLogo(): string {
 	if (isColorLight(theme.surface)) {
-		return getTutaLogoSvg()
+		return getTutaLogoSvg(theme.outline_variant)
 	}
 	return getTutaLogoSvg("#fff")
 }

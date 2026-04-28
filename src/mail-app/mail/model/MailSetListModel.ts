@@ -1,13 +1,15 @@
-import { Mail, MailSet, MailSetEntry } from "../../../common/api/entities/tutanota/TypeRefs"
+import { elementIdPart, entityUpdateUtils, getElementId, listIdPart, tutanotaTypeRefs } from "@tutao/typerefs"
 import { ListFilter } from "../../../common/misc/ListModel"
 import { ListLoadingState, ListState } from "../../../common/gui/base/List"
-import { EntityUpdateData } from "../../../common/api/common/utils/EntityUpdateUtils"
 import Stream from "mithril/stream"
 import { MailModel } from "./MailModel"
-import { elementIdPart, getElementId, listIdPart } from "../../../common/api/common/utils/EntityUtils"
-import { MailSetKind } from "../../../common/api/common/TutanotaConstants"
-import { groupByAndMap, isEmpty, promiseFilter } from "@tutao/tutanota-utils"
+import { groupByAndMap, isEmpty, promiseFilter } from "@tutao/utils"
 import { ProcessInboxHandler } from "./ProcessInboxHandler"
+import { MailSetKind } from "@tutao/app-env"
+
+type Mail = tutanotaTypeRefs.Mail
+type MailSetEntry = tutanotaTypeRefs.MailSetEntry
+type MailSet = tutanotaTypeRefs.MailSet
 
 /**
  * Interface for retrieving and listing mails
@@ -104,6 +106,11 @@ export interface MailSetListModel {
 	retryLoading(): Promise<void>
 
 	/**
+	 * Reload the list from the start.
+	 */
+	reload(): Promise<void>
+
+	/**
 	 * Load older items in the list.
 	 */
 	loadMore(): Promise<void>
@@ -133,7 +140,7 @@ export interface MailSetListModel {
 	 * Handle entity events
 	 * @param update
 	 */
-	handleEntityUpdate(update: EntityUpdateData): Promise<void>
+	handleEntityUpdate(update: entityUpdateUtils.EntityUpdateData): Promise<void>
 
 	/**
 	 * Select the item in the list

@@ -1,7 +1,7 @@
 import m, { Children, ClassComponent, Vnode, VnodeDOM } from "mithril"
 import { ClickHandler } from "../GuiUtils.js"
-import { assertNotNull } from "@tutao/tutanota-utils"
-import { TabIndex } from "../../../api/common/TutanotaConstants.js"
+import { assertNotNull } from "@tutao/utils"
+import { TabIndex } from "@tutao/app-env"
 import { AriaRole } from "../../AriaUtils.js"
 import { lang, MaybeTranslation } from "../../../misc/LanguageViewModel.js"
 
@@ -17,11 +17,16 @@ export interface BaseButtonAttrs {
 	/** whether the button is visibly highlighted or not for screen readers */
 	selected?: boolean
 	onclick: ClickHandler
+	ondrop?: (event: DragEvent) => unknown
+	ondragover?: (event: DragEvent) => unknown
+	ondragleave?: (event: DragEvent) => unknown
 	onkeydown?: (event: KeyboardEvent) => unknown
 	style?: Record<string, any>
 	class?: string
 	role?: AriaRole
 	iconWrapperSelector?: string
+	isPrintable?: boolean
+	tabindex?: TabIndex
 }
 
 export class BaseButton implements ClassComponent<BaseButtonAttrs> {
@@ -32,7 +37,7 @@ export class BaseButton implements ClassComponent<BaseButtonAttrs> {
 		const pressed = booleanToAttributeValue(attrs.pressed)
 		const selected = booleanToAttributeValue(attrs.selected)
 		return m(
-			"button",
+			attrs.isPrintable ? "button.print" : "button",
 			{
 				title: lang.getTranslationText(attrs.label),
 				disabled,
@@ -46,11 +51,23 @@ export class BaseButton implements ClassComponent<BaseButtonAttrs> {
 						p.then(() => m.redraw())
 					}
 				},
+				ondrop: (event: DragEvent) => {
+					attrs.ondrop?.(event)
+				},
+				ondragover: (event: DragEvent) => {
+					// MDN: "The element can elect itself to be a valid drop target by cancelling the dragover event."
+					event.preventDefault()
+					attrs.ondragover?.(event)
+				},
+				ondragleave: (event: DragEvent) => {
+					attrs.ondragleave?.(event)
+				},
 				onkeydown: attrs.onkeydown,
 				class: attrs.class,
 				style: attrs.style,
 				role: attrs.role,
 				"data-testid": `btn:${lang.getTestId(attrs.label)}`,
+				tabindex: attrs.tabindex,
 			},
 			[attrs.icon ? this.renderIcon(attrs.icon, attrs.iconWrapperSelector) : null, attrs.text ?? null, children],
 		)

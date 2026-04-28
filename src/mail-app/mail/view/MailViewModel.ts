@@ -1,45 +1,39 @@
 import { MailboxDetail, MailboxModel } from "../../../common/mailFunctionality/MailboxModel.js"
 import { EntityClient } from "../../../common/api/common/EntityClient.js"
-import {
-	ImportedMailTypeRef,
-	ImportMailState,
-	ImportMailStateTypeRef,
-	Mail,
-	MailBox,
-	MailSet,
-	MailSetTypeRef,
-	MailSetEntry,
-	MailSetEntryTypeRef,
-	MailTypeRef,
-} from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { elementIdPart, getElementId, isSameId, listIdPart } from "../../../common/api/common/utils/EntityUtils.js"
-import { $Promisable, assertNotNull, count, debounce, groupBy, isEmpty, lazyMemoized, mapWith, mapWithout, ofClass, promiseMap } from "@tutao/tutanota-utils"
+import { elementIdPart, entityUpdateUtils, getElementId, getMailSetKind, isPermanentDeleteAllowedForFolder, isSameId, tutanotaTypeRefs } from "@tutao/typerefs"
+import { $Promisable, assertNotNull, count, debounce, isEmpty, lazyMemoized, mapWith, mapWithout, ofClass } from "@tutao/utils"
 import { ListLoadingState, ListState } from "../../../common/gui/base/List.js"
 import { ConversationPrefProvider, ConversationViewModel, ConversationViewModelFactory } from "./ConversationViewModel.js"
 import { CreateMailViewerOptions } from "./MailViewer.js"
 import { isOfflineError } from "../../../common/api/common/utils/ErrorUtils.js"
-import { getMailSetKind, ImportStatus, MailSetKind, OperationType, SystemFolderType } from "../../../common/api/common/TutanotaConstants.js"
 import { WsConnectionState } from "../../../common/api/main/WorkerClient.js"
 import { WebsocketConnectivityModel } from "../../../common/misc/WebsocketConnectivityModel.js"
 import { ExposedCacheStorage } from "../../../common/api/worker/rest/DefaultEntityRestCache.js"
-import { NotAuthorizedError, NotFoundError, PreconditionFailedError } from "../../../common/api/common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { UserError } from "../../../common/api/main/UserError.js"
-import { ProgrammingError } from "../../../common/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "@tutao/app-env"
 import Stream from "mithril/stream"
 import { Router } from "../../../common/gui/ScopedRouter.js"
-import { EntityUpdateData, isUpdateForTypeRef, PrefetchStatus } from "../../../common/api/common/utils/EntityUpdateUtils.js"
 import { EventController } from "../../../common/api/main/EventController.js"
 import { MailModel, MoveMode } from "../model/MailModel.js"
 import { assertSystemFolderOfType } from "../model/MailUtils.js"
 import { getMailFilterForType, MailFilterType } from "./MailViewerUtils.js"
 import { CacheMode } from "../../../common/api/worker/rest/EntityRestClient.js"
-import { isOfTypeOrSubfolderOf, isSpamOrTrashFolder, isSubfolderOfType } from "../model/MailChecks.js"
+import { isMailDeletable, isOfTypeOrSubfolderOf, isSpamOrTrashFolder, isSubfolderOfType } from "../model/MailChecks.js"
 import { MailListModel } from "../model/MailListModel"
 import { MailSetListModel } from "../model/MailSetListModel"
 import { ConversationListModel } from "../model/ConversationListModel"
 import { MailListDisplayMode } from "../../../common/misc/DeviceConfig"
 import { client } from "../../../common/misc/ClientDetector"
 import { ProcessInboxHandler } from "../model/ProcessInboxHandler"
+import { mailLocator } from "../../mailLocator"
+import { moveMails } from "./MailGuiUtils"
+import { locator } from "../../../common/api/main/CommonLocator"
+import { UndoModel } from "../../UndoModel"
+import { MailSetKind, OperationType, SystemFolderType } from "@tutao/app-env"
+
+type Mail = tutanotaTypeRefs.Mail
+type MailSet = tutanotaTypeRefs.MailSet
 
 export interface MailOpenedListener {
 	onEmailOpened(mail: Mail): unknown
@@ -58,10 +52,12 @@ export interface UndoAction {
 	onClear: () => unknown
 }
 
+const SYNC_RELOAD_DEBOUNCE_MS = 1000
+
 /** ViewModel for the overall mail view. */
 export class MailViewModel {
 	/** Beware: this can be a label. */
-	private _folder: MailSet | null = null
+	private _folder: tutanotaTypeRefs.MailSet | null = null
 	private _listModel: MailSetListModel | null = null
 	/** id of the mail requested to be displayed, independent of the list state. */
 	private stickyMailId: IdTuple | null = null
@@ -85,6 +81,8 @@ export class MailViewModel {
 	private currentShowTargetMarker: object = {}
 	/* We only attempt counter fixup once after switching mailSets and loading the list fully. */
 	private shouldAttemptCounterFixup: boolean = true
+
+	private debouncedListModelReloadPromise: Promise<void> = Promise.resolve()
 
 	constructor(
 		private readonly mailboxModel: MailboxModel,
@@ -256,7 +254,7 @@ export class MailViewModel {
 		}
 
 		// Load the cached mail, if available, to display it sooner
-		const cached = await this.cacheStorage.get(MailTypeRef, listId, mailId)
+		const cached = await this.cacheStorage.get(tutanotaTypeRefs.MailTypeRef, listId, mailId)
 		if (this.didStickyMailChange(expectedStickyMailId, "after loading mail from cache")) {
 			return
 		} else if (cached) {
@@ -267,11 +265,11 @@ export class MailViewModel {
 
 		let mail: Mail | null
 		try {
-			mail = await this.entityClient.load(MailTypeRef, [listId, mailId], { cacheMode: CacheMode.WriteOnly })
+			mail = await this.entityClient.load(tutanotaTypeRefs.MailTypeRef, [listId, mailId], { cacheMode: CacheMode.WriteOnly })
 		} catch (e) {
 			if (isOfflineError(e)) {
 				return
-			} else if (e instanceof NotFoundError || e instanceof NotAuthorizedError) {
+			} else if (e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError) {
 				mail = null
 			} else {
 				throw e
@@ -378,17 +376,27 @@ export class MailViewModel {
 	}
 
 	/**
-	 * Permanent delete is only allowed when the mail is in the current folder, and the current folder is Trash/Spam.
+	 * Permanent delete is only allowed when the mail is deletable, in the current folder, and the current folder is Trash/Spam.
 	 */
 	isPermanentDeleteAllowed(): boolean {
-		const primaryMailFolder = this.conversationViewModel != null ? this.mailModel.getMailFolderForMail(this.conversationViewModel.primaryMail) : null
 		const currentFolder = this.getFolder()
-
-		if (primaryMailFolder != null && currentFolder != null && !isSameId(currentFolder._id, primaryMailFolder._id)) {
+		if (currentFolder == null) {
 			return false
-		} else {
-			return currentFolder != null && (currentFolder.folderType === MailSetKind.TRASH || currentFolder.folderType === MailSetKind.SPAM)
 		}
+
+		const primaryMail = this.conversationViewModel?.primaryMail ?? null
+		if (primaryMail != null) {
+			if (!isMailDeletable(primaryMail)) {
+				return false
+			}
+
+			const primaryMailFolder = this.mailModel.getMailFolderForMail(primaryMail)
+			if (primaryMailFolder != null && !isSameId(currentFolder._id, primaryMailFolder._id)) {
+				return false
+			}
+		}
+
+		return isPermanentDeleteAllowedForFolder(currentFolder)
 	}
 
 	isExportingMailsAllowed(): boolean {
@@ -428,7 +436,10 @@ export class MailViewModel {
 	}
 
 	private readonly onceInit = lazyMemoized(() => {
-		this.eventController.addEntityListener((updates) => this.entityEventsReceived(updates))
+		this.eventController.addEntityListener({
+			onEntityUpdatesReceived: (updates, _, isInitialSyncDone) => this.entityEventsReceived(updates, isInitialSyncDone),
+			priority: entityUpdateUtils.OnEntityUpdateReceivedPriority.HIGH,
+		})
 	})
 
 	get listModel(): MailSetListModel | null {
@@ -628,7 +639,56 @@ export class MailViewModel {
 		this.conversationViewModel = this.conversationViewModelFactory(viewModelParams)
 	}
 
-	private async entityEventsReceived(updates: ReadonlyArray<EntityUpdateData>) {
+	public async reapplyInboxRulesForMails(actionableMails: Mail[], undoModel: UndoModel) {
+		if (isEmpty(actionableMails)) {
+			return
+		}
+
+		const currentFolder = this.getFolder()
+		if (currentFolder == null) {
+			return
+		}
+
+		const inboxRuleHandler = mailLocator.processInboxHandler()
+		const mailboxDetails = await this.getMailboxDetails()
+		const targetFolderIdToFolderMailMap = new Map<Id, { folder: MailSet; mails: Mail[] }>()
+
+		// preload mailDetails, to cache in one request
+		await mailLocator.bulkMailLoader.loadMailDetails(actionableMails)
+
+		for (const mail of actionableMails) {
+			const folder = await inboxRuleHandler.processInboxRulesOnly(mail, currentFolder, mailboxDetails)
+			const folderId = getElementId(folder)
+			if (!targetFolderIdToFolderMailMap.has(folderId)) {
+				targetFolderIdToFolderMailMap.set(folderId, { folder, mails: [] })
+			}
+			targetFolderIdToFolderMailMap.get(folderId)!.mails.push(mail)
+		}
+
+		let movedMailIds: IdTuple[] = []
+		for (const folderId of targetFolderIdToFolderMailMap.keys()) {
+			let { folder: targetFolder, mails } = assertNotNull(targetFolderIdToFolderMailMap.get(folderId))
+			if (isSameId(currentFolder._id, targetFolder._id)) {
+				continue
+			}
+
+			const resolvedMails: readonly IdTuple[] = await this.getResolvedMails(mails)
+			await moveMails({
+				targetFolder,
+				mailboxModel: locator.mailboxModel,
+				mailModel: mailLocator.mailModel,
+				mailIds: resolvedMails,
+				moveMode: this.getMoveMode(currentFolder),
+				undoModel,
+				contactModel: mailLocator.contactModel,
+			})
+			movedMailIds.push(...resolvedMails)
+		}
+
+		return movedMailIds.flat()
+	}
+
+	private async entityEventsReceived(updates: ReadonlyArray<entityUpdateUtils.EntityUpdateData>, isInitialSyncDone: boolean) {
 		// capturing the state so that if we switch mailSets, we won't run into race conditions
 		const folder = this._folder
 		const listModel = this.listModel
@@ -637,77 +697,58 @@ export class MailViewModel {
 			return
 		}
 
-		let importMailStateUpdates: Array<EntityUpdateData<ImportMailState>> = []
 		for (const update of updates) {
-			if (update.operation === OperationType.CREATE) {
-				if (isUpdateForTypeRef(ImportMailStateTypeRef, update)) {
-					importMailStateUpdates.push(update)
-				}
+			if (update.operation === OperationType.CREATE && entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ImportMailStateTypeRef, update)) {
+				await this.deleteMailSetEntryRangeForImportTargetFolder(update)
 			} else if (update.operation === OperationType.UPDATE) {
-				if (isUpdateForTypeRef(MailTypeRef, update) && isSameId(this.stickyMailId, [update.instanceListId, update.instanceId])) {
+				if (
+					entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.MailTypeRef, update) &&
+					isSameId(this.stickyMailId, [update.instanceListId, update.instanceId])
+				) {
 					const mailId: IdTuple = [update.instanceListId, update.instanceId]
-					const mail = await this.entityClient.load(MailTypeRef, mailId)
+					const mail = await this.entityClient.load(tutanotaTypeRefs.MailTypeRef, mailId)
 					const folderForMail = this.mailModel.getMailFolderForMail(mail)
 					if (folderForMail && !this.didStickyMailChange(mailId, "after loading mail from cache on entity update")) {
 						this.setListId(folderForMail)
 					}
-				} else if (isUpdateForTypeRef(ImportMailStateTypeRef, update)) {
-					importMailStateUpdates.push(update)
+				} else if (entityUpdateUtils.isUpdateForTypeRef(tutanotaTypeRefs.ImportMailStateTypeRef, update)) {
+					await this.deleteMailSetEntryRangeForImportTargetFolder(update)
 				}
 			}
 
-			await listModel.handleEntityUpdate(update)
-			for (let importMailStateUpdate of importMailStateUpdates) {
-				await this.processImportedMails(importMailStateUpdate)
+			if (isInitialSyncDone) {
+				// we need to await the reload promise here, to populate the map (conversationMap/mailMap) inside the list model
+				this.debouncedListModelReloadPromise.then(async () => await listModel.handleEntityUpdate(update))
+			} else {
+				this.debouncedListReload(listModel)
 			}
 		}
 	}
 
-	private async processImportedMails(update: EntityUpdateData<ImportMailState>) {
-		const importMailState = await this.entityClient.load(ImportMailStateTypeRef, [update.instanceListId, update.instanceId])
-		const importedFolder = await this.entityClient.load(MailSetTypeRef, importMailState.targetFolder)
+	/**
+	 * When handling missedEntityUpdates, we reload the entire listModel instead of inserting/updating/removing individual mails.
+	 */
+	private readonly debouncedListReload = debounce(SYNC_RELOAD_DEBOUNCE_MS, async (listModel: MailSetListModel) => {
+		console.log("reload listModel due to missedEntityUpdates")
+		this.debouncedListModelReloadPromise = listModel.reload()
+		await this.debouncedListModelReloadPromise
+	})
 
-		let status = parseInt(importMailState.status) as ImportStatus
+	private async deleteMailSetEntryRangeForImportTargetFolder(update: entityUpdateUtils.EntityUpdateData) {
+		// We delete the range of MailSetEntries for the targetFolder entries list of the import.
+		// This makes sure, that we keep already downloaded MailSetEntries in cache, but still show all mails inside the targetFolder correctly.
+		// The MailIndexer is downloading the MailSetEntries and Mails corresponding to this import in background
+		// and ensures that all imported mails are searchable immediately.
+		const importMailState = await this.entityClient.load(tutanotaTypeRefs.ImportMailStateTypeRef, [update.instanceListId!, update.instanceId])
+		const targetFolder = await this.mailModel.getMailSetById(elementIdPart(importMailState.targetFolder))
+		if (targetFolder) {
+			const targetFolderEntriesListId = targetFolder.entries
+			await this.cacheStorage.deleteRange(tutanotaTypeRefs.MailSetEntryTypeRef, targetFolderEntriesListId)
 
-		if (status === ImportStatus.Finished || status === ImportStatus.Canceled) {
-			let importedMailEntries = await this.entityClient.loadAll(ImportedMailTypeRef, importMailState.importedMails)
-			if (isEmpty(importedMailEntries)) return Promise.resolve()
-			if (this._folder == null || !isSameId(this._folder._id, importMailState.targetFolder)) {
-				return
+			const selectedMailSet = this.getFolder()
+			if (selectedMailSet && isSameId(selectedMailSet._id, targetFolder._id)) {
+				this.listModel?.reload()
 			}
-			const listModelOfImport = assertNotNull(this._listModel)
-
-			const mailSetEntryIds = importedMailEntries.map((importedMail) => elementIdPart(importedMail.mailSetEntry))
-			const mailSetEntryListId = listIdPart(importedMailEntries[0].mailSetEntry)
-			const importedMailSetEntries = await this.entityClient.loadMultiple(MailSetEntryTypeRef, mailSetEntryListId, mailSetEntryIds)
-			if (isEmpty(importedMailSetEntries)) return Promise.resolve()
-
-			// put mails into the cache before the list model downloads them one by one
-			await this.preloadMails(importedMailSetEntries)
-
-			let selectedFolder = this.getFolder()
-			if (selectedFolder != null && isSameId(importMailState.targetFolder, selectedFolder?._id)) {
-				await promiseMap(importedMailSetEntries, (importedMailSetEntry) => {
-					return listModelOfImport.handleEntityUpdate({
-						instanceId: elementIdPart(importedMailSetEntry._id),
-						instanceListId: importedFolder.entries as NonEmptyString,
-						operation: OperationType.CREATE,
-						typeRef: MailSetEntryTypeRef,
-						instance: null,
-						patches: null,
-						prefetchStatus: PrefetchStatus.Prefetched,
-					})
-				})
-			}
-		}
-	}
-
-	private async preloadMails(importedMailSetEntries: MailSetEntry[]) {
-		const mailIds = importedMailSetEntries.map((mse) => mse.mail)
-		const mailsByList = groupBy(mailIds, (m) => listIdPart(m))
-		for (const [listId, mailIds] of mailsByList.entries()) {
-			const mailElementIds = mailIds.map((m) => elementIdPart(m))
-			await this.entityClient.loadMultiple(MailTypeRef, listId, mailElementIds)
 		}
 	}
 
@@ -772,7 +813,7 @@ export class MailViewModel {
 		// the request is handled a little differently if it is the system folder vs. a subfolder
 		if (folder.folderType === MailSetKind.TRASH || folder.folderType === MailSetKind.SPAM) {
 			return this.mailModel.clearFolder(folder).catch(
-				ofClass(PreconditionFailedError, () => {
+				ofClass(restError.PreconditionFailedError, () => {
 					throw new UserError("operationStillActive_msg")
 				}),
 			)
@@ -780,7 +821,7 @@ export class MailViewModel {
 			const folders = await this.mailModel.getMailboxFoldersForId(mailboxDetail.mailbox.mailSets._id)
 			if (isSubfolderOfType(folders, folder, MailSetKind.TRASH) || isSubfolderOfType(folders, folder, MailSetKind.SPAM)) {
 				return this.mailModel.finallyDeleteCustomMailFolder(folder).catch(
-					ofClass(PreconditionFailedError, () => {
+					ofClass(restError.PreconditionFailedError, () => {
 						throw new UserError("operationStillActive_msg")
 					}),
 				)
@@ -842,7 +883,7 @@ export class MailViewModel {
 		this.listModel?.onSingleExclusiveSelection(mail)
 	}
 
-	async createLabel(mailbox: MailBox, labelData: { name: string; color: string }) {
+	async createLabel(mailbox: tutanotaTypeRefs.MailBox, labelData: { name: string; color: string }) {
 		await this.mailModel.createLabel(assertNotNull(mailbox._ownerGroup), labelData)
 	}
 

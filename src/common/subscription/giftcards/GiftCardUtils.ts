@@ -1,7 +1,5 @@
 import m, { Children } from "mithril"
 import { Icons } from "../../gui/base/icons/Icons"
-import type { CustomerInfo, GiftCard } from "../../api/entities/sys/TypeRefs.js"
-import { CustomerInfoTypeRef, CustomerTypeRef, GiftCardTypeRef } from "../../api/entities/sys/TypeRefs.js"
 import { locator } from "../../api/main/CommonLocator"
 import { lang, MaybeTranslation } from "../../misc/LanguageViewModel"
 import { UserError } from "../../api/main/UserError"
@@ -9,16 +7,16 @@ import { Dialog } from "../../gui/base/Dialog"
 import { ButtonType } from "../../gui/base/Button.js"
 import { DefaultAnimationTime } from "../../gui/animation/Animations"
 import { copyToClipboard } from "../../misc/ClipboardUtils"
-import { BootIcons } from "../../gui/base/icons/BootIcons"
-import { isAndroidApp, isApp } from "../../api/common/Env"
 import { Checkbox } from "../../gui/base/Checkbox.js"
-import { Keys } from "../../api/common/TutanotaConstants"
+import { Keys } from "@tutao/app-env"
 import { CURRENT_GIFT_CARD_TERMS_VERSION, renderTermsAndConditionsButton, TermsSection } from "../TermsAndConditions"
 import { IconButton } from "../../gui/base/IconButton.js"
 import { formatPrice } from "../utils/PriceUtils.js"
 import { getHtmlSanitizer } from "../../misc/HtmlSanitizer.js"
 import { urlEncodeHtmlTags } from "../../misc/Formatter.js"
 import QRCode from "qrcode-svg"
+import { sysTypeRefs } from "@tutao/typerefs"
+import { isAndroidApp, isApp } from "@tutao/app-env"
 
 export const enum GiftCardStatus {
 	Deactivated = "0",
@@ -42,21 +40,21 @@ export async function getTokenFromUrl(url: string): Promise<{ id: Id; key: strin
 	}
 }
 
-export function loadGiftCards(customerId: Id): Promise<GiftCard[]> {
+export function loadGiftCards(customerId: Id): Promise<sysTypeRefs.GiftCard[]> {
 	const entityClient = locator.entityClient
 	return entityClient
-		.load(CustomerTypeRef, customerId)
-		.then((customer) => entityClient.load(CustomerInfoTypeRef, customer.customerInfo))
-		.then((customerInfo: CustomerInfo) => {
+		.load(sysTypeRefs.CustomerTypeRef, customerId)
+		.then((customer) => entityClient.load(sysTypeRefs.CustomerInfoTypeRef, customer.customerInfo))
+		.then((customerInfo: sysTypeRefs.CustomerInfo) => {
 			if (customerInfo.giftCards) {
-				return entityClient.loadAll(GiftCardTypeRef, customerInfo.giftCards.items)
+				return entityClient.loadAll(sysTypeRefs.GiftCardTypeRef, customerInfo.giftCards.items)
 			} else {
 				return Promise.resolve([])
 			}
 		})
 }
 
-export async function generateGiftCardLink(giftCard: GiftCard): Promise<string> {
+export async function generateGiftCardLink(giftCard: sysTypeRefs.GiftCard): Promise<string> {
 	const token = await locator.giftCardFacade.encodeGiftCardToken(giftCard)
 	const giftCardBaseUrl = locator.domainConfigProvider().getCurrentDomainConfig().giftCardBaseUrl
 	const giftCardUrl = new URL(giftCardBaseUrl)
@@ -64,7 +62,7 @@ export async function generateGiftCardLink(giftCard: GiftCard): Promise<string> 
 	return giftCardUrl.href
 }
 
-export function showGiftCardToShare(giftCard: GiftCard) {
+export function showGiftCardToShare(giftCard: sysTypeRefs.GiftCard) {
 	generateGiftCardLink(giftCard).then((link) => {
 		let infoMessage: MaybeTranslation = "emptyString_msg"
 		const dialog: Dialog = Dialog.largeDialog(
@@ -102,7 +100,7 @@ export function showGiftCardToShare(giftCard: GiftCard) {
 								)
 							},
 							title: "shareViaEmail_action",
-							icon: BootIcons.Mail,
+							icon: Icons.MailFilled,
 						}),
 						isAndroidApp()
 							? m(IconButton, {
@@ -115,7 +113,7 @@ export function showGiftCardToShare(giftCard: GiftCard) {
 										)
 									},
 									title: "share_action",
-									icon: BootIcons.Share,
+									icon: Icons.ShareFilled,
 								})
 							: m(IconButton, {
 									click: () => {
@@ -128,7 +126,7 @@ export function showGiftCardToShare(giftCard: GiftCard) {
 											})
 									},
 									title: "copyToClipboard_action",
-									icon: Icons.Clipboard,
+									icon: Icons.ClipboardFilled,
 								}),
 						!isApp()
 							? m(IconButton, {
@@ -137,7 +135,7 @@ export function showGiftCardToShare(giftCard: GiftCard) {
 										window.print()
 									},
 									title: "print_action",
-									icon: Icons.Print,
+									icon: Icons.PrinterFilled,
 								})
 							: null,
 					]),

@@ -1,7 +1,7 @@
 import m, { Child, ClassComponent, Vnode } from "mithril"
 import { Time } from "../date/Time"
-import { deepMemoized, getStartOfDay, getStartOfNextDay, lastIndex } from "@tutao/tutanota-utils"
-import { elementIdPart } from "../../api/common/utils/EntityUtils"
+import { deepMemoized, getStartOfDay, getStartOfNextDay, lastIndex } from "@tutao/utils"
+import { elementIdPart } from "@tutao/typerefs"
 import { DateTime } from "luxon"
 import { EventWrapper } from "../../../calendar-app/calendar/view/CalendarViewModel"
 import { CalendarEventBubbleDragProperties, EventBubbleInteractions, MIN_ROW_SPAN } from "./CalendarEventBubble"
@@ -217,7 +217,7 @@ export class CalendarTimeGrid implements ClassComponent<CalendarTimeGridAttribut
 	 * @param subRowAsMinutes - Granularity of grid rows in minutes
 	 * @param timeScale - Time scale divisor for hour subdivision
 	 * @param baseDate - Reference date for the calendar view
-	 * @returns Map of event IDs to their grid positioning data
+	 * @returns Map of event EventGridIds (See: {@link getEventGridId}) to their grid positioning data
 	 *
 	 * @VisibleForTesting
 	 */
@@ -244,7 +244,7 @@ export class CalendarTimeGrid implements ClassComponent<CalendarTimeGridAttribut
 		const eventsMap = new Map<Id, RowBounds>(
 			orderedEvents.map((wrapper) => {
 				const rowBounds = CalendarTimeGrid.getRowBounds(wrapper.event, timeRange, subRowAsMinutes, timeScale, baseDate)
-				return [elementIdPart(wrapper.event._id), rowBounds]
+				return [CalendarTimeGrid.getEventGridId(wrapper), rowBounds]
 			}),
 		)
 
@@ -257,6 +257,17 @@ export class CalendarTimeGrid implements ClassComponent<CalendarTimeGridAttribut
 			subColumnCount: columns.length,
 			orderedEvents,
 		}
+	}
+
+	/**
+	 * Creates a unique grid ID for the given event, used to position and identify
+	 * events in the in-memory calendar grid structure.
+	 * The ID is composed of the event's element ID and start time to handle
+	 * recurring events, which share the same element ID but differ in start time.
+	 * @param wrapper - The event wrapper containing the event to generate the ID for.
+	 */
+	public static getEventGridId(wrapper: EventWrapper) {
+		return `${elementIdPart(wrapper.event._id)}#${wrapper.event.startTime.getTime()}`
 	}
 
 	/**

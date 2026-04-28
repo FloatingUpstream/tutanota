@@ -1,9 +1,9 @@
-import { assertWorkerOrNode } from "../../common/Env"
-import { RolloutService } from "../../entities/sys/Services"
+import { assertWorkerOrNode } from "@tutao/app-env"
+import { getAsEnumValue, sysServices } from "@tutao/typerefs"
 import { IServiceExecutor } from "../../common/ServiceRequest"
-import { getAsEnumValue, RolloutType } from "../../common/TutanotaConstants"
-import { assertNotNull, LazyLoaded } from "@tutao/tutanota-utils"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
+import { RolloutType } from "@tutao/app-env"
+import { assertNotNull, LazyLoaded } from "@tutao/utils"
+import { ProgrammingError } from "@tutao/app-env"
 
 assertWorkerOrNode()
 
@@ -24,7 +24,7 @@ export class RolloutFacade {
 		private readonly sendError: (error: Error) => Promise<void>,
 	) {
 		this.rolloutActions = new LazyLoaded(async () => {
-			const result = await this.serviceExecutor.get(RolloutService, null)
+			const result = await this.serviceExecutor.get(sysServices.RolloutService, null)
 			const rolloutActions = new Map<RolloutType, RolloutAction>()
 			for (const rollout of result.rollouts) {
 				const rolloutType = assertNotNull(getAsEnumValue(RolloutType, rollout.rolloutType))

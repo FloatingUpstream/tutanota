@@ -1,12 +1,13 @@
-import { promiseMap } from "@tutao/tutanota-utils"
+import { promiseMap } from "@tutao/utils"
 import { FileReference } from "../../api/common/utils/FileUtils"
 import { DataFile } from "../../api/common/DataFile"
-import { HttpMethod } from "../../api/common/EntityFunctions"
+import { HttpMethod } from "@tutao/rest-client"
 import { FileFacade } from "./generatedipc/FileFacade.js"
 import { ExportFacade } from "./generatedipc/ExportFacade.js"
 import { DownloadTaskResponse } from "./generatedipc/DownloadTaskResponse"
 import { UploadTaskResponse } from "./generatedipc/UploadTaskResponse"
 import { MailBundle } from "../../mailFunctionality/SharedMailUtils.js"
+import { PosRect } from "../../gui/base/Dropdown"
 
 export type FileUri = string
 
@@ -29,7 +30,7 @@ export class NativeFileApp {
 	 * @param boundingRect The file chooser is opened next to the rectangle.
 	 * @param filter an optional list of allowed file extensions
 	 */
-	async openFileChooser(boundingRect: DOMRect, filter?: ReadonlyArray<string>, isFileOnly: boolean = false): Promise<Array<FileReference>> {
+	async openFileChooser(boundingRect: PosRect, filter?: ReadonlyArray<string>, isFileOnly: boolean = false): Promise<Array<FileReference>> {
 		/* The file chooser opens next to a location specified by srcRect on larger devices (iPad).
 		 * The rectangle must be specifed using values for x, y, height and width.
 		 */
@@ -107,8 +108,12 @@ export class NativeFileApp {
 	/**
 	 * Uploads the binary data of a file to tutadb
 	 */
-	upload(fileUrl: string, targetUrl: string, method: HttpMethod, headers: Dict): Promise<UploadTaskResponse> {
-		return this.fileFacade.upload(fileUrl, targetUrl, method, headers)
+	upload(fileUrl: string, targetUrl: string, method: HttpMethod, headers: Dict, fileId: Id): Promise<UploadTaskResponse> {
+		return this.fileFacade.upload(fileUrl, targetUrl, method, headers, fileId)
+	}
+
+	async abortUpload(fileId: Id): Promise<void> {
+		await this.fileFacade.abortUpload(fileId)
 	}
 
 	/**
@@ -117,6 +122,10 @@ export class NativeFileApp {
 	 */
 	download(sourceUrl: FileUri, filename: string, headers: Dict, fileId: Id): Promise<DownloadTaskResponse> {
 		return this.fileFacade.download(sourceUrl, filename, headers, fileId)
+	}
+
+	abortDownload(fileId: Id) {
+		return this.fileFacade.abortDownload(fileId)
 	}
 
 	/**

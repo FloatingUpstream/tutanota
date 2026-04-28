@@ -8,6 +8,7 @@ import { windowFacade } from "../../misc/WindowFacade.js"
 import { locator } from "../../api/main/CommonLocator.js"
 import { SupportDialogState } from "../SupportDialog.js"
 import { lang } from "../../misc/LanguageViewModel.js"
+import { UpgradePromptType } from "@tutao/app-env"
 
 type EmailSupportUnavailableAttrs = {
 	data: SupportDialogState
@@ -48,7 +49,7 @@ export class EmailSupportUnavailablePage implements Component<EmailSupportUnavai
 						},
 						m.trust(TutaFavicon),
 					),
-					rightIcon: { icon: Icons.Open, title: "open_action" },
+					rightIcon: { icon: Icons.OpenFilled, title: "open_action" },
 					onclick: () => {
 						windowFacade.openLink("https://tuta.com/support")
 					},
@@ -61,7 +62,7 @@ export class EmailSupportUnavailablePage implements Component<EmailSupportUnavai
 					text: lang.get("upgrade_action"),
 					class: `button-content border-radius accent-bg center plr-8 flash full-width`,
 					onclick: async () => {
-						await showUpgradeDialog()
+						await showUpgradeDialog(UpgradePromptType.EMAIL_SUPPORT)
 
 						const isPaidPlanNow = !locator.logins.getUserController().isFreeAccount()
 

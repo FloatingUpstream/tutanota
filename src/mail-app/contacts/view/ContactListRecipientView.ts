@@ -1,12 +1,12 @@
 import m, { Children, Component, Vnode } from "mithril"
-import { assertMainOrNode } from "../../../common/api/common/Env.js"
+import { assertMainOrNode } from "@tutao/app-env"
 import { ListColumnWrapper } from "../../../common/gui/ListColumnWrapper.js"
 import ColumnEmptyMessageBox from "../../../common/gui/base/ColumnEmptyMessageBox.js"
 import { theme } from "../../../common/gui/theme.js"
 import { Icons } from "../../../common/gui/base/icons/Icons.js"
 import { List, MultiselectMode, RenderConfig } from "../../../common/gui/base/List.js"
-import { ContactListEntry } from "../../../common/api/entities/tutanota/TypeRefs.js"
-import { noOp } from "@tutao/tutanota-utils"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
+import { noOp } from "@tutao/utils"
 import { ContactListViewModel } from "./ContactListViewModel.js"
 import { VirtualRow } from "../../../common/gui/base/ListUtils.js"
 import {
@@ -24,6 +24,7 @@ import { styles } from "../../../common/gui/styles.js"
 
 assertMainOrNode()
 
+type ContactListEntry = tutanotaTypeRefs.ContactListEntry
 export interface ContactListViewAttrs {
 	viewModel: ContactListViewModel
 	focusDetailsViewer: () => unknown
@@ -45,7 +46,7 @@ export class ContactListRecipientView implements Component<ContactListViewAttrs>
 				? m(ColumnEmptyMessageBox, {
 						color: theme.on_surface_variant,
 						message: "noEntries_msg",
-						icon: Icons.People,
+						icon: Icons.PeopleFilled,
 					})
 				: m(List, {
 						renderConfig: this.renderConfig,
@@ -135,6 +136,7 @@ export class RecipientRow implements VirtualRow<ContactListEntry> {
 		return m(
 			SelectableRowContainer,
 			{
+				class: "pt-12 pb-12 pl-12 pr-12",
 				oncreate: (vnode) => {
 					Promise.resolve().then(() => this.showCheckbox(shouldAlwaysShowMultiselectCheckbox()))
 				},

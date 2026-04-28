@@ -1,14 +1,14 @@
-import type { Mail } from "../../../common/api/entities/tutanota/TypeRefs.js"
+import { tutanotaTypeRefs } from "@tutao/typerefs"
 import { Checkbox } from "../../../common/gui/base/Checkbox.js"
 import { lang } from "../../../common/misc/LanguageViewModel"
 import m from "mithril"
-import { MailReportType, ReportMovedMailsType } from "../../../common/api/common/TutanotaConstants"
+import { MailReportType, ReportMovedMailsType } from "@tutao/app-env"
 import { ButtonAttrs, ButtonType } from "../../../common/gui/base/Button.js"
 import { Dialog } from "../../../common/gui/base/Dialog"
 import type { MailboxDetail, MailboxModel } from "../../../common/mailFunctionality/MailboxModel.js"
 import { MailModel } from "../model/MailModel.js"
 
-import { newPromise } from "@tutao/tutanota-utils"
+import { newPromise } from "@tutao/utils"
 import { isTutaTeamMail } from "../../../common/mailFunctionality/SharedMailUtils"
 
 function confirmMailReportDialog(mailModel: MailModel, mailboxDetails: MailboxDetail): Promise<boolean> {
@@ -68,7 +68,7 @@ export async function reportMailsAutomatically(
 	mailReportType: MailReportType,
 	mailboxModel: MailboxModel,
 	mailModel: MailModel,
-	mails: () => Promise<ReadonlyArray<Mail>>,
+	mails: () => Promise<ReadonlyArray<tutanotaTypeRefs.Mail>>,
 ): Promise<void> {
 	const shouldReportMails = await getReportConfirmation(mailReportType, mailboxModel, mailModel)
 	if (shouldReportMails) {

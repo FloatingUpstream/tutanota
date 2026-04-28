@@ -3,20 +3,20 @@
 
 import Foundation
 
-public protocol SqlCipherFacade {
+public protocol SqlCipherFacade : Sendable {
 	func openDb(
 		_ userId: String,
 		_ dbKey: DataWrapper
-	) async throws
+	) async throws -> Void
 	func closeDb(
-	) async throws
+	) async throws -> Void
 	func deleteDb(
 		_ userId: String
-	) async throws
+	) async throws -> Void
 	func run(
 		_ query: String,
 		_ params: [TaggedSqlValue]
-	) async throws
+	) async throws -> Void
 	/**
 	 * get a single object or null if the query returns nothing
 	 */

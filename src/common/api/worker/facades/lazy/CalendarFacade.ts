@@ -1,27 +1,19 @@
-import { assertWorkerOrNode } from "../../../common/Env.js"
+import { assertWorkerOrNode, DAY_IN_MILLIS, GroupType, OperationType, ProgrammingError, TutanotaError } from "@tutao/app-env"
 import {
-	AlarmInfo,
-	AlarmNotification,
-	AlarmNotificationTypeRef,
-	createAlarmInfo,
-	createAlarmNotification,
-	createAlarmServicePost,
-	createCalendarEventRef,
-	createDateWrapper,
-	createNotificationSessionKey,
-	createRepeatRule,
-	createUserAlarmInfo,
-	Group,
-	PushIdentifier,
-	PushIdentifierTypeRef,
-	RepeatRule,
-	User,
-	UserAlarmInfo,
-	UserAlarmInfoTypeRef,
-} from "../../../entities/sys/TypeRefs.js"
+	AttributeModel,
+	ClientModelUntypedInstance,
+	elementIdPart,
+	getLetId,
+	getListId,
+	isSameId,
+	listIdPart,
+	sysServices,
+	sysTypeRefs,
+	tutanotaServices,
+	tutanotaTypeRefs,
+} from "@tutao/typerefs"
 import {
 	assertNotNull,
-	DAY_IN_MILLIS,
 	flatMap,
 	getFromMap,
 	groupBy,
@@ -32,35 +24,28 @@ import {
 	promiseMap,
 	Require,
 	stringToUtf8Uint8Array,
-	uint8ArrayToBase64,
-} from "@tutao/tutanota-utils"
+	uint8arrayToCustomId,
+} from "@tutao/utils"
 import { CryptoFacade } from "../../crypto/CryptoFacade.js"
-import { GroupType, OperationType } from "../../../common/TutanotaConstants.js"
-import type { CalendarEvent, CalendarEventUidIndex, CalendarRepeatRule } from "../../../entities/tutanota/TypeRefs.js"
-import { CalendarEventTypeRef, CalendarEventUidIndexTypeRef, CalendarGroupRootTypeRef, createCalendarDeleteData } from "../../../entities/tutanota/TypeRefs.js"
 import { DefaultEntityRestCache } from "../../rest/DefaultEntityRestCache.js"
-import { ConnectionError, NotAuthorizedError, NotFoundError, PayloadTooLargeError } from "../../../common/error/RestError.js"
+import * as restError from "@tutao/rest-client/error"
 import { EntityClient, loadMultipleFromLists } from "../../../common/EntityClient.js"
-import { elementIdPart, getLetId, getListId, isSameId, listIdPart, uint8arrayToCustomId } from "../../../common/utils/EntityUtils.js"
 import { GroupManagementFacade } from "./GroupManagementFacade.js"
 import { SetupMultipleError } from "../../../common/error/SetupMultipleError.js"
 import { ImportError } from "../../../common/error/ImportError.js"
-import { aes256RandomKey, AesKey, bitArrayToUint8Array, encryptKey, sha256Hash } from "@tutao/tutanota-crypto"
-import { TutanotaError } from "@tutao/tutanota-error"
+import { aes256RandomKey, AesKey, encryptKey, keyToBase64, sha256Hash } from "@tutao/crypto"
 import { IServiceExecutor } from "../../../common/ServiceRequest.js"
-import { AlarmService } from "../../../entities/sys/Services.js"
-import { CalendarService } from "../../../entities/tutanota/Services.js"
 import { UserFacade } from "../UserFacade.js"
 import { NativePushFacade } from "../../../../native/common/generatedipc/NativePushFacade.js"
 import { ExposedOperationProgressTracker, OperationId } from "../../../main/OperationProgressTracker.js"
 import { InfoMessageHandler } from "../../../../gui/InfoMessageHandler.js"
-import { ProgrammingError } from "../../../common/error/ProgrammingError.js"
 import {
 	addDaysForEventInstance,
 	addDaysForRecurringEvent,
 	CalendarTimeRange,
 	generateCalendarInstancesInRange,
 	hasAlarmsForTheUser,
+	hasSourceUrl,
 	isBirthdayCalendar,
 } from "../../../../calendar/date/CalendarUtils.js"
 import { CalendarInfo } from "../../../../../calendar-app/calendar/model/CalendarModel.js"
@@ -68,27 +53,25 @@ import { geEventElementMaxId, getEventElementMinId } from "../../../common/utils
 import { DaysToEvents } from "../../../../calendar/date/CalendarEventsRepository.js"
 import { isOfflineError } from "../../../common/utils/ErrorUtils.js"
 import type { EventAlarmsTuple } from "../../../../calendar/gui/ImportExportUtils.js"
-import { InstancePipeline } from "../../crypto/InstancePipeline"
-import { AttributeModel } from "../../../common/AttributeModel"
-import { ClientModelUntypedInstance } from "../../../common/EntityTypes"
-import { EventWrapper } from "../../../../../calendar-app/calendar/view/CalendarViewModel"
+import { InstancePipeline } from "@tutao/instance-pipeline"
+import { EventWrapper } from "../../../../../calendar-app/calendar/view/CalendarViewModel.js"
 
 assertWorkerOrNode()
 
 type AlarmNotificationsPerEvent = {
-	event: CalendarEvent
+	event: tutanotaTypeRefs.CalendarEvent
 	alarmInfoIds: IdTuple[]
-	alarmNotifications: AlarmNotification[]
+	alarmNotifications: sysTypeRefs.AlarmNotification[]
 }
 
 /** event that is a part of an event series and references another event via its recurrenceId and uid */
-export type CalendarEventAlteredInstance = Require<"recurrenceId" | "uid", CalendarEvent> & { repeatRule: null }
+export type CalendarEventAlteredInstance = Require<"recurrenceId" | "uid", tutanotaTypeRefs.CalendarEvent> & { repeatRule: null }
 /** events that has a uid, but no recurrenceId exist on their own and may define a series. events that do not repeat are also progenitors. */
-export type CalendarEventProgenitor = Require<"uid", CalendarEvent> & { recurrenceId: null }
+export type CalendarEventProgenitor = Require<"uid", tutanotaTypeRefs.CalendarEvent> & { recurrenceId: null }
 export type CalendarEventInstance = CalendarEventAlteredInstance | CalendarEventProgenitor
 /** index entry that bundles all the events with the same uid in the ownerGroup. */
 export type CalendarEventUidIndexEntry = {
-	ownerGroup: NonNullable<CalendarEvent["_ownerGroup"]>
+	ownerGroup: NonNullable<tutanotaTypeRefs.CalendarEvent["_ownerGroup"]>
 	progenitor: CalendarEventProgenitor | null
 	alteredInstances: Array<CalendarEventAlteredInstance>
 }
@@ -146,14 +129,21 @@ export class CalendarFacade {
 		const calendars: Array<{ long: EventWrapper[]; short: EventWrapper[] }> = []
 
 		for (const { groupRoot, color } of calendarInfos.values()) {
-			const shortEventsResult = await this.cachingEntityClient.loadReverseRangeBetween(CalendarEventTypeRef, groupRoot.shortEvents, endId, startId, 200)
-			const longEventsResult = await this.cachingEntityClient.loadAll(CalendarEventTypeRef, groupRoot.longEvents)
+			const shortEventsResult = await this.cachingEntityClient.loadReverseRangeBetween(
+				tutanotaTypeRefs.CalendarEventTypeRef,
+				groupRoot.shortEvents,
+				endId,
+				startId,
+				200,
+			)
+			const longEventsResult = await this.cachingEntityClient.loadAll(tutanotaTypeRefs.CalendarEventTypeRef, groupRoot.longEvents)
 
 			const shortEvents: Array<EventWrapper> = shortEventsResult.elements.map((e) => ({
 				event: e,
 				flags: {
 					hasAlarms: hasAlarmsForTheUser(this.userFacade.getLoggedInUser(), e),
 					isAlteredInstance: e.recurrenceId != null,
+					isGhost: !!e.pendingInvitation,
 				},
 				color,
 			}))
@@ -162,6 +152,7 @@ export class CalendarFacade {
 				flags: {
 					hasAlarms: hasAlarmsForTheUser(this.userFacade.getLoggedInUser(), e),
 					isAlteredInstance: e.recurrenceId != null,
+					isGhost: !!e.pendingInvitation,
 				},
 				color,
 			}))
@@ -224,7 +215,7 @@ export class CalendarFacade {
 		await onProgress(currentProgress)
 
 		const eventsWithAlarmsByEventListId = groupBy(eventsWithAlarms, (eventWrapper) => getListId(eventWrapper.event))
-		let collectedAlarmNotifications: AlarmNotification[] = []
+		let collectedAlarmNotifications: sysTypeRefs.AlarmNotification[] = []
 		//we have different lists for short and long events so this is 1 or 2
 		const size = eventsWithAlarmsByEventListId.size
 		let failed = 0
@@ -251,7 +242,7 @@ export class CalendarFacade {
 		}
 
 		const pushIdentifierList = await this.cachingEntityClient.loadAll(
-			PushIdentifierTypeRef,
+			sysTypeRefs.PushIdentifierTypeRef,
 			neverNull(this.userFacade.getLoggedInUser().pushIdentifierList).list,
 		)
 
@@ -264,7 +255,7 @@ export class CalendarFacade {
 		if (failed !== 0) {
 			if (errors.some(isOfflineError)) {
 				//In this case the user will not be informed about the number of failed events. We considered this is okay because it is not actionable anyways.
-				throw new ConnectionError("Connection lost while saving events")
+				throw new restError.ConnectionError("Connection lost while saving events")
 			} else {
 				console.log("Could not save events. Number of failed imports: ", failed)
 				throw new ImportError(errors[0], "Could not save events.", failed)
@@ -291,15 +282,17 @@ export class CalendarFacade {
 		return eventsWithAlarms
 	}
 
-	async saveCalendarEvent(event: CalendarEvent, alarmInfos: ReadonlyArray<AlarmInfoTemplate>, oldEvent: CalendarEvent | null): Promise<void> {
+	/**
+	 * Create new event in the calendar, with its own database entity.
+	 *
+	 * @param event
+	 * @param alarmInfos
+	 */
+	async createCalendarEvent(event: tutanotaTypeRefs.CalendarEvent, alarmInfos: ReadonlyArray<AlarmInfoTemplate>): Promise<void> {
 		if (event._id == null) throw new Error("No id set on the event")
 		if (event._ownerGroup == null) throw new Error("No _ownerGroup is set on the event")
 		if (event.uid == null) throw new Error("no uid set on the event")
 		event.hashedUid = hashUid(event.uid)
-
-		if (oldEvent) {
-			await this.cachingEntityClient.erase(oldEvent).catch(ofClass(NotFoundError, () => console.log("could not delete old event when saving new one")))
-		}
 
 		return await this.saveCalendarEvents(
 			[
@@ -312,10 +305,54 @@ export class CalendarFacade {
 		)
 	}
 
-	async updateCalendarEvent(event: CalendarEvent, newAlarms: ReadonlyArray<AlarmInfoTemplate>, existingEvent: CalendarEvent): Promise<void> {
+	/**
+	 * Destructively apply changes to a calendar event, deleting the original database entity and creating a new one (but preserving the values of uid and unchanged fields).
+	 * This is necessary because some changes (like to event start time etc) can change the ID of an event.
+	 *
+	 * @param oldEvent
+	 * @param newEvent
+	 * @param alarmInfos
+	 */
+	async replaceCalendarEvent(
+		oldEvent: tutanotaTypeRefs.CalendarEvent,
+		newEvent: tutanotaTypeRefs.CalendarEvent,
+		alarmInfos: ReadonlyArray<AlarmInfoTemplate>,
+	) {
+		if (newEvent._ownerGroup == null) throw new Error("No _ownerGroup is set on the event")
+		if (newEvent._id == null) throw new Error("No id set on the event")
+		if (newEvent.uid == null) throw new Error("no uid set on the event")
+		newEvent.hashedUid = hashUid(newEvent.uid)
+
+		await this.cachingEntityClient
+			.erase(oldEvent)
+			.catch(ofClass(restError.NotFoundError, () => console.log("could not delete old event when saving new one")))
+		return await this.saveCalendarEvents(
+			[
+				{
+					event: newEvent,
+					alarms: alarmInfos,
+				},
+			],
+			() => Promise.resolve(),
+		)
+	}
+
+	/**
+	 * Non-destructively apply updates to a calendar event, without deleting the original database entity or updating the ID.
+	 *
+	 * @param event
+	 * @param newAlarms
+	 * @param existingEvent
+	 */
+	async updateCalendarEvent(
+		event: tutanotaTypeRefs.CalendarEvent,
+		newAlarms: ReadonlyArray<AlarmInfoTemplate>,
+		existingEvent: tutanotaTypeRefs.CalendarEvent,
+	): Promise<void> {
 		event._id = existingEvent._id
 		event._ownerEncSessionKey = existingEvent._ownerEncSessionKey
 		event._ownerKeyVersion = existingEvent._ownerKeyVersion
+		event._kdfNonce = existingEvent._kdfNonce
 		event._permissions = existingEvent._permissions
 		if (existingEvent.uid == null) throw new Error("no uid set on the existing event")
 		event.uid = existingEvent.uid
@@ -338,7 +375,7 @@ export class CalendarFacade {
 
 		if (alarmNotifications.length > 0) {
 			const pushIdentifierList = await this.cachingEntityClient.loadAll(
-				PushIdentifierTypeRef,
+				sysTypeRefs.PushIdentifierTypeRef,
 				neverNull(this.userFacade.getLoggedInUser().pushIdentifierList).list,
 			)
 			await this.sendAlarmNotifications(alarmNotifications, pushIdentifierList)
@@ -348,22 +385,22 @@ export class CalendarFacade {
 	/**
 	 * get all the calendar event instances in the given time range that are generated by the given progenitor Ids
 	 */
-	async reifyCalendarSearchResult(start: number, end: number, results: Array<IdTuple>): Promise<Array<CalendarEvent>> {
+	async reifyCalendarSearchResult(start: number, end: number, results: Array<IdTuple>): Promise<Array<tutanotaTypeRefs.CalendarEvent>> {
 		const filteredEvents = results.filter(([calendarId, eventId]) => !isBirthdayCalendar(calendarId))
-		const progenitors = await loadMultipleFromLists(CalendarEventTypeRef, this.cachingEntityClient, filteredEvents)
+		const progenitors = await loadMultipleFromLists(tutanotaTypeRefs.CalendarEventTypeRef, this.cachingEntityClient, filteredEvents)
 		const range: CalendarTimeRange = { start, end }
 		return generateCalendarInstancesInRange(progenitors, range)
 	}
 
-	async addCalendar(name: string): Promise<{ user: User; group: Group }> {
+	async addCalendar(name: string): Promise<{ user: sysTypeRefs.User; group: sysTypeRefs.Group }> {
 		return await this.groupManagementFacade.createCalendar(name)
 	}
 
 	async deleteCalendar(groupRootId: Id): Promise<void> {
-		await this.serviceExecutor.delete(CalendarService, createCalendarDeleteData({ groupRootId }))
+		await this.serviceExecutor.delete(tutanotaServices.CalendarService, tutanotaTypeRefs.createCalendarDeleteIn({ groupRootId }))
 	}
 
-	async scheduleAlarmsForNewDevice(pushIdentifier: PushIdentifier): Promise<void> {
+	async scheduleAlarmsForNewDevice(pushIdentifier: sysTypeRefs.PushIdentifier): Promise<void> {
 		const user = this.userFacade.getLoggedInUser()
 
 		const eventsWithAlarmInfos = await this.loadAlarmEvents()
@@ -377,13 +414,13 @@ export class CalendarFacade {
 		const encryptedNotificationsWireFormat = JSON.stringify(
 			await Promise.all(
 				alarmNotifications.map(async (an) => {
-					const untypedInstance = await this.instancePipeline.mapAndEncrypt(AlarmNotificationTypeRef, an, sessionKey)
+					const untypedInstance = await this.instancePipeline.mapAndEncrypt(sysTypeRefs.AlarmNotificationTypeRef, an, sessionKey)
 					return AttributeModel.removeNetworkDebuggingInfoIfNeeded<ClientModelUntypedInstance>(untypedInstance)
 				}),
 			),
 		)
 
-		await this.nativePushFacade.scheduleAlarms(encryptedNotificationsWireFormat, uint8ArrayToBase64(bitArrayToUint8Array(sessionKey)))
+		await this.nativePushFacade.scheduleAlarms(encryptedNotificationsWireFormat, keyToBase64(sessionKey))
 	}
 
 	/**
@@ -398,7 +435,7 @@ export class CalendarFacade {
 			return []
 		}
 
-		const userAlarmInfos = await this.cachingEntityClient.loadAll(UserAlarmInfoTypeRef, alarmInfoList.alarms)
+		const userAlarmInfos = await this.cachingEntityClient.loadAll(sysTypeRefs.UserAlarmInfoTypeRef, alarmInfoList.alarms)
 		// Group referenced event ids by list id so we can load events of one list in one request.
 		const listIdToElementIds = groupByAndMapUniquely(
 			userAlarmInfos,
@@ -409,9 +446,9 @@ export class CalendarFacade {
 		// because there might be collisions between event element ids due to being custom ids
 		const eventIdToAlarmInfos = groupBy(userAlarmInfos, (userAlarmInfo) => getEventIdFromUserAlarmInfo(userAlarmInfo).join(""))
 		const calendarEvents = await promiseMap(listIdToElementIds.entries(), ([listId, elementIds]) => {
-			return this.cachingEntityClient.loadMultiple(CalendarEventTypeRef, listId, Array.from(elementIds)).catch((error) => {
+			return this.cachingEntityClient.loadMultiple(tutanotaTypeRefs.CalendarEventTypeRef, listId, Array.from(elementIds)).catch((error) => {
 				// handle NotAuthorized here because user could have been removed from group.
-				if (error instanceof NotAuthorizedError) {
+				if (error instanceof restError.NotAuthorizedError) {
 					console.warn("NotAuthorized when downloading alarm events", error)
 					return []
 				}
@@ -434,18 +471,35 @@ export class CalendarFacade {
 	 *
 	 * @returns {CalendarEventUidIndexEntry}
 	 */
-	async getEventsByUid(uid: string, cacheMode: CachingMode = CachingMode.Cached): Promise<CalendarEventUidIndexEntry | null> {
-		const { memberships } = this.userFacade.getLoggedInUser()
+	async getEventsByUid(
+		uid: string,
+		cacheMode: CachingMode = CachingMode.Cached,
+		fetchOnlyPrivateCalendars: boolean = false,
+	): Promise<CalendarEventUidIndexEntry | null> {
+		const { memberships, userGroup } = this.userFacade.getLoggedInUser()
 		const entityClient = this.getEntityClient(cacheMode)
-		for (const membership of memberships) {
-			if (membership.groupType !== GroupType.Calendar) continue
+
+		let filteredCalendarMemberships = memberships.filter((membership) => membership.groupType === GroupType.Calendar)
+
+		if (fetchOnlyPrivateCalendars) {
+			const userSettingsGroupRoot = await entityClient.load(tutanotaTypeRefs.UserSettingsGroupRootTypeRef, userGroup.group)
+
+			filteredCalendarMemberships = filteredCalendarMemberships.filter((membership) => {
+				const userOwnThisGroup = membership.capability === null
+				const groupSettings = userSettingsGroupRoot.groupSettings.find((groupSettings) => isSameId(groupSettings.group, membership.group))
+				const groupIsAPrivateCalendar = !groupSettings || !hasSourceUrl(groupSettings)
+				return userOwnThisGroup && groupIsAPrivateCalendar
+			})
+		}
+
+		for (const membership of filteredCalendarMemberships) {
 			try {
-				const groupRoot = await this.cachingEntityClient.load(CalendarGroupRootTypeRef, membership.group)
+				const groupRoot = await entityClient.load(tutanotaTypeRefs.CalendarGroupRootTypeRef, membership.group)
 				if (groupRoot.index == null) {
 					continue
 				}
 
-				const indexEntry: CalendarEventUidIndex = await entityClient.load<CalendarEventUidIndex>(CalendarEventUidIndexTypeRef, [
+				const indexEntry = await entityClient.load<tutanotaTypeRefs.CalendarEventUidIndex>(tutanotaTypeRefs.CalendarEventUidIndexTypeRef, [
 					groupRoot.index.list,
 					uint8arrayToCustomId(hashUid(uid)),
 				])
@@ -458,7 +512,7 @@ export class CalendarFacade {
 					ownerGroup: assertNotNull(indexEntry._ownerGroup, "ownergroup on index entry was null!"),
 				}
 			} catch (e) {
-				if (e instanceof NotFoundError || e instanceof NotAuthorizedError) {
+				if (e instanceof restError.NotFoundError || e instanceof restError.NotAuthorizedError) {
 					continue
 				}
 				throw e
@@ -468,16 +522,20 @@ export class CalendarFacade {
 		return null
 	}
 
-	private async sendAlarmNotifications(alarmNotifications: Array<AlarmNotification>, pushIdentifierList: Array<PushIdentifier>): Promise<void> {
+	private async sendAlarmNotifications(
+		alarmNotifications: Array<sysTypeRefs.AlarmNotification>,
+		pushIdentifierList: Array<sysTypeRefs.PushIdentifier>,
+	): Promise<void> {
 		const notificationSessionKey = aes256RandomKey()
 		return this.encryptNotificationKeyForDevices(notificationSessionKey, alarmNotifications, pushIdentifierList).then(async () => {
-			const requestEntity = createAlarmServicePost({
+			const requestEntity = sysTypeRefs.createAlarmServicePost({
 				alarmNotifications,
+				userAlarmInfoData: [],
 			})
 			try {
-				await this.serviceExecutor.post(AlarmService, requestEntity, { sessionKey: notificationSessionKey })
+				await this.serviceExecutor.post(sysServices.AlarmService, requestEntity, { sessionKey: notificationSessionKey })
 			} catch (e) {
-				if (e instanceof PayloadTooLargeError) {
+				if (e instanceof restError.TooManyRequestsError) {
 					return this.infoMessageHandler.onInfoMessage({
 						translationKey: "calendarAlarmsTooBigError_msg",
 						args: {},
@@ -491,8 +549,8 @@ export class CalendarFacade {
 
 	private async encryptNotificationKeyForDevices(
 		notificationSessionKey: AesKey,
-		alarmNotifications: Array<AlarmNotification>,
-		pushIdentifierList: Array<PushIdentifier>,
+		alarmNotifications: Array<sysTypeRefs.AlarmNotification>,
+		pushIdentifierList: Array<sysTypeRefs.PushIdentifier>,
 	): Promise<void> {
 		// PushID SK ->* Notification SK -> alarm fields
 		const maybeEncSessionKeys = await promiseMap(pushIdentifierList, async (identifier) => {
@@ -511,7 +569,7 @@ export class CalendarFacade {
 
 		for (let notification of alarmNotifications) {
 			notification.notificationSessionKeys = encSessionKeys.map((esk) => {
-				return createNotificationSessionKey({
+				return sysTypeRefs.createNotificationSessionKey({
 					pushIdentifier: esk.identifierId,
 					pushIdentifierSessionEncSessionKey: esk.pushIdentifierSessionEncSessionKey,
 				})
@@ -520,17 +578,17 @@ export class CalendarFacade {
 	}
 
 	private async saveMultipleAlarms(
-		user: User,
+		user: sysTypeRefs.User,
 		eventsWrapper: Array<{
-			event: CalendarEvent
+			event: tutanotaTypeRefs.CalendarEvent
 			alarms: ReadonlyArray<AlarmInfoTemplate>
 		}>,
 	): Promise<Array<AlarmNotificationsPerEvent>> {
 		const userAlarmInfosAndNotificationsPerEvent: Array<{
-			event: CalendarEvent
+			event: tutanotaTypeRefs.CalendarEvent
 			userAlarmInfoAndNotification: Array<{
-				alarm: UserAlarmInfo
-				alarmNotification: AlarmNotification
+				alarm: sysTypeRefs.UserAlarmInfo
+				alarmNotification: sysTypeRefs.AlarmNotification
 			}>
 		}> = []
 		const userAlarmInfoListId = neverNull(user.alarmInfoList).alarms
@@ -538,18 +596,18 @@ export class CalendarFacade {
 
 		for (const { event, alarms } of eventsWrapper) {
 			const userAlarmInfoAndNotification: Array<{
-				alarm: UserAlarmInfo
-				alarmNotification: AlarmNotification
+				alarm: sysTypeRefs.UserAlarmInfo
+				alarmNotification: sysTypeRefs.AlarmNotification
 			}> = []
-			const calendarRef = createCalendarEventRef({
+			const calendarRef = sysTypeRefs.createCalendarEventRef({
 				listId: listIdPart(event._id),
 				elementId: elementIdPart(event._id),
 			})
 
 			for (const alarmInfo of alarms) {
-				const userAlarmInfo = createUserAlarmInfo({
+				const userAlarmInfo = sysTypeRefs.createUserAlarmInfo({
 					_ownerGroup: ownerGroup,
-					alarmInfo: createAlarmInfo({
+					alarmInfo: sysTypeRefs.createAlarmInfo({
 						alarmIdentifier: alarmInfo.alarmIdentifier,
 						trigger: alarmInfo.trigger,
 						calendarRef: calendarRef,
@@ -593,17 +651,17 @@ export class CalendarFacade {
 	}
 
 	removeEventFromCache(listId: Id, eventId: Id): Promise<void> {
-		return this.entityRestCache.deleteFromCacheIfExists(CalendarEventTypeRef, listId, eventId)
+		return this.entityRestCache.deleteFromCacheIfExists(tutanotaTypeRefs.CalendarEventTypeRef, listId, eventId)
 	}
 }
 
 export type EventWithUserAlarmInfos = {
-	event: CalendarEvent
-	userAlarmInfos: Array<UserAlarmInfo>
+	event: tutanotaTypeRefs.CalendarEvent
+	userAlarmInfos: Array<sysTypeRefs.UserAlarmInfo>
 }
 
-function createAlarmNotificationForEvent(event: CalendarEvent, alarmInfo: AlarmInfo, userId: Id): AlarmNotification {
-	return createAlarmNotification({
+function createAlarmNotificationForEvent(event: tutanotaTypeRefs.CalendarEvent, alarmInfo: sysTypeRefs.AlarmInfo, userId: Id): sysTypeRefs.AlarmNotification {
+	return sysTypeRefs.createAlarmNotification({
 		alarmInfo: createAlarmInfoForAlarmInfo(alarmInfo),
 		repeatRule: event.repeatRule && createRepeatRuleForCalendarRepeatRule(event.repeatRule),
 		notificationSessionKeys: [],
@@ -615,31 +673,31 @@ function createAlarmNotificationForEvent(event: CalendarEvent, alarmInfo: AlarmI
 	})
 }
 
-function createAlarmInfoForAlarmInfo(alarmInfo: AlarmInfo): AlarmInfo {
-	const calendarRef = createCalendarEventRef({
+function createAlarmInfoForAlarmInfo(alarmInfo: sysTypeRefs.AlarmInfo): sysTypeRefs.AlarmInfo {
+	const calendarRef = sysTypeRefs.createCalendarEventRef({
 		elementId: alarmInfo.calendarRef.elementId,
 		listId: alarmInfo.calendarRef.listId,
 	})
-	return createAlarmInfo({
+	return sysTypeRefs.createAlarmInfo({
 		alarmIdentifier: alarmInfo.alarmIdentifier,
 		trigger: alarmInfo.trigger,
 		calendarRef,
 	})
 }
 
-function createRepeatRuleForCalendarRepeatRule(calendarRepeatRule: CalendarRepeatRule): RepeatRule {
-	return createRepeatRule({
+function createRepeatRuleForCalendarRepeatRule(calendarRepeatRule: tutanotaTypeRefs.CalendarRepeatRule): sysTypeRefs.RepeatRule {
+	return sysTypeRefs.createRepeatRule({
 		endType: calendarRepeatRule.endType,
 		endValue: calendarRepeatRule.endValue,
 		frequency: calendarRepeatRule.frequency,
 		interval: calendarRepeatRule.interval,
 		timeZone: calendarRepeatRule.timeZone,
-		excludedDates: calendarRepeatRule.excludedDates.map(({ date }) => createDateWrapper({ date })),
+		excludedDates: calendarRepeatRule.excludedDates.map(({ date }) => sysTypeRefs.createDateWrapper({ date })),
 		advancedRules: calendarRepeatRule.advancedRules,
 	})
 }
 
-function getEventIdFromUserAlarmInfo(userAlarmInfo: UserAlarmInfo): IdTuple {
+function getEventIdFromUserAlarmInfo(userAlarmInfo: sysTypeRefs.UserAlarmInfo): IdTuple {
 	return [userAlarmInfo.alarmInfo.calendarRef.listId, userAlarmInfo.alarmInfo.calendarRef.elementId]
 }
 
@@ -657,10 +715,13 @@ export function sortByRecurrenceId(arr: Array<CalendarEventAlteredInstance>): vo
 	arr.sort((a, b) => (a.recurrenceId.getTime() < b.recurrenceId.getTime() ? -1 : 1))
 }
 
-async function loadAlteredInstancesFromIndexEntry(entityClient: EntityClient, indexEntry: CalendarEventUidIndex): Promise<Array<CalendarEventAlteredInstance>> {
+async function loadAlteredInstancesFromIndexEntry(
+	entityClient: EntityClient,
+	indexEntry: tutanotaTypeRefs.CalendarEventUidIndex,
+): Promise<Array<CalendarEventAlteredInstance>> {
 	if (indexEntry.alteredInstances.length === 0) return []
 	const isAlteredInstance = (e: CalendarEventAlteredInstance): e is CalendarEventAlteredInstance => e.recurrenceId != null && e.uid != null
-	const indexedEvents = await loadMultipleFromLists(CalendarEventTypeRef, entityClient, indexEntry.alteredInstances)
+	const indexedEvents = await loadMultipleFromLists(tutanotaTypeRefs.CalendarEventTypeRef, entityClient, indexEntry.alteredInstances)
 	const alteredInstances: Array<CalendarEventAlteredInstance> = indexedEvents.filter(isAlteredInstance)
 	if (indexedEvents.length > alteredInstances.length) {
 		console.warn("there were altered instances indexed that do not have a recurrence Id or uid!")
@@ -669,9 +730,12 @@ async function loadAlteredInstancesFromIndexEntry(entityClient: EntityClient, in
 	return alteredInstances
 }
 
-async function loadProgenitorFromIndexEntry(entityClient: EntityClient, indexEntry: CalendarEventUidIndex): Promise<CalendarEventProgenitor | null> {
+async function loadProgenitorFromIndexEntry(
+	entityClient: EntityClient,
+	indexEntry: tutanotaTypeRefs.CalendarEventUidIndex,
+): Promise<CalendarEventProgenitor | null> {
 	if (indexEntry.progenitor == null) return null
-	const loadedProgenitor = await entityClient.load<CalendarEvent>(CalendarEventTypeRef, indexEntry.progenitor)
+	const loadedProgenitor = await entityClient.load<tutanotaTypeRefs.CalendarEvent>(tutanotaTypeRefs.CalendarEventTypeRef, indexEntry.progenitor)
 	if (loadedProgenitor.recurrenceId != null) {
 		throw new ProgrammingError(`loaded progenitor has a recurrence Id! ${loadedProgenitor.recurrenceId.toISOString()}`)
 	}
@@ -684,4 +748,4 @@ export const enum CachingMode {
 	Bypass,
 }
 
-export type AlarmInfoTemplate = Pick<AlarmInfo, "alarmIdentifier" | "trigger">
+export type AlarmInfoTemplate = Pick<sysTypeRefs.AlarmInfo, "alarmIdentifier" | "trigger">

@@ -10,9 +10,9 @@ import type { SendMailModel } from "../../../common/mailFunctionality/SendMailMo
 import type { MinimizedEditor, SaveStatus } from "../model/MinimizedMailEditorViewModel"
 import { MinimizedMailEditorViewModel } from "../model/MinimizedMailEditorViewModel"
 import { MinimizedEditorOverlay } from "./MinimizedEditorOverlay"
-import { assertMainOrNode } from "../../../common/api/common/Env"
+import { assertMainOrNode } from "@tutao/app-env"
 import Stream from "mithril/stream"
-import { noOp } from "@tutao/tutanota-utils"
+import { noOp } from "@tutao/utils"
 
 assertMainOrNode()
 const MINIMIZED_OVERLAY_WIDTH_WIDE = 350

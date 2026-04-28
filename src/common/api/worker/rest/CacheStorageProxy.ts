@@ -1,11 +1,10 @@
 import { CacheStorage, LastUpdateTime, Range } from "./DefaultEntityRestCache.js"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
-import { Entity, ListElementEntity, ServerModelParsedInstance, SomeEntity } from "../../common/EntityTypes"
-import { Nullable, TypeRef } from "@tutao/tutanota-utils"
+import { ProgrammingError } from "@tutao/app-env"
+import { Entity, ListElementEntity, ServerModelParsedInstance, SomeEntity } from "@tutao/typerefs"
+import { Nullable, TypeRef } from "@tutao/utils"
 import { OfflineStorage, OfflineStorageInitArgs } from "../offline/OfflineStorage.js"
 import { EphemeralCacheStorage, EphemeralStorageInitArgs } from "./EphemeralCacheStorage"
 import { CustomCacheHandlerMap } from "./cacheHandler/CustomCacheHandler.js"
-import type { SpamClassificationModel } from "../../../../mail-app/workerUtils/spamClassification/SpamClassifier"
 
 export interface EphemeralStorageArgs extends EphemeralStorageInitArgs {
 	type: "ephemeral"
@@ -44,12 +43,15 @@ export type SomeStorage = OfflineStorage | EphemeralCacheStorage
  */
 export class LateInitializedCacheStorageImpl implements CacheStorageLateInitializer, CacheStorage {
 	private _inner: SomeStorage | null = null
-
 	constructor(
 		private readonly sendError: (error: Error) => Promise<void>,
 		private readonly ephemeralStorageProvider: () => Promise<EphemeralCacheStorage>,
 		private readonly offlineStorageProvider: () => Promise<null | OfflineStorage>,
 	) {}
+
+	isInitialized(): boolean {
+		return this._inner?.isInitialized() ?? false
+	}
 
 	async getParsed(typeRef: TypeRef<unknown>, listId: string | null, id: string): Promise<ServerModelParsedInstance | null> {
 		return await this.inner.getParsed(typeRef, listId, id)
@@ -83,7 +85,7 @@ export class LateInitializedCacheStorageImpl implements CacheStorageLateInitiali
 
 	async initialize(args: OfflineStorageArgs | EphemeralStorageArgs): Promise<CacheStorageInitReturn> {
 		// We might call this multiple times.
-		// This happens when persistent credentials login fails and we need to start with new cache for new login.
+		// This happens when persistent credentials login fails, and we need to start with new cache for new login.
 		const { storage, isPersistent, isNewOfflineDb } = await this.getStorage(args)
 		this._inner = storage
 		return {
@@ -131,16 +133,16 @@ export class LateInitializedCacheStorageImpl implements CacheStorageLateInitiali
 		return this.inner.deleteIfExists(typeRef, listId, id)
 	}
 
+	deleteRange<T extends ListElementEntity>(typeRef: TypeRef<T>, listId: string): Promise<void> {
+		return this.inner.deleteRange(typeRef, listId)
+	}
+
 	get<T extends Entity>(typeRef: TypeRef<T>, listId: Id | null, id: Id): Promise<T | null> {
 		return this.inner.get<T>(typeRef, listId, id)
 	}
 
 	getIdsInRange<T extends ListElementEntity>(typeRef: TypeRef<T>, listId: Id): Promise<Array<Id>> {
 		return this.inner.getIdsInRange(typeRef, listId)
-	}
-
-	getLastBatchIdForGroup(groupId: Id): Promise<Id | null> {
-		return this.inner.getLastBatchIdForGroup(groupId)
 	}
 
 	async getLastUpdateTime(): Promise<LastUpdateTime> {
@@ -177,10 +179,6 @@ export class LateInitializedCacheStorageImpl implements CacheStorageLateInitiali
 
 	putMultiple(typeRef: TypeRef<unknown>, instances: ServerModelParsedInstance[]): Promise<void> {
 		return this.inner.putMultiple(typeRef, instances)
-	}
-
-	putLastBatchIdForGroup(groupId: Id, batchId: Id): Promise<void> {
-		return this.inner.putLastBatchIdForGroup(groupId, batchId)
 	}
 
 	putLastUpdateTime(value: number): Promise<void> {

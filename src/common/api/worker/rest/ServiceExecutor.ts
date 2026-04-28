@@ -1,27 +1,25 @@
-import { HttpMethod, MediaType, TypeModelResolver } from "../../common/EntityFunctions"
 import {
+	AttributeModel,
 	DeleteService,
-	ExtraServiceParams,
+	Entity,
 	GetService,
-	IServiceExecutor,
+	getServiceRestPath,
 	MethodDefinition,
 	ParamTypeFromRef,
 	PostService,
 	PutService,
 	ReturnTypeFromRef,
-	ServiceDefinition,
-} from "../../common/ServiceRequest.js"
-import { Entity, ServerModelUntypedInstance } from "../../common/EntityTypes"
-import { isSameTypeRef, lazy, TypeRef } from "@tutao/tutanota-utils"
-import { RestClient } from "./RestClient"
-import { CryptoFacade } from "../crypto/CryptoFacade"
-import { assertWorkerOrNode } from "../../common/Env"
-import { ProgrammingError } from "../../common/error/ProgrammingError"
-import { AuthDataProvider } from "../facades/UserFacade"
+	ServerModelUntypedInstance,
+	TypeModelResolver,
+} from "@tutao/typerefs"
+import { HttpMethod, MediaType, RestClient } from "@tutao/rest-client"
+import { ExtraServiceParams, IServiceExecutor } from "../../common/ServiceRequest.js"
+import { isSameTypeRef, lazy, TypeRef } from "@tutao/utils"
+import { CryptoFacade } from "../crypto/CryptoFacade.js"
+import { assertWorkerOrNode, ProgrammingError } from "@tutao/app-env"
+import { AuthDataProvider } from "../facades/UserFacade.js"
 import { LoginIncompleteError } from "../../common/error/LoginIncompleteError.js"
-import { InstancePipeline } from "../crypto/InstancePipeline"
-import { EntityAdapter } from "../crypto/EntityAdapter"
-import { AttributeModel } from "../../common/AttributeModel"
+import { EntityAdapter, InstancePipeline } from "@tutao/instance-pipeline"
 
 assertWorkerOrNode()
 
@@ -164,13 +162,9 @@ export class ServiceExecutor implements IServiceExecutor {
 		const serverTypeModel = await this.typeModelResolver.resolveServerTypeReference(typeRef)
 		const cleanInstance = AttributeModel.removeNetworkDebuggingInfoIfNeeded<ServerModelUntypedInstance>(instance)
 		const encryptedParsedInstance = await this.instancePipeline.typeMapper.applyJsTypes(serverTypeModel, cleanInstance)
-		const entityAdapter = await EntityAdapter.from(serverTypeModel, encryptedParsedInstance, this.instancePipeline)
+		const entityAdapter = await EntityAdapter.from(serverTypeModel, encryptedParsedInstance, this.instancePipeline.modelMapper)
 		const sessionKey = (await this.cryptoFacade().resolveServiceSessionKey(entityAdapter)) ?? params?.sessionKey ?? null
 
 		return await this.instancePipeline.decryptAndMap(typeRef, cleanInstance, sessionKey)
 	}
-}
-
-export function getServiceRestPath(service: ServiceDefinition) {
-	return `/rest/${service.app.toLowerCase()}/${service.name.toLowerCase()}`
 }
